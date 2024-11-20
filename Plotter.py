@@ -1,0 +1,1026 @@
+import numpy as np
+import os
+import pickle
+import scipy
+import h5py
+import random
+
+import numpy as np
+from sklearn.svm import SVC
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+from sklearn.utils import resample
+from sklearn.preprocessing import StandardScaler
+import itertools
+
+#IMPORT PLOTTING FUNCTIONS!
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+import seaborn as sns
+from matplotlib.ticker import FormatStrFormatter
+
+class Plotter:
+    def __init__(self, data, celltypecolors=None, save_results=None, color_map_dict = None):
+        self.data = data
+        self.celltypecolors = celltypecolors
+        self.save_results = save_results
+        self.color_map_dict = color_map_dict # Dictionary mapping (celltype, model) to specific colors.
+
+    def add_significance_line(self,ax, x1, x2=None, y=None, significance='', color='black'):
+        """
+        Add significance line between two bars in the plot.
+        If only x1 is provided, draw only the significance star without a line.
+        """
+        if x2 is not None:  # Draw line if both x1 and x2 are provided
+            line_y = y + 0.01 if y is not None else 0.05  # Adjust to avoid overlap with bar
+            ax.plot([x1, x1, x2, x2], [y, line_y, line_y, y], lw=1.5, color=color)
+            ax.text((x1 + x2) * 0.5, line_y + 0.01, significance, ha='center', va='bottom', color=color, fontsize=14)
+        else:  # Only x1 is provided, so draw only the significance star
+            if y is not None:
+                ax.text(x1, y , significance, ha='center', va='bottom', color=color, fontsize=14)
+
+    def generate_xlabels(self,cell_types_first_half, cell_types_second_half, connector='w'):
+        """
+        Generates combined x-axis labels for the bar plot based on two halves of cell types.
+
+        Parameters:
+        cell_types_first_half: list
+            The list of cell types for the first half of the label (e.g., ['Pyr', 'SOM', 'PV']).
+        cell_types_second_half: list
+            The list of cell types for the second half of the label (e.g., ['Pyr', 'SOM', 'PV']).
+        connector: str
+            The word to connect the first and second halves (e.g., 'w' for 'with').
+
+        Returns:
+        list of lists
+            A list of labels for each subplot based on combinations of the first and second half.
+        """
+        xlabels = []
+
+        # Generate labels for each combination of first and second half
+        for first_half in cell_types_first_half:
+            labels = [f"{first_half} {connector} {second_half}" for second_half in cell_types_second_half]
+            xlabels.append(labels)
+
+        return xlabels
+
+    #PREDICTOR PLOTTING FUNCTIONS
+    # Create legend for coupling features
+    def plot_feature_weights(self,server,animalID, date, model_type, model_chosen, pyr_count=3, som_count=3, pv_count=3, no_abs=1):
+        # Load actual response data
+        behav_big_matrix_ids_mat = scipy.io.loadmat(
+            os.path.join(f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}/prepost trial cv 73 #1', 
+                        'behav_big_matrix_ids.mat')
+        )
+        behav_big_matrix_ids = behav_big_matrix_ids_mat['behav_big_matrix_ids']
+        feature_names = [name[0] for name in behav_big_matrix_ids[0]]  # Flatten the structure
+
+        # Aggregate B_weights across all folds for coupling predictors
+        B_weights_behavior_coupling = np.concatenate([model_chosen[fold]['B_weights'] for fold in model_chosen.keys()], axis=1)
+        
+        # Indices for coupling predictors
+        coupling_predictors_indices = range(183, model_chosen[0]['B_weights'].shape[0])
+        
+        # Extract weights for other features and coupling features
+        if no_abs == 1:
+            other_weights = B_weights_behavior_coupling.mean(axis=1)
+            coupling_weights = B_weights_behavior_coupling[coupling_predictors_indices, :].mean(axis=1)
+        else:
+            # Extract weights for other features and coupling features using absolute values
+            other_weights = np.abs(B_weights_behavior_coupling).mean(axis=1)
+            coupling_weights = np.abs(B_weights_behavior_coupling[coupling_predictors_indices, :]).mean(axis=1)
+        
+        # Create colors for coupling features
+        coupling_colors = []
+        coupling_colors.extend([self.celltypecolors['pyr']] * pyr_count)
+        coupling_colors.extend([self.celltypecolors['som']] * som_count)
+        coupling_colors.extend([self.celltypecolors['pv']] * pv_count)
+
+        # Use a colormap for the other features
+        cmap = plt.get_cmap('gist_ncar')
+        unique_feature_names = list(set(feature_names))
+        feature_colors = {name: cmap(i / len(unique_feature_names)) for i, name in enumerate(unique_feature_names)}
+        other_colors = [feature_colors[name] for name in feature_names]
+
+        # Plotting
+        fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(14, 6))
+        
+        # Plot other features
+        axes[0].bar(range(len(other_weights)), other_weights, color=other_colors)
+        axes[0].axvline(x=182, linestyle='dashed', color='k', alpha=1)
+        axes[0].set_xlabel('Feature Index')
+        axes[0].set_ylabel('Average Coefficient')
+        axes[0].set_title('All Feature Coefficients')
+        
+        # Create legend for other features 
+        legend_elements_other = [Line2D([0], [0], color=feature_colors[name], lw=4, label=name) for name in unique_feature_names] 
+        axes[0].legend(handles=legend_elements_other, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., frameon = False)
+
+        # # Clean up the appearance
+        axes[0].spines['top'].set_visible(False)
+        axes[0].spines['right'].set_visible(False)
+        axes[0].set_box_aspect(1)
+
+        # Plot coupling features
+        axes[1].bar(range(len(coupling_weights)), coupling_weights, color=coupling_colors)
+        axes[1].set_xlabel('Coupling Predictor Index')
+        axes[1].set_ylabel('Average Coefficient')
+        axes[1].set_title('Coupling Predictor Coefficients')
+        axes[1].set_ylim(-.1,.8)
+
+        # Create legend for coupling features
+        legend_elements = [
+            Line2D([0], [0], color=self.celltypecolors['pyr'], lw=4, label='Pyr'),
+            Line2D([0], [0], color=self.celltypecolors['som'], lw=4, label='Som'),
+            Line2D([0], [0], color=self.celltypecolors['pv'], lw=4, label='Pv')
+        ]
+        axes[1].legend(handles=legend_elements, frameon = False)
+
+        # # Clean up the appearance
+        axes[1].spines['top'].set_visible(False)
+        axes[1].spines['right'].set_visible(False)
+        axes[1].set_box_aspect(1)
+
+        # Adjust space between the subplots
+        plt.subplots_adjust(wspace=1)  # Increase the width space between the plots
+        
+        # Save the figure
+        os.chdir(self.save_results)
+        plt.savefig(f'avg{no_abs}_beta_{animalID}_{date}_{model_type}.png')
+        plt.show()
+
+        return coupling_predictors_indices
+
+
+
+    def plot_weights_heatmap(self,server,animalID, date, model_type, model_chosen, coupling_indices, cmap='coolwarm', no_abs=1, minmax=(-.2,.2)):
+        """
+        Plots a heatmap of mean weights across folds for each neuron.
+        
+        Parameters:
+        - model_chosen: Dictionary containing the model output for each fold.
+        - num_neurons: Number of neurons in the model.
+        - feature_names: List of feature names corresponding to the model weights.
+        - coupling_indices: Indices of coupling predictors within the weight matrix.
+        - cmap: Colormap for the heatmap.
+        """
+        
+        #find the mean across unique features 
+        behav_big_matrix_ids_mat = scipy.io.loadmat(
+                os.path.join(f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}/prepost trial cv 73 #1', 
+                            'behav_big_matrix_ids.mat')
+            )
+        behav_big_matrix_ids = behav_big_matrix_ids_mat['behav_big_matrix_ids']
+        feature_names = [name[0] for name in behav_big_matrix_ids[0]]
+        unique_feature_names = list(set(feature_names))
+
+        # Initialize an array to store the mean weights
+        num_neurons = model_chosen[0]['B_weights'].shape[1]
+        mean_weights = np.zeros((len(feature_names)+len(coupling_indices), num_neurons))
+        model_output = model_chosen
+        
+        # Calculate mean weights across folds for each neuron
+        for fold in model_output.keys():
+            B_weights_fold = model_output[fold]['B_weights']
+            mean_weights += B_weights_fold
+
+        # Divide by the number of folds to get the mean
+        mean_weights /= len(model_output)
+
+        # Apply absolute values if no_abs is set to 0
+        if no_abs == 0:
+            mean_weights = np.abs(mean_weights)
+
+        # Extract weights for other features and coupling features
+        other_weights = mean_weights[:183, :]  # Assuming non-coupling predictors are the first 183 rows
+        coupling_weights = mean_weights[coupling_indices, :]
+
+
+        # Combine other weights and coupling weights for heatmap
+        combined_weights = np.vstack([other_weights, coupling_weights])
+
+
+        
+        num_unique = len(unique_feature_names)+3
+        mean_neuron_feature_unique = np.zeros((num_unique,num_neurons))
+        total_beta_feature_unique = np.zeros((num_unique,num_neurons)) #sum of features!
+        max_beta_feature_unique = np.zeros((num_unique,num_neurons))
+        for idx,unique_f in enumerate(unique_feature_names):    
+            # Find the indices where the current unique feature occurs in the feature names
+            feature_indices = [i for i, name in enumerate(feature_names) if name == unique_f]
+
+            #get the neuron weights for the unique feature
+            neuron_features = combined_weights[feature_indices,:]
+            mean_neuron_feature_unique[idx,:] = np.nanmean(neuron_features,axis = 0,)
+
+            #add up all betas for the same feature!
+            total_beta_feature_unique[idx,:] = np.sum(np.abs(neuron_features),axis = 0,)
+
+            #find the max beta for each unique feature!
+            max_beta_feature_unique[idx,:] = np.max(np.abs(neuron_features),axis = 0,)
+
+
+        # Now calculate mean weights for coupling features grouped by cell type
+        pyr_indices = coupling_indices[:2]  # Adjust these indices as needed
+        som_indices = coupling_indices[3:5]
+        pv_indices = coupling_indices[6:9]
+
+        # Calculate mean for each cell type
+        mean_pyr = np.nanmean(mean_weights[pyr_indices, :], axis=0)
+        mean_som = np.nanmean(mean_weights[som_indices, :], axis=0)
+        mean_pv = np.nanmean(mean_weights[pv_indices, :], axis=0)
+
+        # Calculate sums
+        sum_pyr = np.sum(np.abs(mean_weights[pyr_indices, :]), axis=0)
+        sum_som = np.sum(np.abs(mean_weights[som_indices, :]), axis=0)
+        sum_pv = np.sum(np.abs(mean_weights[pv_indices, :]), axis=0)
+
+        # Calculate max
+        max_pyr = np.max(np.abs(mean_weights[pyr_indices, :]), axis=0)
+        max_som = np.max(np.abs(mean_weights[som_indices, :]), axis=0)
+        max_pv = np.max(np.abs(mean_weights[pv_indices, :]), axis=0)
+
+        # Append these to the mean_neuron_feature_unique array
+        mean_neuron_feature_unique[-3, :] = mean_pyr
+        mean_neuron_feature_unique[-2, :] = mean_som
+        mean_neuron_feature_unique[-1, :] = mean_pv
+
+        total_beta_feature_unique[-3, :] = sum_pyr
+        total_beta_feature_unique[-2, :] = sum_som
+        total_beta_feature_unique[-1, :] = sum_pv
+
+        max_beta_feature_unique[-3, :] = max_pyr
+        max_beta_feature_unique[-2, :] = max_som
+        max_beta_feature_unique[-1, :] = max_pv
+        
+        # Update unique_feature_names with cell type names
+        updated_feature_names = unique_feature_names + ['pyr', 'som', 'pv']
+
+        # Generate neuron labels (e.g., Neuron 1, Neuron 2, etc.)
+        neuron_labels = [f'Neuron {i+1}' for i in range(num_neurons)]
+
+        #get color palette
+        palette = sns.color_palette("vlag", as_cmap=True)
+
+        # Plot the heatmap
+        plt.figure(figsize=(14, 8))
+        sns.heatmap(mean_neuron_feature_unique, cmap=palette, cbar=True, yticklabels=updated_feature_names, vmin= minmax[0], vmax = minmax[1])
+        plt.title('Mean Weights Across Folds')
+        plt.xlabel('Neurons')
+        plt.ylabel('Features')
+        plt.xticks(rotation=90)  # Rotate x-axis labels for better readability
+        # Save the figure
+        os.chdir(self.save_results)
+        plt.savefig(f'heatmap_avg{no_abs}_uniquebeta_{animalID}_{date}_{model_type}.png')
+        plt.show()
+
+        return mean_neuron_feature_unique,updated_feature_names,mean_weights,feature_names,total_beta_feature_unique,max_beta_feature_unique
+
+    # # Example usage
+    # mean_neuron_feature_unique,unique_feature_names,mean_weights = plot_weights_heatmap(animalID= animalID, date= date, model_type= model_type,
+    #                      model_output=model_output_all, coupling_indices = coupling_predictors_indices, save_results=save_results, no_abs=0)
+
+    def unique_features_heatmap_celltypes(self,mean_neuron_feature_unique,behav_features_unique,neuron_groups, minmax=(-.2,.2),model_type = None,no_abs=1):
+        """
+        Create a heatmap to show average across unique features for all neurons
+        """
+        fig, ax = plt.subplots(1,3, figsize = (20,8))
+
+        #get color palette
+        palette = sns.color_palette("vlag", as_cmap=True)#sns.cubehelix_palette(start=.9, rot=-.95, as_cmap=True)#'viridis'#sns.color_palette("Blues", as_cmap=True)#sns.cubehelix_palette(start=.5, rot=-.75, as_cmap=True)
+
+        for i, (group, cel_indices) in enumerate(neuron_groups.items()):
+            
+            sns.heatmap(np.squeeze(mean_neuron_feature_unique[:,cel_indices]),vmin= minmax[0], vmax = minmax[1], cmap = palette , ax=ax[i], cbar=False) #model_output_all[0]['B_weights']
+            ax[i].set_xlabel(group, fontsize=14)
+            if i ==1 or i ==2: # delete y axis of middle and right graphs
+                ax[i].set_yticks([])
+
+        # Create colorbar for the last subplot
+        cax = fig.add_axes(ax[-1])  # [left, bottom, width, height]
+        cbar = plt.colorbar(ax[-1].collections[0])#, cax=cax
+
+    
+        # Graph title
+        ax[1].set_title('Average Weights Across Features', fontsize=18)
+            
+        # Label x and y-axis
+        ax[0].set_ylabel('Behavioral Features', fontsize=18)
+
+        
+
+        #set y labels
+        # unique_feature_indices = {str(unique_f): idx for idx, unique_f in enumerate(behav_features_unique)}
+        # Convert each element of the NumPy array to a regular Python string
+        behav_features_unique_str = [str(label) for label in behav_features_unique]
+        # Remove square brackets from the labels
+        behav_features_unique_str = [label[1:-1] if label.startswith('[') and label.endswith(']') else label for label in behav_features_unique_str]
+        
+        ax[0].set_yticklabels(behav_features_unique)
+        ax[0].tick_params(axis ='y', labelrotation =0)
+
+        
+
+        # Hide x-axis major ticks
+        # ax.tick_params(axis='x', which='major', length=0)
+
+        
+        # # Clean up the appearance
+        plt.tight_layout()
+        os.chdir(self.save_results)
+        plt.savefig(f'heatmap_avg{no_abs}_uniquebeta_celltypes_{model_type}.png')  
+        plt.show()
+
+    # unique_features_heatmap_celltypes(mean_neuron_feature_unique,unique_feature_names,neuron_groups,save_results)
+
+
+
+    def scatter_plot_weights_overlay(self,neuron_groups, mean_neuron_feature_unique, updated_feature_names, model_type,animalID = None, date = None,no_abs=1,minmax=(-.1,.8)):
+        """
+        Create a scatter plot to show weights of unique features, overlaying for three cell types.
+        
+        Parameters:
+        - neuron_groups: Dictionary with cell type as keys and corresponding neuron indices as values.
+        - mean_neuron_feature_unique: 2D array with mean weights for unique features across neurons.
+        - updated_feature_names: List of unique feature names.
+        - celltypecolors: Dictionary with cell type colors.
+        - save_results: Directory to save the plot.
+        - animalID: Identifier for the animal.
+        - date: Date of the experiment.
+        - model_type: Type of model used.
+        """
+
+        # Set global font size and family 
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+
+        # Initialize the plot
+        plt.figure(figsize=(3,3))
+
+        # Loop through each cell type group and plot the corresponding weights
+        for group, cell_indices in neuron_groups.items():
+            # Extract the weights for the current cell type group
+            group_weights = mean_neuron_feature_unique[:, cell_indices]
+            
+            # Calculate mean weights across neurons in the current group
+            mean_group_weights = np.mean(group_weights, axis=1)
+
+            # Calculate the standard error of the mean (SEM) across neurons
+            sem_group_weights = np.std(group_weights, axis=1) / np.sqrt(group_weights.shape[1])
+
+            # Flatten the SEM array to ensure it's 1D
+            sem_group_weights = sem_group_weights.flatten()
+            mean_group_weights = mean_group_weights.flatten()
+
+            # Plot the weights as a scatter plot with error bars
+            plt.errorbar(np.arange(mean_group_weights.shape[0]), mean_group_weights, yerr=sem_group_weights,
+                        fmt='o', color='white', ecolor=self.celltypecolors[group], capsize=5, 
+                        label=group, alpha=1, markersize=10, markeredgewidth=2, markeredgecolor=self.celltypecolors[group])
+            
+            # # Plot the weights as a scatter plot
+            # plt.scatter(np.arange(mean_group_weights.shape[0]), mean_group_weights,color='white', 
+            #             edgecolor=self.celltypecolors[group], label=group, alpha=1, s=200, linewidths= 3)
+        
+        # Add the unique feature names as x-tick labels
+        plt.xticks(ticks=np.arange(len(updated_feature_names)), labels=updated_feature_names, rotation=90)
+        
+        plt.ylabel('Mean Weights')
+        plt.legend(frameon = False)
+
+        # # Clean up the appearance
+        ax = plt.gca()
+        ax.axhline(y=0, linestyle='dashed', color='k', alpha=0.3)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_ylim(minmax[0],minmax[1])
+        ax.set_box_aspect(1)
+        # ax.set_aspect('equal', adjustable='box')
+        # plt.axis('scaled')
+        
+        # Save the figure
+        if animalID is not None:
+            plt.savefig(f'{self.save_results}/scatter_overlay_weights_avg{no_abs}_{animalID}_{date}_{model_type}.pdf')
+        else:
+            plt.savefig(f'{self.save_results}/scatter_overlay_weights_avg{no_abs}_{animalID}_{date}_{model_type}.pdf')
+        plt.show()
+
+
+
+    def scatter_plot_weights_overlay_noerror(self,neuron_groups, mean_neuron_feature_unique, updated_feature_names, model_type,animalID = None, date = None,no_abs=1,minmax=(-.1,.8),save_string = None):
+        """
+        Create a scatter plot to show weights of unique features, overlaying for three cell types.
+        
+        Parameters:
+        - neuron_groups: Dictionary with cell type as keys and corresponding neuron indices as values.
+        - mean_neuron_feature_unique: 2D array with mean weights for unique features across neurons.
+        - updated_feature_names: List of unique feature names.
+        - celltypecolors: Dictionary with cell type colors.
+        - save_results: Directory to save the plot.
+        - animalID: Identifier for the animal.
+        - date: Date of the experiment.
+        - model_type: Type of model used.
+        """
+
+        # Set global font size and family 
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+
+        # Initialize the plot
+        plt.figure(figsize=(3,3))
+
+        # Loop through each cell type group and plot the corresponding weights
+        for group, cell_indices in neuron_groups.items():
+            # Extract the weights for the current cell type group
+            group_weights = mean_neuron_feature_unique[:, cell_indices]
+            
+            # Calculate mean weights across neurons in the current group
+            mean_group_weights = np.mean(group_weights, axis=1)
+
+            # Calculate the standard error of the mean (SEM) across neurons
+            sem_group_weights = np.std(group_weights, axis=1) / np.sqrt(group_weights.shape[1])
+
+            # Flatten the SEM array to ensure it's 1D
+            sem_group_weights = sem_group_weights.flatten()
+            mean_group_weights = mean_group_weights.flatten()
+
+            # Plot the weights as a scatter plot with error bars
+            # Plot the weights as a scatter plot (hollow circles)
+            plt.scatter(np.arange(mean_group_weights.shape[0]), mean_group_weights, 
+                        edgecolor=self.celltypecolors[group], facecolors='none', 
+                        label=group, alpha=1, s=70, linewidths= 2)
+            
+            # # Plot the weights as a scatter plot
+            # plt.scatter(np.arange(mean_group_weights.shape[0]), mean_group_weights,color='white', 
+            #             edgecolor=self.celltypecolors[group], label=group, alpha=1, s=200, linewidths= 3)
+        
+        # Add the unique feature names as x-tick labels
+        plt.xticks(ticks=np.arange(len(updated_feature_names)), labels=updated_feature_names, rotation=90)
+        
+        plt.ylabel(r'|$\beta$ Weights|')
+        #plt.legend(frameon = False)
+
+        # # Clean up the appearance
+        ax = plt.gca()
+        ax.axhline(y=0, linestyle='dashed', color='k', alpha=0.3)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_ylim(minmax[0],minmax[1])
+        ax.set_box_aspect(1)
+        # ax.set_aspect('equal', adjustable='box')
+        # plt.axis('scaled')
+
+        #to save svg so that we can edit texts!
+        new_rc_params = {'text.usetex': False,
+        "svg.fonttype": 'none'
+        }
+        plt.rcParams.update(new_rc_params)
+        
+        # Save the figure
+        if animalID is not None:
+            if save_string is not None:
+                plt.ylabel(fr'{save_string} |$\beta$ Weights|')
+                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{animalID}_{date}_{model_type}_{save_string}.svg')
+            else:
+                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{animalID}_{date}_{model_type}.svg')
+        else:
+            if save_string is not None:
+                plt.ylabel(fr'{save_string} |$\beta$ Weights|')
+                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{model_type}_{save_string}.svg')
+            else:
+                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{model_type}.svg')
+        plt.show()
+
+    # # Example usage
+    # scatter_plot_weights_overlay(neuron_groups=neuron_groups, 
+    #                              mean_neuron_feature_unique=mean_neuron_feature_unique, 
+    #                              updated_feature_names=unique_feature_names, 
+    #                              self.celltypecolors=celltypecolors, 
+    #                              save_results=save_results,
+    #                              animalID=animalID, 
+    #                              date=date, 
+    #                              model_type=model_type)
+
+    def specified_features_heatmap(self,mean_neuron_feature_unique,specified_features,behav_features_ids,minmax=(-.2,.2)):
+        """
+        Create a heatmap to show average across unique features for all neurons
+        """
+        fig, ax = plt.subplots(1,1, figsize = (12,8))
+        colors = sns.color_palette("vlag", as_cmap=True)
+        sns.heatmap(np.squeeze(mean_neuron_feature_unique[specified_features,:]),vmin= minmax[0], vmax= minmax[1], cmap = colors) #model_output_all[0]['B_weights']
+
+        # Graph title
+        ax.set_title('Average Weights Across Features', fontsize=14)
+            
+        # Label x and y-axis
+        ax.set_ylabel('Behavioral Features', fontsize=14)
+        ax.set_xlabel('Neurons', fontsize=14)
+
+        #set y labels
+        # unique_feature_indices = {str(unique_f): idx for idx, unique_f in enumerate(behav_features_unique)}
+        # Convert each element of the NumPy array to a regular Python string
+        behav_features_unique_str = [str(label) for label in behav_features_ids]
+        # Remove square brackets from the labels
+        behav_features_unique_str = [label[1:-1] if label.startswith('[') and label.endswith(']') else label for label in behav_features_unique_str]
+        ax.set_yticklabels( behav_features_unique_str)
+        ax.tick_params(axis ='y', labelrotation =0)
+
+        # Label x-axis ticks
+        # ax.set_xticklabels(neuron_groups.keys(), fontsize=14)
+
+        # Hide x-axis major ticks
+        ax.tick_params(axis='x', which='major', length=0)
+
+        
+        # # Clean up the appearance
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_box_aspect(1)
+
+
+    def scatter_model_dev_comparison(self,mean_deviance1, mean_deviance2, cell_ids, measure_string, measure_string2, colors=None, plot_lims= None, save_path = None, plot_lims_neg = None):
+        """
+        Make scatter plot comparing deviance explained of partial vs full models.
+        
+        Parameters:
+            mean_deviance1 (array_like): Deviance explained for full model.
+            mean_deviance2 (array_like): Deviance explained for partial model.
+            cell_ids (array_like): IDs of cells.
+            measure_string (str) The label for the axis and title
+            colors (dict, optional): Dictionary of colors for each cell type. Keys should be cell types and values should be colors.
+            plot_lims (optional): limits for x and y axis
+            save_path(optional): path to save plot
+
+        Returns:
+            None
+        """
+        # Set global font size and family 
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        fig, ax = plt.subplots(1, 1, figsize=(3, 3))
+        
+        # Get unique cell types from cell_ids
+        cell_types = np.unique(cell_ids)
+
+        
+        # Define colors for different cell types (non sequential)
+        #color_dict = {cell_type: plt.cm.Dark2(i) for i, cell_type in enumerate(cell_types)} #Dark2
+
+        if colors is None:
+            # Use a sequential colormap if colors are not provided
+            colormap = plt.cm.plasma
+            # Define colors for different cell types by evenly spacing them in the colormap
+            color_dict = {cell_type: colormap(i / len(cell_types)) for i, cell_type in enumerate(cell_types)}
+        else:
+            color_dict = self.celltypecolors
+
+        
+        # Assign colors to cell types
+        colors = [color_dict[cell_type] for cell_type in cell_ids]
+
+        # Draw unity line
+        max_dev = max(max(mean_deviance2), max(mean_deviance1))
+        plt.plot([0, max_dev], [0, max_dev], '--', color='black', zorder = 1, label='Unity Line')
+
+
+        # Create scatter plot
+        # plt.scatter(mean_deviance2, mean_deviance1,linewidths=2, edgecolors=colors,facecolors = 'None', alpha=0.7, zorder = 2)# c = colors
+        plt.scatter(mean_deviance2, mean_deviance1,c = colors, alpha=0.7, zorder = 2)# c = colors
+
+
+        
+        # Set labels and title
+        plt.xlabel(f'{measure_string}', fontsize=14)
+        plt.ylabel(f'{measure_string2}', fontsize=14)
+        plt.title(f'{measure_string} vs {measure_string2}', fontsize=14)
+
+        # Set equal limits for x and y axes
+        if colors is None:
+            max_lim = max(max_dev, 1.0)
+        else:
+            max_lim = plot_lims
+        plt.xlim(0, max_lim)
+        plt.ylim(0, max_lim)
+        if plot_lims_neg is not None:
+            plt.xlim(plot_lims_neg, max_lim)
+            plt.ylim(plot_lims_neg, max_lim)
+
+        # Add legend
+
+        # Create legend elements with invisible markers and colored labels
+        legend_elements = [
+            plt.Line2D([0], [0], marker='o', color='none', label=cell_type, markerfacecolor='none', linestyle='None')
+            for cell_type in color_dict.keys()
+        ]
+
+        # Add the legend to the plot
+        legend = plt.legend(handles=legend_elements, frameon=False, handlelength=0, handletextpad=0.1)
+
+        # Set the color of the legend text to match the corresponding cell type
+        for text, color in zip(legend.get_texts(), color_dict.values()):
+            text.set_color(color)
+
+        # legend_elements = [plt.Line2D([0], [0], marker='o', color='w', label=cell_type, markerfacecolor=color)
+        #                    for cell_type, color in color_dict.items()]
+        # plt.legend(handles=legend_elements, frameon = False,handlelength=1, handletextpad=0.1)
+
+        # # Clean up the appearance
+        ax = plt.gca()
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_box_aspect(1)
+        
+        #to save svg so that we can edit texts!
+        new_rc_params = {'text.usetex': False,
+        "svg.fonttype": 'none'
+        }
+        plt.rcParams.update(new_rc_params)
+
+        # Save plot if save_path is provided
+        if save_path: 
+            plt.savefig(save_path, bbox_inches='tight', format = 'svg')
+        
+        # Show plot
+        plt.show()  
+
+
+    def box_plot(self, data, neuron_groups, colors, measure_string, save_path = None): #plotting function for box plots to compare fraction deviance across celltypes
+        """
+        Create a box-and-whisker plot with significance bars.
+        """
+        # Set global font size and family 
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+
+        fig, ax = plt.subplots(1,1, figsize = (3,3))
+        #ax = plt.axes()
+
+        #Calculate positions for each cell type group along the x-axis
+        positions = np.arange(1,len(neuron_groups)+1)
+        for i, (group, cel_indices) in enumerate(neuron_groups.items()):
+            flat_indices = np.ravel(cel_indices)  # Flatten the indices to 1D array
+            
+            #put the boxplot in the correct position
+            position = positions[i]
+
+            # Prepare data for the current group, filtering out NaNs
+            filtered_data = [data[idx] for idx in flat_indices if not np.isnan(data[idx])]
+
+            # Plot the boxplot for the current cell type group at the correct position
+            bp = ax.boxplot(filtered_data, positions=[position], widths=.1, showfliers=True, patch_artist=True)
+
+            # #plot the boxplot for the current cell type group at the correct position
+            # bp = ax.boxplot([data[idx] for idx in flat_indices], positions = [position], widths= .1, showfliers = True, patch_artist=True)
+            # #used to be bp = ax.boxplot(data[cel_indices], positions = [position], widths= .1, showfliers = True, patch_artist=True)
+            
+
+            for element in ['boxes', 'whiskers', 'fliers', 'means', 'medians', 'caps']: #'boxes',
+                plt.setp(bp[element], color = colors[group])
+
+            for patch in bp['boxes']:
+                patch.set(facecolor= (1,1,1)) 
+
+            # Colour of the median lines
+            #plt.setp(bp['medians'], color='k')
+                
+            #set cell type label
+            ax.set_label (group)
+
+
+        # for patch, c in zip(bp['boxes'],colors.values()):
+        #     print(c)
+        #     patch.set_facecolor(c)
+            
+        # for patch in bp['boxes']:
+        #     patch.set_facecolor(colors[group])
+        
+        # Graph title
+        ax.set_title(f'{measure_string} Across Cell types', fontsize=14)
+            
+        # Label x and y-axis
+        ax.set_ylabel(f'{measure_string}', fontsize=14)
+        ax.set_xlabel('Cell type', fontsize=14)
+
+        # Label x-axis ticks
+        ax.set_xticks(positions)
+        ax.set_xticklabels(neuron_groups.keys(), fontsize=14)
+
+        # Hide x-axis major ticks
+        ax.tick_params(axis='x', which='major', length=0)
+
+        
+        # # Clean up the appearance
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        # Save plot if save_path is provided
+        if save_path: 
+            plt.savefig(save_path, bbox_inches='tight')
+
+        #find significant changes between groups
+        # add_significance_stars(ax, data, neuron_groups, alpha=0.05)
+
+    def bar_plot(self, data, neuron_groups, colors, measure_string, bar_width=0.5, save_path = None):
+        """
+        Create a bar plot with error bars to compare fraction deviance across cell types.
+        Parameters:
+        data: array-like
+            The data to be plotted.
+        neuron_groups: dict
+            A dictionary where keys are group names and values are indices of neurons in those groups.
+        colors: dict
+            A dictionary where keys are group names and values are colors for the bars.
+        measure_string: str
+            The label for the y-axis.
+        bar_width: float
+            The width of the bars in the plot.
+        """
+        # Set global font size and family 
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+
+        fig, ax = plt.subplots(1, 1, figsize=(2, 2))
+        # Calculate positions for each cell type group along the x-axis
+        positions = np.arange(len(neuron_groups)) + 1
+        means = []
+        errors = []
+        for group, indices in neuron_groups.items():
+            flat_indices = np.ravel(indices)  # Flatten the indices to 1D array
+            # Filter out NaN values from group data
+            group_data = [data[idx] for idx in flat_indices if not np.isnan(data[idx])]
+
+            # group_data = [data[idx] for idx in flat_indices]
+            means.append(np.mean(group_data))
+            errors.append(np.std(group_data) / np.sqrt(len(group_data)))  # Standard error
+        means = np.array(means)
+        errors = np.array(errors)
+        # Create bar plot with uncolored inside and colored outlines
+        bars = ax.bar(positions, means, yerr=errors, capsize=5, edgecolor=[colors[group] for group in neuron_groups],
+                    facecolor='white', linewidth=2, width=bar_width, ecolor='black')#, ecolor=[colors[group] for group in neuron_groups]
+        # Set labels and title
+        ax.set_title(f'{measure_string} Across Cell types', fontsize=14)
+        ax.set_ylabel(f'{measure_string}', fontsize=14)
+        ax.set_xlabel('Cell type', fontsize=14)
+        ax.set_xticks(positions)
+        ax.set_xticklabels(neuron_groups.keys(), fontsize=14)
+        ax.tick_params(axis='x', which='major', length=0)
+
+        # # Clean up the appearance
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        # Save plot if save_path is provided
+        if save_path: 
+            plt.savefig(save_path, bbox_inches='tight')
+        
+        plt.show()
+
+    def histogram_model_dev_comparison(self, mean_deviance1, mean_deviance2, cell_ids, colors=None, save_path = None, xlims = None, bin_width = None, outlier_clip=None):
+        """
+        Make scatter plot comparing deviance explained of partial vs full models.
+        
+        Parameters:
+            mean_deviance1 (array_like): Deviance explained for full model.
+            mean_deviance2 (array_like): Deviance explained for partial model.
+            cell_ids (array_like): IDs of cells.
+            colors (dict, optional): Dictionary of colors for each cell type. Keys should be cell types and values should be colors.
+            xlims (tuple, optional): Limits for the x-axis.
+            bin_width (float, optional): The width of the bins in the histogram.
+            outlier_clip (tuple, optional): Clip data to this range to ignore outliers.
+
+        Returns:
+            None
+        """
+        # Set global font size and family 
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+
+        # Get unique cell types from cell_ids
+        cell_types = np.unique(cell_ids)
+
+        if colors is None:
+        #     # Use a sequential colormap if colors are not provided
+        #     colormap = plt.cm.plasma
+        #     # Define colors for different cell types by evenly spacing them in the colormap
+        #     color_dict = {cell_type: colormap(i / len(cell_types)) for i, cell_type in enumerate(cell_types)}
+        # else:
+            color_dict = self.celltypecolors
+            # color_dict = {0: (0.37, 0.75, 0.49),   # pyr = 0
+            #         1: (0.17, 0.35, 0.8),    # som = 1
+            #         2: (0.82, 0.04, 0.04)} 
+
+        # Create subplots for histograms
+        fig, axes = plt.subplots(len(cell_types), 1, figsize=(4, 3 * len(cell_types)))
+        
+        # Iterate over each cell type
+        for ax, cell_type in zip(axes, cell_types):
+            # Select data corresponding to the current cell type
+            idx = np.where(cell_ids == cell_type)[0]
+            deviance_diff = mean_deviance1[idx] - mean_deviance2[idx]
+            
+            # Clip outliers if outlier_clip is provided
+            if outlier_clip:
+                deviance_diff = np.clip(deviance_diff, outlier_clip[0], outlier_clip[1])
+
+            # Calculate the range for the bins based on the data or clipping range
+            if outlier_clip:
+                data_range = outlier_clip
+            else:
+                data_range = (min(deviance_diff), max(deviance_diff))
+
+                # Plot histogram
+
+            # Calculate the number of bins based on the bin width
+            if bin_width:
+                num_bins = int((data_range[1] - data_range[0]) / bin_width)
+                num_bins = min(num_bins, 30)
+            else:
+                num_bins = 30
+
+            ax.hist(deviance_diff, bins=num_bins, range=data_range , color=color_dict[cell_type], alpha= 1) #bins=20
+
+            # ax.hist(deviance_diff, color=color_dict[cell_type], alpha= 1) #bins=20
+
+            ax.axvline(x = 0, linestyle = 'dashed', color = 'k', alpha = 1)
+            #ax.set_title(f'Cell Type: {cell_type}')
+            ax.set_xlabel('Difference in Deviance Explained', fontsize=14)
+            ax.set_ylabel('Frequency', fontsize=14)
+            # # Clean up the appearance
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            if xlims:
+                ax.set_xlim(xlims)
+            
+        plt.tight_layout()
+
+        # Save plot if save_path is provided
+        if save_path: 
+            plt.savefig(save_path, bbox_inches='tight')
+        
+        plt.show()
+
+    def bar_plot_separated(self, data, neuron_groups,  measure_string, bar_width=0.5, save_path=None, minmax = (0,.5)):
+        """
+        Create a bar plot with error bars to compare fraction deviance across cell types.
+        
+        Parameters:
+        data: dict
+            A dictionary where keys are model comparisons and values are the data to be plotted.
+        neuron_groups: dict
+            A dictionary where keys are cell types and values are indices of neurons in those groups.
+        colors: dict
+            A dictionary where keys are group names and values are colors for the bars.
+        measure_string: str
+            The label for the y-axis.
+        bar_width: float
+            The width of the bars in the plot.
+        save_path: str, optional
+            The path to save the plot. If None, the plot is displayed instead of saved.
+        """
+        #set colors
+        colors = self.celltypecolors
+        # Set global font size and family 
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+
+        # Create a figure with 3 subplots (one for each cell type)
+        fig, axs = plt.subplots(1, 3, figsize=(12, 4), sharey=True)
+        
+        # Iterate over neuron groups to create each subplot
+        for i, (cell_type, indices) in enumerate(neuron_groups.items()):
+            
+            ax = axs[i]  # Select the subplot
+            
+            # Calculate positions for each model comparison along the x-axis
+            positions = np.arange(len(data)) + 1
+            means = []
+            errors = []
+            
+            # Iterate over each model comparison and compute means and errors
+            for comparison, comp_data in data.items():
+                group_data = np.array(comp_data)[indices]
+                # means.append(np.mean(group_data))
+                # errors.append(np.std(group_data) / np.sqrt(len(group_data)))  # Standard error
+                # Ignore NaN values in the calculation
+                means.append(np.nanmean(group_data))
+                errors.append(np.nanstd(group_data) / np.sqrt(np.sum(~np.isnan(group_data))))  # Standard error ignoring NaNs
+            
+            # Create bar plot with uncolored inside and colored outlines
+            bars = ax.bar(positions, means, yerr=errors, capsize=4, 
+                        edgecolor= colors[cell_type],
+                        facecolor='white', linewidth=2, width=bar_width, ecolor=colors[cell_type])
+
+            # Set labels and title for each subplot
+            ax.set_title(f'{cell_type}', fontsize=14)
+            ax.set_xticks(positions)
+            ax.set_xticklabels(data.keys(), rotation=45, ha='right', fontsize=10)
+            ax.tick_params(axis='x', which='major', length=0)
+
+            # Clean up the appearance
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            if i == 0:
+                ax.set_ylabel(f'{measure_string}', fontsize=14)
+
+            ax.set_ylim(minmax[0],minmax[1])
+        
+        # Add a global title for the figure
+        fig.suptitle(f'{measure_string} Across Cell Types and Models', fontsize=16)
+        
+        # Adjust layout
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
+
+        #plt.ylim(0,10e30)
+
+        # Save plot if save_path is provided
+        if save_path: 
+            plt.savefig(save_path, bbox_inches='tight')
+        
+        plt.show()
+
+    def plot_cdf_coupling_index(self, coupling_index, cell_ids, colors,title, save_path=None):
+        """
+        Create a CDF plot for coupling index across different cell types.
+
+        Parameters:
+            coupling_index (array_like): Coupling index values.
+            cell_ids (array_like): IDs of cells, which determine the cell type.
+            colors (dict): Dictionary of colors for each cell type. Keys are cell types and values are colors.
+            save_path (str, optional): Path to save the plot.
+            
+        Returns:
+            None
+        """
+        #convert to numpy array!!
+        cell_ids = np.array(cell_ids)
+        # Set global font size and family 
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+
+        plt.figure(figsize=(3, 3))
+        # Create a mapping from cell labels to colors
+        color_map = {label: colors[label] for label in np.unique(cell_ids)}
+        
+        # Map cell labels to colors
+        color_values = [color_map[label] for label in cell_ids]
+
+        cell_types = np.unique(cell_ids)
+        
+        # Plot CDF for each cell type
+        for cell_type in cell_types:
+            # Get indices for the current cell type
+            indices = np.where(cell_ids == cell_type)[0]
+                
+            # Get coupling index values for the current cell type
+            type_coupling_index = coupling_index[indices]
+            
+            # # Calculate and plot the CDF
+            # sorted_coupling_index = np.sort(type_coupling_index)
+            # cdf = np.arange(1, len(sorted_coupling_index) + 1) / len(sorted_coupling_index)
+            
+            # plt.plot(sorted_coupling_index, cdf, label=cell_type, color='red') #colors[cell_type]
+
+            # Calculate CDF
+            # x1 = np.linspace(np.min(type_coupling_index), np.max(type_coupling_index), 100)  # Define range of x values
+            x1 = np.linspace(0, 1, 100)  # Define range of x values
+            n1, _ = np.histogram(type_coupling_index, bins=x1)  # Histogram counts
+            p1 = n1 / np.sum(n1)  # Probability
+            cdf = np.cumsum(p1)  # Cumulative sum to get CDF
+            
+            plt.plot(x1[:-1], cdf, label=cell_type, linewidth= 2, color=color_map[cell_type])  # x1[:-1] because histogram bins include right edge
+        
+        
+
+        # # Get axis
+        ax = plt.gca()
+        
+        plt.xlabel('Coupling Index')
+        plt.ylabel('Cumulative Fraction')
+
+        # Define the ticks you want (e.g., from 0 to 1 with increments of 0.1)
+        ticks = np.arange(0, 1.1, 0.2)  # The 1.1 ensures that 1.0 is included in the ticks
+
+        # Set the format for both x and y axis ticks to show one decimal place
+        ax.xaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+        ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+        # Ensure ticks are from 0 to 1 with consistent intervals
+        plt.xticks(np.arange(0, 1.2, 0.2))
+        plt.yticks(np.arange(0, 1.2, 0.2))
+
+        plt.title(title)
+
+        plt.legend(frameon = False)
+        plt.axis('equal')
+        
+        # # Clean up the appearance
+        ax = plt.gca()
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_box_aspect(1)
+        ax.set_xlim(0,1.01)
+        ax.set_ylim(0,1.01)
+
+        #to save svg so that we can edit texts!
+        new_rc_params = {'text.usetex': False,
+        "svg.fonttype": 'none'
+        }
+        plt.rcParams.update(new_rc_params)
+
+        # Save or show plot
+        if save_path:
+            plt.savefig(save_path, format = 'svg')
+        else:
+            plt.show()
+
+    
