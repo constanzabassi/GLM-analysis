@@ -94,7 +94,7 @@ class DataHandlerDecoding:
 
 
 
-    def load_cat_results(self,filepath, variable):
+    def load_cat_results(self, filepath, decoded_variables):
         def process_reference(ref, file):
             if isinstance(ref, h5py.h5r.Reference):
                 referenced_obj = file[ref]
@@ -121,7 +121,7 @@ class DataHandlerDecoding:
         try:
             with h5py.File(filepath, 'r') as file:
                 # Construct the dynamic path based on the variable
-                target_path = f'decoder_results/aligned/{variable}/cat_results'
+                target_path = f'decoder_results/aligned/{decoded_variables}/cat_results'
                 if target_path not in file:
                     print(f"'{target_path}' path not found")
                     return None
@@ -131,7 +131,7 @@ class DataHandlerDecoding:
                     return process_dataset(cat_results, file)
                 return process_group(cat_results, file)
         except Exception as e:
-            print(f"Error loading decoded results for '{variable}': {e}")
+            print(f"Error loading decoded results for '{decoded_variables}': {e}")
             return None
 
     # Example usage
@@ -145,7 +145,7 @@ class DataHandlerDecoding:
         cat_results = {}
         for splits in range(0,10):
             #decoding_dir =f'V:/Connie\ProcessedData\HA11-1R/2023-04-13\GLM_3nmf_pre\decoding/{splits+1}/'
-            os.chdir(decoding_dir)
+            os.chdir(f'{decoding_dir}{splits+1}/')
             for variable in decoded_variables:
                 if variable.startswith('shuffled/'):
                     new_variable = variable[9:]
@@ -176,7 +176,8 @@ class DataHandlerDecoding:
                     'sc_instantaneous_information',
                     'sc_cumulative_information',
                     'sc_instantaneous_fraction_correct',
-                    'sc_cumulative_fraction_correct'
+                    'sc_cumulative_fraction_correct',
+                    'event_frame'
                 ]
                 for key in variables_to_load:
                     cat_results[variable][splits][key] = temp_results[key]
@@ -204,9 +205,12 @@ class DataHandlerDecoding:
                     if 'sc_' in measure:
                         mean_data = np.mean(data, axis=2)  # frames x neurons
                         std_data = np.std(data, axis=2)
-                    else:
+                    elif 'pop_' in measure:   
                         mean_data = np.mean(data, axis=1)  # frames
                         std_data = np.std(data, axis=1)
+                    else:
+                        mean_data = data
+                        std_data = None
                     
                     mean_results[variable][split][f'{measure}_mean'] = mean_data
                     mean_results[variable][split][f'{measure}_std'] = std_data
@@ -235,10 +239,10 @@ class DataHandlerDecoding:
                 
                 # Process all splits for this dataset
                 self.cat_results[key] = {}
-                for split in range(10):
-                    decoding_dir = f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}/decoding/{split+1}/'
-                    split_results = self.get_cat_results_across_datasets(decoding_dir, self.decoded_variables)
-                    self.cat_results[key][split] = split_results
+                
+                decoding_dir = f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}/decoding/'
+                split_results = self.get_cat_results_across_datasets(decoding_dir, self.decoded_variables)
+                self.cat_results[key] = split_results
 
                 # Calculate means for this dataset
                 self.mean_results[key], self.mean_results_all[key] = self.calculate_mean_across_shuffles(self.cat_results[key])
