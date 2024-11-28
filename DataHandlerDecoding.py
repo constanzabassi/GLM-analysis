@@ -141,11 +141,15 @@ class DataHandlerDecoding:
     # cat_results = cat_results[0]  # to get rid of the first dimension
 
 
-    def get_cat_results_across_datasets(self,decoding_dir,decoded_variables):
+    def get_cat_results_across_datasets(self,decoding_dir,decoded_variables, single_balanced=False):    
         cat_results = {}
         for splits in range(0,10):
             #decoding_dir =f'V:/Connie\ProcessedData\HA11-1R/2023-04-13\GLM_3nmf_pre\decoding/{splits+1}/'
-            os.chdir(f'{decoding_dir}{splits+1}/')
+            if single_balanced is True:
+                os.chdir(f'{decoding_dir}{splits+1}_1/')
+                print(f'{decoding_dir}{splits+1}_1/')
+            else:
+                os.chdir(f'{decoding_dir}{splits+1}/')
             for variable in decoded_variables:
                 if variable.startswith('shuffled/'):
                     new_variable = variable[9:]
@@ -230,7 +234,7 @@ class DataHandlerDecoding:
 
         return mean_results, mean_results_all
 
-    def process_multiple_datasets(self, datasets, model_type):
+    def process_multiple_datasets(self, datasets, model_type, single_balanced=False):
         """Process multiple datasets and calculate mean decoding."""
         for animalID, date, server in datasets:
             try:
@@ -241,7 +245,7 @@ class DataHandlerDecoding:
                 self.cat_results[key] = {}
                 
                 decoding_dir = f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}/decoding/'
-                split_results = self.get_cat_results_across_datasets(decoding_dir, self.decoded_variables)
+                split_results = self.get_cat_results_across_datasets(decoding_dir, self.decoded_variables,single_balanced=single_balanced)
                 self.cat_results[key] = split_results
 
                 # Calculate means for this dataset
