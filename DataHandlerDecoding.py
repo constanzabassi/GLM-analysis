@@ -246,11 +246,14 @@ class DataHandlerDecoding:
                 
                 decoding_dir = f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}/decoding/'
                 split_results = self.get_cat_results_across_datasets(decoding_dir, self.decoded_variables,single_balanced=single_balanced)
+                celltype_array, neuron_groups, colors = self.load_celltypes(server,animalID,date)
                 self.cat_results[key] = split_results
 
                 # Calculate means for this dataset
                 self.mean_results[key], self.mean_results_all[key] = self.calculate_mean_across_shuffles(self.cat_results[key])
-                
+                self.mean_results_all[key]['celltype_array'] = celltype_array
+                self.mean_results_all[key]['neuron_groups'] = neuron_groups
+
             except Exception as e:
                 print(f"Error processing {key}: {e}")
                 continue
