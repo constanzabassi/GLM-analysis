@@ -930,7 +930,7 @@ class Plotter:
         
         plt.show()
 
-    def plot_cdf_coupling_index(self, coupling_index, cell_ids, colors,title, save_path=None):
+    def plot_cdf_coupling_index(self, coupling_index, cell_ids, colors,title, save_path=None,xlabel = 'Coupling Index', xval = 1.1, xint = 0.2):
         """
         Create a CDF plot for coupling index across different cell types.
 
@@ -985,30 +985,30 @@ class Plotter:
         # # Get axis
         ax = plt.gca()
         
-        plt.xlabel('Coupling Index')
+        plt.xlabel(xlabel)
         plt.ylabel('Cumulative Fraction')
 
         # Define the ticks you want (e.g., from 0 to 1 with increments of 0.1)
-        ticks = np.arange(0, 1.1, 0.2)  # The 1.1 ensures that 1.0 is included in the ticks
+        ticks = np.arange(0, xval, xint)  # The 1.1 ensures that 1.0 is included in the ticks
 
         # Set the format for both x and y axis ticks to show one decimal place
         ax.xaxis.set_major_formatter(FormatStrFormatter('%.1f'))
         ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
         # Ensure ticks are from 0 to 1 with consistent intervals
-        plt.xticks(np.arange(0, 1.2, 0.2))
-        plt.yticks(np.arange(0, 1.2, 0.2))
+        plt.xticks(np.arange(0, xval+(xval/10), xint))
+        plt.yticks(np.arange(0, 1.1, 0.2))
 
         plt.title(title)
 
         plt.legend(frameon = False)
-        plt.axis('equal')
+        # plt.axis('equal')
         
         # # Clean up the appearance
         ax = plt.gca()
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.set_box_aspect(1)
-        ax.set_xlim(0,1.01)
+        ax.set_xlim(0,xval+0.01)
         ax.set_ylim(0,1.01)
 
         #to save svg so that we can edit texts!
