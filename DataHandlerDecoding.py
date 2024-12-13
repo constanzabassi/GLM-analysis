@@ -152,6 +152,7 @@ class DataHandlerDecoding:
                 os.chdir(f'{decoding_dir}{splits+1}/')
             for variable in decoded_variables:
                 if variable.startswith('shuffled/'):
+                    #os.chdir(f'{decoding_dir}{splits+1}/')
                     new_variable = variable[9:]
                     mat_path = Path(f'decoder_results_shuffled_{new_variable}.mat')
                 else:
@@ -258,7 +259,7 @@ class DataHandlerDecoding:
                 print(f"Error processing {key}: {e}")
                 continue
 
-        return self.mean_results, self.mean_results_all 
+        return self.mean_results, self.mean_results_all,self.cat_results
 
     ## load cell types! - INPUT MOUSE NAME AND DATE
     def load_celltypes(self,server,animalID,date):
