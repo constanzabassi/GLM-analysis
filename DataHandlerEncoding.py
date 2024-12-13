@@ -19,7 +19,7 @@ from matplotlib.lines import Line2D
 import seaborn as sns
 from matplotlib.ticker import FormatStrFormatter
 
-from .Plotter import Plotter as plotter
+#from .Plotter import Plotter as plotter
 
 class DataHandlerEncoding:
     def __init__(self, data):
