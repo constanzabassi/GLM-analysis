@@ -261,6 +261,23 @@ class DataHandlerDecoding:
 
         return self.mean_results, self.mean_results_all,self.cat_results
 
+    def create_shuffled_distribution_structure(self, decoder_type='sound_category', metric = 'sc_instantaneous_information'):
+        """Create a structure for frames x neurons x all shuffles (500 total shuffles across 10 folds)."""
+        shuffled_structure = {}
+        for dataset in self.cat_results:
+            print(dataset)
+            shuffled_structure[dataset] = []
+            # Process each fold
+            for fold_num in range(1, 11):  # Assuming folds are labeled 1 to 10
+                fold_key = f'fold_{fold_num}'
+                # Extract the shuffled data for the specific decoder type and fold
+                shuffled_data = self.cat_results[dataset][f'shuffled/{decoder_type}'][fold_num - 1][metric]
+                # Append the shuffled data (50 shuffles per fold) to the list
+                shuffled_structure[dataset].append(shuffled_data)
+            # After all folds are processed, concatenate the data into a single array of shape (frames x neurons x all_shuffles)
+            shuffled_structure[dataset] = np.concatenate(shuffled_structure[dataset], axis=2)
+
+        return shuffled_structure
     ## load cell types! - INPUT MOUSE NAME AND DATE
     def load_celltypes(self,server,animalID,date):
         base_path = f"{server}/Connie/ProcessedData/{animalID}/{date}/"
