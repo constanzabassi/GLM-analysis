@@ -1023,4 +1023,147 @@ class Plotter:
         else:
             plt.show()
 
-    
+
+    def plot_decoding_results(self,mean_results_all, decoder_type='choice', plot_type='pop', save_dir=None, xlim = None, ylim = None):
+        """
+        Plot mean decoding results across datasets.
+        
+        Args:
+            mean_results_all (dict): Dictionary of mean results across datasets
+            decoder_type (str): Type of decoding ('choice', 'sound_category', etc.)
+            plot_type (str): 'pop' or 'sc' for population or single cell
+            save_dir (str): Directory to save plots (optional)
+        """
+        # Set global font size and family 
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        
+        # Metrics to plot
+        metrics = [
+            f'{plot_type}_instantaneous_information_mean',
+            f'{plot_type}_cumulative_information_mean',
+            f'{plot_type}_instantaneous_fraction_correct_mean',
+            f'{plot_type}_cumulative_fraction_correct_mean'
+        ]
+
+        # Get event frames from first dataset
+        first_dataset = list(mean_results_all.keys())[0]
+        event_frames = mean_results_all[first_dataset][decoder_type]['event_frame_mean']
+        
+        fig, axes = plt.subplots(2, 2, figsize=(12, 7))
+        axes = axes.flat
+        
+        for idx, metric in enumerate(metrics):
+            # Collect data across datasets
+            all_data = []
+            for dataset in mean_results_all.keys():
+                if decoder_type in mean_results_all[dataset]:
+                    data = mean_results_all[dataset][decoder_type][metric]
+
+                    # Average across neurons for sc data
+                    if plot_type == 'sc' and len(data.shape) == 2:  # frames x neurons
+                        data = np.mean(data, axis=1)  # average across neurons
+
+                    all_data.append(data)
+            
+            # Calculate mean and SEM across datasets
+            all_data = np.array(all_data)
+            mean_trace = np.mean(all_data, axis=0)
+            sem_trace = np.std(all_data, axis=0) / np.sqrt(len(all_data))
+            
+            # Plot
+            ax = axes[idx]
+            x = np.arange(len(mean_trace))
+            ax.plot(mean_trace, 'k-', label='Mean')
+            ax.fill_between(x, mean_trace-sem_trace, mean_trace+sem_trace, 
+                        alpha=0.3, color='gray', label='SEM')
+            
+            # Add event markers
+            if xlim is None:
+                xlim = (0, len(mean_trace)) # full trace
+            for frame in event_frames:
+                if frame < xlim[1]:
+                    ax.axvline(x=frame, color='k', linestyle=':', alpha=0.5)
+            
+            # Formatting
+            ax.set_title(metric.replace('_', ' ').title())
+            ax.set_xlabel('Frames')
+            if 'information' in metric:
+                ax.set_ylabel('Bits')
+            else:
+                ax.set_ylabel('Fraction Correct')
+
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            
+            ax.set_box_aspect(1)
+            if xlim:
+                ax.set_xlim(xlim)
+
+            if ylim:
+                ax.set_ylim(0,ylim[idx])
+            
+        plt.tight_layout()
+        
+        if save_dir:
+            plt.savefig(os.path.join(save_dir, f'{decoder_type}_{plot_type}_decoding.png'))
+        
+        plt.show()
+
+
+    def plot_decoding_heatmap_datasets(self,results_dict, decoder_type='sound_category', metric = 'pop_instantaneous_information_mean'):
+        """Create suite of analysis plots"""
+        
+        # # 1. Time series plot with mean±SEM across datasets
+        # plt.figure(figsize=(10,6))
+        # all_data = []
+        # for dataset in results_dict:
+        #     data = results_dict[dataset][decoder_type]['pop_cumulative_information_mean']
+        #     all_data.append(data)
+        
+        # mean_trace = np.mean(all_data, axis=0)
+        # sem_trace = np.std(all_data, axis=0) / np.sqrt(len(all_data))
+        # plt.plot(mean_trace, 'b-', label='Mean')
+        # plt.fill_between(range(len(mean_trace)), 
+        #                 mean_trace-sem_trace, 
+        #                 mean_trace+sem_trace,
+        #                 alpha=0.3)
+        # plt.title(f'{decoder_type} Decoding Performance')
+        # plt.xlabel('Time (frames)')
+        # plt.ylabel('Information (bits)')
+        
+        # # 2. Compare instantaneous vs cumulative
+        # # plt.figure(figsize=(10,6))
+        # # for metric in ['pop_instantaneous_information_mean', 'pop_cumulative_information_mean']:
+        # #     all_data = []
+        # #     for dataset in results_dict:
+        # #         data = results_dict[dataset][decoder_type][metric]
+        # #         all_data.append(data)
+        # #     mean_trace = np.mean(all_data, axis=0)
+        # #     plt.plot(mean_trace, label=metric.split('_')[1])
+        # # plt.legend()
+        # # plt.title('Instantaneous vs Cumulative Information')
+        
+        # # 3. Peak information by cell type boxplot
+        # peaks_by_celltype = analyze_peaks_by_celltype( results_dict, decoder_type=decoder_type, start_frame=14, end_frame = 100)
+        # all_peaks, neuron_groups = format_peaks_for_boxplot(peaks_by_celltype)
+        # self.box_plot(all_peaks, 
+        #                 neuron_groups,
+        #                 self.celltypecolors,
+        #                 'Peak Information')
+        
+        # 4. Information timeline heatmap
+        plt.figure(figsize=(12,len(results_dict)))
+        data_matrix = np.array([results_dict[d][decoder_type][metric] 
+                            for d in results_dict])
+        sns.heatmap(data_matrix, 
+                    xticklabels=20, 
+                    yticklabels=list(results_dict.keys()),
+                    cmap='viridis')
+        plt.title('Information Evolution Across Datasets')
+        plt.xlabel('Time (frames)')
+        
+        plt.tight_layout()
+        plt.show()
+
+
+
