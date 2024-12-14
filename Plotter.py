@@ -1165,24 +1165,79 @@ class Plotter:
         plt.tight_layout()
         plt.show()
 
-    def plot_neuron_performance_heatmap(self, results_dict, decoder_type, start_frame = 14, end_frame = None, metric = 'sc_cumulative_information_mean'):
-        """Plot heatmap of neuron performance."""
-        plt.figure(figsize=(12, 8))
+    def plot_neuron_performance_heatmap(self, results_dict, decoder_type, start_frame=14, end_frame=None, metric='sc_cumulative_information_mean', significant_neurons=None):
+        """Plot heatmap of neuron performance, using only significant neurons if they exist and sorting by peak time."""
+        plt.figure(figsize=(12, len(results_dict) * 2))
+        
         for dataset in results_dict:
             data = results_dict[dataset][decoder_type][metric]
             if end_frame is None:
                 end_frame = len(data)
-            max_info = np.max(data[start_frame:, end_frame], axis=0)
-            sort_idx = np.argsort(max_info)
+            
+            # Find the peak frame for each neuron (the frame where the maximum value occurs)
+            peak_frames = np.argmax(data[start_frame:end_frame, :], axis=0) + start_frame  # +start_frame to account for the offset
+            max_info = np.max(data[start_frame:end_frame, :], axis=0)
+
+            # Sort neurons first by their peak frame, then by the maximum information value
+            sort_idx = np.argsort(peak_frames)  # Sort by peak frame
+            # If peak frames are identical, sort by maximum information
+            sort_idx = sort_idx[np.argsort(max_info[sort_idx])]
+
+            # Use only significant neurons if they exist
+            if significant_neurons is not None and dataset in significant_neurons and len(significant_neurons[dataset]) > 0:
+                significant_neuron_mask = np.isin(np.arange(data.shape[1]), significant_neurons[dataset])
+                sort_idx = np.where(significant_neuron_mask)[0]  # Only keep significant neurons
 
             plt.subplot(len(results_dict), 1, list(results_dict.keys()).index(dataset) + 1)
-            sns.heatmap(data[:, sort_idx].T,
-                        cmap='viridis',
-                        xticklabels=20,
-                        yticklabels=False)
-            plt.title(f'{dataset} Single Neuron Decoding')
+            sns.heatmap(data[:, sort_idx].T, cmap='viridis', xticklabels=20, yticklabels=False)
+            plt.title(f'{dataset} Neuron Performance')
+
         plt.tight_layout()
         plt.show()
+
+
+    # def plot_neuron_performance_heatmap(self, results_dict, decoder_type, start_frame = 14, end_frame = None, metric = 'sc_cumulative_information_mean', significant_neurons=None):
+    #     """Plot heatmap of neuron performance."""
+    #     plt.figure(figsize=(12,len(results_dict)*2))
+    #     for dataset in results_dict:
+    #         data = results_dict[dataset][decoder_type][metric]
+    #         if end_frame is None:
+    #             end_frame = len(data)
+    #         max_info = np.max(data[start_frame: end_frame,:], axis=0)
+    #         sort_idx = np.argsort(max_info)
+
+    #         plt.subplot(len(results_dict), 1, list(results_dict.keys()).index(dataset) + 1)
+    #         sns.heatmap(data[:, sort_idx].T,
+    #                     cmap='viridis',
+    #                     xticklabels=20,
+    #                     yticklabels=False) #False f'{dataset}'
+    #     plt.tight_layout()
+    #     plt.show()
+
+    # def plot_neuron_performance_heatmap(self, results_dict, decoder_type, start_frame=14, end_frame=None, metric='sc_cumulative_information_mean', significant_neurons=None):
+    #     """Plot heatmap of neuron performance, highlighting significant neurons."""
+    #     plt.figure(figsize=(12, len(results_dict) * 2))
+        
+    #     for dataset in results_dict:
+    #         data = results_dict[dataset][decoder_type][metric]
+    #         if end_frame is None:
+    #             end_frame = len(data)
+    #         max_info = np.max(data[start_frame:end_frame, :], axis=0)
+    #         sort_idx = np.argsort(max_info)
+
+    #         # Highlight significant neurons if provided
+    #         if significant_neurons is not None:
+    #             significant_neuron_mask = np.isin(np.arange(data.shape[1]), significant_neurons[dataset])
+    #             significant_idx = np.where(significant_neuron_mask)[0]
+    #             sort_idx = np.concatenate([sort_idx, significant_idx])  # Put significant neurons at the end for clarity
+
+    #         plt.subplot(len(results_dict), 1, list(results_dict.keys()).index(dataset) + 1)
+    #         sns.heatmap(data[:, sort_idx].T, cmap='viridis', xticklabels=20, yticklabels=False)
+    #         plt.title(f'{dataset} Neuron Performance')
+
+    #     plt.tight_layout()
+    #     plt.show()
+
 
     def plot_significant_neurons_distribution(self, significant_neurons_data):
         """Plot distribution of significant neurons."""
@@ -1214,17 +1269,19 @@ class Plotter:
         plt.tight_layout()
         plt.show()
 
-    def plot_time_course_by_cell_type(self, results_dict, decoder_type, metric = 'sc_instantaneous_information_mean'):
+    def plot_time_course_by_cell_type(self, results_dict, decoder_type,start_frame = 14, end_frame = None, metric = 'sc_instantaneous_information_mean'):
         """Plot average information time course by cell type."""
         plt.figure(figsize=(3, 3))
         for cel_index, (celltype, color) in enumerate(self.celltypecolors.items()):
             all_traces = []
             for dataset in results_dict:
                 data = results_dict[dataset][decoder_type][metric]
+                if end_frame is None:
+                    end_frame(len(data))
                 celltype_idx = results_dict[dataset]['celltype_array'] == cel_index
 
                 if np.any(celltype_idx):
-                    mean_trace = np.mean(data[:, celltype_idx], axis=1)
+                    mean_trace = np.mean(data[start_frame:end_frame, celltype_idx], axis=1)
                     all_traces.append(mean_trace)
 
             mean = np.mean(all_traces, axis=0)
@@ -1232,10 +1289,15 @@ class Plotter:
             plt.plot(mean, color=color, label=celltype)
             plt.fill_between(range(len(mean)), mean - sem, mean + sem, alpha=0.2, color=color)
 
+        ax = plt.gca()
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_box_aspect(1)
+
         plt.title('Average Information Time Course by Cell Type')
         plt.xlabel('Time (frames)')
         plt.ylabel('Information (bits)')
-        plt.legend()
+        # plt.legend()
         plt.show()
 
 

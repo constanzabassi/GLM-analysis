@@ -186,15 +186,27 @@ class DecoderAnalyzer:
     def analyze_significant_neurons(self, results_dict,shuffled_structure, decoder_type, start_frame, end_frame, metric = 'sc_instantaneous_information_mean',significance_percentile=95):
         """Analyze significant neurons for plotting."""
         neuron_ids_by_dataset = {}
+        significance_struc = {}
         peaks_by_celltype = self.analyze_peaks_by_celltype(results_dict,shuffled_structure, decoder_type, start_frame, end_frame, significance_percentile)
 
         for dataset in results_dict:
             neuron_ids_by_dataset[dataset] = {}
+            significance_struc[dataset] = {}
+            
             for celltype in peaks_by_celltype[dataset]:
+                neuron_ids_by_dataset[dataset][celltype] = []
+                
+                # Ensure initialization of significance_struc[dataset][celltype]
+                significance_struc[dataset][celltype] = {}
+                # Extract significant neurons
                 significant_neurons = peaks_by_celltype[dataset][celltype]['sc'][metric]['significant_neurons']
                 neuron_ids_by_dataset[dataset][celltype] = np.where(significant_neurons)[0].tolist()
-
-        return neuron_ids_by_dataset
+                # Add peak data for significant neurons
+                significant_indices = neuron_ids_by_dataset[dataset][celltype]
+                significance_struc[dataset][celltype]['peak_values'] = peaks_by_celltype[dataset][celltype]['sc'][metric]['peak_values'][significant_indices]
+                significance_struc[dataset][celltype]['peak_frames'] = peaks_by_celltype[dataset][celltype]['sc'][metric]['peak_frames'][significant_indices]
+            
+        return neuron_ids_by_dataset, significance_struc
     
     # def plot_single_neuron_analysis(results_dict, decoder_type='sound_category', start_frame=14, end_frame=None):
     # """Comprehensive single neuron decoding visualization"""
