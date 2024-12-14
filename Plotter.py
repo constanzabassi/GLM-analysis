@@ -1165,5 +1165,194 @@ class Plotter:
         plt.tight_layout()
         plt.show()
 
+    def plot_neuron_performance_heatmap(self, results_dict, decoder_type, start_frame = 14, end_frame = None, metric = 'sc_cumulative_information_mean'):
+        """Plot heatmap of neuron performance."""
+        plt.figure(figsize=(12, 8))
+        for dataset in results_dict:
+            data = results_dict[dataset][decoder_type][metric]
+            if end_frame is None:
+                end_frame = len(data)
+            max_info = np.max(data[start_frame:, end_frame], axis=0)
+            sort_idx = np.argsort(max_info)
+
+            plt.subplot(len(results_dict), 1, list(results_dict.keys()).index(dataset) + 1)
+            sns.heatmap(data[:, sort_idx].T,
+                        cmap='viridis',
+                        xticklabels=20,
+                        yticklabels=False)
+            plt.title(f'{dataset} Single Neuron Decoding')
+        plt.tight_layout()
+        plt.show()
+
+    def plot_significant_neurons_distribution(self, significant_neurons_data):
+        """Plot distribution of significant neurons."""
+        fig, axes = plt.subplots(1, 2, figsize=(6, 3))
+
+        for celltype, color in self.celltypecolors.items():
+            all_peaks = []
+            all_peaks_locs = []
+
+            for dataset in significant_neurons_data:
+                peaks = significant_neurons_data[dataset][celltype]['peak_values']
+                peaks_locs = significant_neurons_data[dataset][celltype]['peak_frames']
+
+                all_peaks.extend(peaks)
+                all_peaks_locs.extend(peaks_locs)
+
+            axes[0].hist(all_peaks, alpha=1.0, color=color, label=celltype, histtype='step', linewidth=2)
+            axes[1].hist(all_peaks_locs, alpha=1.0, color=color, label=celltype, histtype='step', linewidth=2)
+
+        axes[0].set_xlabel('Information (bits)')
+        axes[0].spines['top'].set_visible(False)
+        axes[0].spines['right'].set_visible(False)
+
+        axes[1].set_xlabel('Peak Frame')
+        axes[1].spines['top'].set_visible(False)
+        axes[1].spines['right'].set_visible(False)
+
+        fig.suptitle('Significant Neurons Distribution by Cell Type')
+        plt.tight_layout()
+        plt.show()
+
+    def plot_time_course_by_cell_type(self, results_dict, decoder_type, metric = 'sc_instantaneous_information_mean'):
+        """Plot average information time course by cell type."""
+        plt.figure(figsize=(3, 3))
+        for cel_index, (celltype, color) in enumerate(self.celltypecolors.items()):
+            all_traces = []
+            for dataset in results_dict:
+                data = results_dict[dataset][decoder_type][metric]
+                celltype_idx = results_dict[dataset]['celltype_array'] == cel_index
+
+                if np.any(celltype_idx):
+                    mean_trace = np.mean(data[:, celltype_idx], axis=1)
+                    all_traces.append(mean_trace)
+
+            mean = np.mean(all_traces, axis=0)
+            sem = np.std(all_traces, axis=0) / np.sqrt(len(all_traces))
+            plt.plot(mean, color=color, label=celltype)
+            plt.fill_between(range(len(mean)), mean - sem, mean + sem, alpha=0.2, color=color)
+
+        plt.title('Average Information Time Course by Cell Type')
+        plt.xlabel('Time (frames)')
+        plt.ylabel('Information (bits)')
+        plt.legend()
+        plt.show()
 
 
+
+    # def plot_single_neuron_analysis(results_dict, decoder_type='sound_category', start_frame= 14, end_frame = None):
+    #     print(start_frame)
+    #     """Comprehensive single neuron decoding visualization"""
+        
+    #     # 1. Neuron Performance Heatmap
+    #     plt.figure(figsize=(12, 8))
+    #     for dataset in results_dict:
+    #         data = results_dict[dataset][decoder_type]['sc_cumulative_information_mean']
+    #         celltype_array = results_dict[dataset]['celltype_array']
+            
+    #         # Sort neurons by cell type and performance
+    #         max_info = np.max(data[start_frame:, :], axis=0)
+    #         sort_idx = np.argsort(max_info)
+            
+    #         plt.subplot(len(results_dict), 1, list(results_dict.keys()).index(dataset) + 1)
+    #         sns.heatmap(data[:, sort_idx].T, 
+    #                 cmap='viridis',
+    #                 xticklabels=20,
+    #                 yticklabels=False)
+    #         plt.title(f'{dataset} Single Neuron Decoding')
+    #     plt.tight_layout()
+        
+    #     # 2. Best Neurons Analysis
+    #     # Dictionary to store neuron IDs for each dataset and cell type
+    #     neuron_ids_by_dataset = {}
+    #     fig, axes = plt.subplots(1, 2, figsize=(6, 3))  # 1 row, 2 columns
+    #     for cel_index,(celltype, color) in enumerate(plotter.celltypecolors.items()):
+    #         all_peaks = []
+    #         all_peaks_locs = []
+    #         for dataset in results_dict:
+    #             # Initialize a dictionary for this dataset if not already present
+    #             if dataset not in neuron_ids_by_dataset:
+    #                 neuron_ids_by_dataset[dataset] = {}
+
+    #             # Initialize a list for this cell type in the current dataset
+    #             if celltype not in neuron_ids_by_dataset[dataset]:
+    #                 neuron_ids_by_dataset[dataset][celltype] = []
+                
+    #             peaks_by_celltype = analyze_peaks_by_celltype( results_dict, decoder_type=decoder_type, start_frame=start_frame, end_frame = end_frame)
+    #             peaks = peaks_by_celltype[dataset][celltype]['sc']['sc_instantaneous_information_mean']['peak_values']
+    #             peaks_locs = peaks_by_celltype[dataset][celltype]['sc']['sc_instantaneous_information_mean']['peak_frames']    
+    #             if len(peaks) > 0:
+    #                 max_peaks = sorted(peaks)  # Sorted in ascending order
+    #                 top_5 = max_peaks[-5:]     # Slice the last 5 elements (highest values)
+    #                 all_peaks.extend(top_5)
+
+    #                 # Get the corresponding peak locations  
+    #                 top_5_locs = [peaks_locs[max_peaks.index(p)] for p in top_5]
+    #                 # Use the indices from the sorting step to ensure uniqueness
+    #                 sorted_indices = np.argsort(peaks)
+    #                 top_5_indices = sorted_indices[-5:]  # Indices of the top 5 values
+    #                 neuron_ids_by_dataset[dataset][celltype].extend(top_5_indices.tolist())
+
+
+    #                 # Add neuron IDs (indices) to the dictionary
+    #                 #neuron_ids_by_dataset[dataset][celltype].extend(top_5_ids)
+
+    #                 all_peaks_locs.extend(top_5_locs)
+    #         # Plotting histograms on subplots
+    #         axes[0].hist(all_peaks, alpha=1.0, color=color, label=celltype, histtype='step', linewidth=2)
+    #         axes[0].set_xlabel('Information (bits)')  # Correct method to set the x-axis label
+    #         axes[0].spines['top'].set_visible(False)
+    #         axes[0].spines['right'].set_visible(False)
+    #         axes[0].set_box_aspect(1)
+
+    #         axes[1].hist(all_peaks_locs, alpha=1.0, color=color, label=celltype, histtype='step', linewidth=2)
+    #         axes[1].set_xlabel('Peak Frame')  # Correct method to set the x-axis label
+    #         axes[1].spines['top'].set_visible(False)
+    #         axes[1].spines['right'].set_visible(False)
+    #         axes[1].set_box_aspect(1)
+
+    #     # Add legend and title
+    #     #fig.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=3)  # Adjust legend location
+    #     fig.suptitle('Top 5 Neurons Distribution by Cell Type')
+
+    #     # Adjust layout to avoid overlap
+    #     plt.tight_layout() #(rect=[0, 0.03, .8, 0.95]) #(rect=[0, 0.03, 1, 0.95])  # Leave space for the title and legend
+
+    #     # Show the plot
+    #     plt.show()
+        
+    #     # 3. Time Course by Cell Type
+    #     plt.figure(figsize=(3, 3))
+    #     for cel_index,(celltype, color) in enumerate(plotter.celltypecolors.items()):
+    #         all_traces = []
+    #         for dataset in results_dict:
+    #             if end_frame is None:
+    #                 end_frame = len(data)
+
+    #             traces = results_dict[dataset][decoder_type]['sc_instantaneous_information_mean'][0:end_frame,:]
+
+    #             celltype_idx = results_dict[dataset]['celltype_array'] == cel_index
+    #             if np.any(celltype_idx):
+    #                 mean_trace = np.mean(traces[:, celltype_idx], axis=1)
+    #                 all_traces.append(mean_trace)
+            
+    #         mean = np.mean(all_traces, axis=0)
+    #         sem = np.std(all_traces, axis=0) / np.sqrt(len(all_traces))
+    #         plt.plot(mean, color=color, label=celltype)
+    #         # Get the current Axes object
+    #         ax = plt.gca()   
+    #         ax.axvline(x = start_frame, color='k', linestyle=':', alpha=0.5)
+    #         plt.fill_between(range(len(mean)), mean-sem, mean+sem, alpha=0.2, color=color)
+    #         ax.spines['top'].set_visible(False)
+    #         ax.spines['right'].set_visible(False)
+            
+    #         ax.set_box_aspect(1)
+        
+    #     plt.legend()
+    #     plt.title('Average Information Time Course by Cell Type')
+    #     plt.xlabel('Time (frames)')
+    #     plt.ylabel('Information (bits)')
+        
+    #     plt.show()
+
+    #     return neuron_ids_by_dataset
