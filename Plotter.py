@@ -1181,7 +1181,7 @@ class Plotter:
             # Sort neurons first by their peak frame, then by the maximum information value
             sort_idx = np.argsort(peak_frames)  # Sort by peak frame
             # If peak frames are identical, sort by maximum information
-            sort_idx = sort_idx[np.argsort(max_info[sort_idx])]
+            sort_idx = sort_idx[np.argsort(max_info[sort_idx])][::-1] #[::-1] to reverse it
 
             # Use only significant neurons if they exist
             if significant_neurons is not None and dataset in significant_neurons and len(significant_neurons[dataset]) > 0:
@@ -1194,6 +1194,47 @@ class Plotter:
 
         plt.tight_layout()
         plt.show()
+
+    def plot_summary_heatmap(self, results_dict, decoder_type, start_frame=14, end_frame=None, metric='sc_cumulative_information_mean', significant_neurons=None):
+        """Plot a summary heatmap combining all datasets, normalized by each neuron's maximum value."""
+        combined_data = []
+        plt.figure(figsize=(6,5))
+
+        for dataset in results_dict:
+            data = results_dict[dataset][decoder_type][metric]
+            if end_frame is None:
+                end_frame = len(data)
+
+            # Use only significant neurons if they exist
+            if significant_neurons is not None and dataset in significant_neurons and len(significant_neurons[dataset]) > 0:
+                neuron_mask = np.isin(np.arange(data.shape[1]), significant_neurons[dataset])
+                data = data[:, neuron_mask]
+
+            # Normalize each neuron by its maximum value
+            data = data[start_frame:end_frame, :]
+            max_values = np.max(data, axis=0)
+            normalized_data = data / max_values  # Normalize by Imax for each neuron
+            combined_data.append(normalized_data)
+
+        # Combine all datasets along the neuron axis
+        if combined_data:
+            combined_data = np.concatenate(combined_data, axis=1)
+        
+            # Sort neurons by their peak frame across all datasets
+            peak_frames = np.argmax(combined_data, axis=0)
+            sort_idx = np.argsort(peak_frames)[::-1] #[::-1] to reverse it
+            combined_data = combined_data[:, sort_idx]
+
+            # Plot the summary heatmap
+            sns.heatmap(combined_data.T, cmap='viridis', xticklabels=20, yticklabels= int(np.floor(np.shape(combined_data)[1]/50)))
+            plt.title('Summary Neuron Performance (Normalized)')
+            plt.xlabel('Frames')
+            plt.ylabel('Neurons')
+            plt.tight_layout()
+            plt.show()
+        else:
+            print("No data to plot in the summary heatmap.")
+
 
 
     # def plot_neuron_performance_heatmap(self, results_dict, decoder_type, start_frame = 14, end_frame = None, metric = 'sc_cumulative_information_mean', significant_neurons=None):

@@ -27,6 +27,7 @@ class DataHandlerDecoding:
         self.cat_results = {}
         self.mean_results = {}
         self.mean_results_all = {}
+        self.celltype_info = {}
 
     #FUNCTION TO LOAD SAVED RESULTS (SAVES TIME)
     def load_all_decoder_results(filepath):
@@ -244,6 +245,7 @@ class DataHandlerDecoding:
                 
                 # Process all splits for this dataset
                 self.cat_results[key] = {}
+                self.celltype_info[key] = {}
                 
                 decoding_dir = f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}/decoding/'
                 split_results = self.get_cat_results_across_datasets(decoding_dir, self.decoded_variables,single_balanced=single_balanced)
@@ -254,12 +256,14 @@ class DataHandlerDecoding:
                 self.mean_results[key], self.mean_results_all[key] = self.calculate_mean_across_shuffles(self.cat_results[key])
                 self.mean_results_all[key]['celltype_array'] = celltype_array
                 self.mean_results_all[key]['neuron_groups'] = neuron_groups
+                self.celltype_info[key]['celltype_array'] = celltype_array
+                self.celltype_info[key]['neuron_groups'] = neuron_groups
 
             except Exception as e:
                 print(f"Error processing {key}: {e}")
                 continue
 
-        return self.mean_results, self.mean_results_all,self.cat_results
+        return self.mean_results, self.mean_results_all,self.cat_results,self.celltype_info
 
     def create_shuffled_distribution_structure(self, decoder_type='sound_category', metric = 'sc_instantaneous_information'):
         """Create a structure for frames x neurons x all shuffles (500 total shuffles across 10 folds)."""

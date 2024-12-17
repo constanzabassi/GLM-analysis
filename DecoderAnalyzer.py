@@ -7,7 +7,7 @@ import h5py
 import random
 
 class DecoderAnalyzer:
-    def __init__(self):
+    def __init__(self, celltype_data):
         self.cell_types = ['pyr', 'som', 'pv']
         self.metrics = {
             'sc': ['sc_instantaneous_information_mean',
@@ -19,8 +19,9 @@ class DecoderAnalyzer:
                    'pop_instantaneous_fraction_correct_mean',
                    'pop_cumulative_fraction_correct_mean']
         }
+        self.celltype_data = celltype_data
 
-    def analyze_peaks_by_celltype(self, mean_results_all, shuffled_structure, decoder_type='sound_category', start_frame=14, end_frame=None, significance_percentile=95):
+    def analyze_peaks_by_celltype(self, mean_results_all, shuffled_structure, decoder_type='sound_category', start_frame=14, end_frame=None, significance_percentile=95, threshold =None):
         """Analyze peak responses separated by cell type and flag significantly informative neurons."""
         peaks_by_celltype = {
             dataset: {
@@ -63,11 +64,16 @@ class DecoderAnalyzer:
                             shuffled_peak = shuffled_data[peak_frame, idx, :]
                             # Compute the 95th percentile of the shuffled peak values
                             shuffled_95th_percentile = np.percentile(shuffled_peak, significance_percentile)
-                            # Flag the neuron as significant if the peak value exceeds the 95th percentile
-                            is_significant = peak_val > shuffled_95th_percentile
+                            
                             peaks.append(peak_val)
                             peak_frames.append(peak_frame)
-                            significant_neurons.append(is_significant)
+                            # Flag the neuron as significant if the peak value exceeds the 95th percentile
+                            if threshold is None:
+                                is_significant = peak_val > shuffled_95th_percentile
+                                significant_neurons.append(is_significant)
+                            else:
+                                is_significant = np.any(neuron_data > threshold)
+                                significant_neurons.append(is_significant)
                         peaks_by_celltype[dataset][celltype]['sc'][metric] = {
                             'peak_values': np.array(peaks),
                             'peak_frames': np.array(peak_frames),
@@ -195,7 +201,7 @@ class DecoderAnalyzer:
             
             for celltype in peaks_by_celltype[dataset]:
                 neuron_ids_by_dataset[dataset][celltype] = []
-                
+
                 # Ensure initialization of significance_struc[dataset][celltype]
                 significance_struc[dataset][celltype] = {}
                 # Extract significant neurons
@@ -207,6 +213,90 @@ class DecoderAnalyzer:
                 significance_struc[dataset][celltype]['peak_frames'] = peaks_by_celltype[dataset][celltype]['sc'][metric]['peak_frames'][significant_indices]
             
         return neuron_ids_by_dataset, significance_struc
+    
+    def analyze_significant_neurons_by_threshold(self, results_dict, decoder_type, start_frame, end_frame, metric='sc_instantaneous_information_mean', threshold=0.5):
+        """Analyze significant neurons by threshold, looping through cell types defined in self.cell_types."""
+        neuron_ids_by_dataset = {}
+        significance_struc = {}
+
+        for dataset in results_dict:
+            neuron_ids_by_dataset[dataset] = {}
+            significance_struc[dataset] = {}
+
+            # Get the indices for neurons of this cell type
+            celltype_array = self.celltype_data[dataset]['celltype_array']
+            # Get indices for each cell type
+            celltype_indices = {
+                'pyr': np.where(celltype_array == 0)[0],
+                'som': np.where(celltype_array == 1)[0],
+                'pv': np.where(celltype_array == 2)[0]
+            }
+
+            data = results_dict[dataset][decoder_type][metric]
+
+            if end_frame is None:
+                end_frame = data.shape[0]
+
+            # Extract the data within the specified frames
+            data_in_range = data[start_frame:end_frame, :]
+
+            # Loop through cell types defined in self.cell_types
+            for celltype, indices in celltype_indices.items(): #for celltype in self.cell_types:
+                neuron_ids_by_dataset[dataset][celltype] = []
+                significance_struc[dataset][celltype] = {}
+
+                
+                celltype_indices = indices  # Assuming this is a list/array of indices
+
+                if len(celltype_indices) == 0:
+                    continue  # Skip if no neurons of this cell type
+
+                # Subset the data for the current cell type
+                data_celltype = data_in_range[:, celltype_indices]
+
+                # Find neurons that exceed the threshold at any point in the range
+                significant_neurons = np.any(data_celltype > threshold, axis=0)
+                neuron_ids = np.array(celltype_indices)[np.where(significant_neurons)[0]].tolist()
+                neuron_ids_by_dataset[dataset][celltype] = neuron_ids
+
+                # Collect additional information for the significant neurons
+                significance_struc[dataset][celltype]['peak_values'] = np.max(data_celltype[:, significant_neurons], axis=0)
+                significance_struc[dataset][celltype]['peak_frames'] = np.argmax(data_celltype[:, significant_neurons], axis=0) + start_frame
+
+        return neuron_ids_by_dataset, significance_struc
+
+    
+    # def analyze_significant_neurons_by_threshold(self, results_dict, decoder_type, start_frame, end_frame, metric='sc_instantaneous_information_mean', threshold=0.5):
+    #     """Analyze significant neurons that exceed a given threshold value for plotting."""
+    #     neuron_ids_by_dataset = {}
+    #     significance_struc = {}
+
+    #     for dataset in results_dict:
+    #         neuron_ids_by_dataset[dataset] = {}
+    #         significance_struc[dataset] = {}
+    #         data = results_dict[dataset][decoder_type][metric]
+
+    #         if end_frame is None:
+    #             end_frame = data.shape[0]
+
+    #         # Extract the data within the specified frames
+    #         data_in_range = data[start_frame:end_frame, :]
+
+    #         for celltype in ['all']:  # Modify this if there are specific cell types
+    #             neuron_ids_by_dataset[dataset][celltype] = []
+    #             significance_struc[dataset][celltype] = {}
+
+    #             # Find neurons that exceed the threshold at any point in the range
+    #             significant_neurons = np.any(data_in_range > threshold, axis=0)
+    #             neuron_ids = np.where(significant_neurons)[0].tolist()
+    #             neuron_ids_by_dataset[dataset][celltype] = neuron_ids
+
+    #             # Collect additional information for the significant neurons
+    #             significance_struc[dataset][celltype]['peak_values'] = np.max(data_in_range[:, neuron_ids], axis=0)
+    #             significance_struc[dataset][celltype]['peak_frames'] = np.argmax(data_in_range[:, neuron_ids], axis=0) + start_frame
+
+    #     return neuron_ids_by_dataset, significance_struc
+
     
     # def plot_single_neuron_analysis(results_dict, decoder_type='sound_category', start_frame=14, end_frame=None):
     # """Comprehensive single neuron decoding visualization"""
