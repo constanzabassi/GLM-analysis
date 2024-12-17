@@ -1341,6 +1341,116 @@ class Plotter:
         # plt.legend()
         plt.show()
 
+    def plot_significant_neuron_percentages_by_celltype(self, significant_neurons, neuron_groups, save_path=None):
+        """
+        Plot the percentage of significantly modulated neurons per dataset for each cell type and all neurons combined.
+        
+        Parameters:
+        significant_neurons: dict
+            Dictionary containing significant neuron indices for each dataset.
+        neuron_groups: dict
+            Dictionary containing all neuron indices for each dataset, organized by cell type.
+        save_path: str, optional
+            Path to save the plot. If None, the plot will not be saved.
+        """
+        # Set global font size and family 
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        # Initialize dictionary to store percentages
+        percentages_by_celltype = {ct: [] for ct in self.celltypecolors.keys()}
+        percentages_by_celltype["all"] = []
+
+        # Calculate percentages
+        for dataset, significant_neuron_indices in significant_neurons.items():
+            total_significant_all = 0
+            total_neurons_all = 0
+
+            for celltype in self.celltypecolors.keys():
+                # Get all neurons for the current cell type
+                celltype_neurons = neuron_groups[dataset]['neuron_groups'].get(celltype, np.array([])).flatten()
+
+                # Find significant neurons within this cell type
+                total_significant = np.isin(celltype_neurons, significant_neuron_indices).sum()
+                total_neurons = len(celltype_neurons)
+
+                if total_neurons > 0:
+                    percentages_by_celltype[celltype].append((total_significant / total_neurons) * 100)
+                else:
+                    percentages_by_celltype[celltype].append(0)
+
+                # Track totals for "all" category
+                total_significant_all += total_significant
+                total_neurons_all += total_neurons
+
+            # Add percentage for "all neurons"
+            if total_neurons_all > 0:
+                percentages_by_celltype["all"].append((total_significant_all / total_neurons_all) * 100)
+            else:
+                percentages_by_celltype["all"].append(0)
+
+        # Calculate mean and SEM for each cell type
+        means = {ct: np.mean(percentages_by_celltype[ct]) for ct in percentages_by_celltype}
+        sems = {ct: np.std(percentages_by_celltype[ct]) / np.sqrt(len(percentages_by_celltype[ct]))
+                for ct in percentages_by_celltype}
+
+        # Plot bar chart
+        fig, ax = plt.subplots(figsize=(3,3))
+        x_positions = np.arange(len(self.celltypecolors) + 1)  # One bar per cell type + "all"
+        colors = [self.celltypecolors[ct] for ct in self.celltypecolors.keys()] + ["black"] #[(0, 0, 0)]#
+
+        # # ax.bar(x_positions, [means[ct] for ct in list(self.celltypecolors.keys()) + ["all"]], 
+        # #     yerr=[sems[ct] for ct in list(self.celltypecolors.keys()) + ["all"]],
+        # #     color=colors, edgecolor="black", capsize=5, alpha=1, width=0.6)
+
+        # # Bar plot with error bars, colored edges, white interior, and error bar caps
+
+        # Plot each bar individually to set the color, edgecolor, and error bar styling
+        for i, (mean, sem, color) in enumerate(zip(
+            [means[ct] for ct in list(self.celltypecolors.keys()) + ["all"]],
+            [sems[ct] for ct in list(self.celltypecolors.keys()) + ["all"]],
+            colors,
+        )):
+            # Create the bar
+            bar = ax.bar(
+                x_positions[i], 
+                mean, 
+                facecolor='white',    # Empty inside
+                edgecolor=color,      # Edge color of the bar
+                alpha=1, 
+                width=0.6, 
+                linewidth=2
+            )
+            # Add error bars
+            ax.errorbar(
+                x_positions[i], 
+                mean, 
+                yerr=sem, 
+                fmt='none',  # Don't plot additional points
+                ecolor=color,  # Color for error bars and caps
+                elinewidth=2,  # Thickness of error lines
+                capsize=5,     # Cap size
+                capthick=2     # Cap thickness
+            )
+
+        # Aesthetics
+        ax.set_xticks(x_positions)
+        ax.set_xticklabels(list(self.celltypecolors.keys()) + ["all"], fontsize=12)
+        ax.set_ylabel("% Modulated Neurons", fontsize=14)
+        #ax.set_title("Significantly Modulated Neurons Across Cell Types", fontsize=14)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        # Save or show plot
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight")
+        plt.tight_layout()
+        plt.show()
+
+        # Print summary
+        print("Significantly Modulated Neurons (% ± SEM):")
+        for celltype in list(self.celltypecolors.keys()) + ["all"]:
+            print(f"{celltype}: {means[celltype]:.2f} ± {sems[celltype]:.2f}%")
+
+
 
 
     # def plot_single_neuron_analysis(results_dict, decoder_type='sound_category', start_frame= 14, end_frame = None):
