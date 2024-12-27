@@ -1198,10 +1198,10 @@ class Plotter:
     def plot_summary_heatmap(self, results_dict, decoder_type, start_frame=14, end_frame=None, metric='sc_cumulative_information_mean', significant_neurons=None):
         """Plot a summary heatmap combining all datasets, normalized by each neuron's maximum value."""
         combined_data = []
-        plt.figure(figsize=(6,5))
+        plt.figure(figsize=(3,3))
 
         for dataset in results_dict:
-            data = results_dict[dataset][decoder_type][metric]
+            data = results_dict[dataset][decoder_type][metric] #data is frames x neurons
             if end_frame is None:
                 end_frame = len(data)
 
@@ -1212,7 +1212,7 @@ class Plotter:
 
             # Normalize each neuron by its maximum value
             data = data[start_frame:end_frame, :]
-            max_values = np.max(data, axis=0)
+            max_values = np.max(data, axis=0) #gives neurons
             normalized_data = data / max_values  # Normalize by Imax for each neuron
             combined_data.append(normalized_data)
 
@@ -1226,7 +1226,7 @@ class Plotter:
             combined_data = combined_data[:, sort_idx]
 
             # Plot the summary heatmap
-            sns.heatmap(combined_data.T, cmap='viridis', xticklabels=20, yticklabels= int(np.floor(np.shape(combined_data)[1]/50)))
+            sns.heatmap(combined_data.T, cmap='viridis', xticklabels=20, yticklabels= int(np.floor(np.shape(combined_data)[1]/100)))
             plt.title('Summary Neuron Performance (Normalized)')
             plt.xlabel('Frames')
             plt.ylabel('Neurons')
