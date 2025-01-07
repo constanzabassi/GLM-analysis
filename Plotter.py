@@ -1195,7 +1195,7 @@ class Plotter:
         plt.tight_layout()
         plt.show()
 
-    def plot_summary_heatmap(self, results_dict, decoder_type, start_frame=14, end_frame=None, metric='sc_cumulative_information_mean', significant_neurons=None):
+    def plot_summary_heatmap(self, results_dict, decoder_type, start_frame=14, end_frame=None, metric='sc_cumulative_information_mean', significant_neurons=None, save_path = None):
         """Plot a summary heatmap combining all datasets, normalized by each neuron's maximum value."""
         combined_data = []
         plt.figure(figsize=(3,3))
@@ -1234,6 +1234,10 @@ class Plotter:
             plt.show()
         else:
             print("No data to plot in the summary heatmap.")
+
+        # Save plot if save_path is provided
+        if save_path: 
+            plt.savefig(save_path, bbox_inches='tight')
 
 
 
@@ -1280,7 +1284,7 @@ class Plotter:
     #     plt.show()
 
 
-    def plot_significant_neurons_distribution(self, significant_neurons_data):
+    def plot_significant_neurons_distribution(self, significant_neurons_data, save_path = None):
         """Plot distribution of significant neurons."""
         fig, axes = plt.subplots(1, 2, figsize=(6, 3))
 
@@ -1309,6 +1313,10 @@ class Plotter:
         fig.suptitle('Significant Neurons Distribution by Cell Type')
         plt.tight_layout()
         plt.show()
+
+        # Save plot if save_path is provided
+        if save_path: 
+            plt.savefig(save_path, bbox_inches='tight')
 
     def plot_time_course_by_cell_type(self, results_dict, decoder_type,start_frame = 14, end_frame = None, metric = 'sc_instantaneous_information_mean'):
         """Plot average information time course by cell type."""

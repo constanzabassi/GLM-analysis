@@ -151,9 +151,11 @@ class DataHandlerDecoding:
                 print(f'{decoding_dir}{splits+1}_1/')
             else:
                 os.chdir(f'{decoding_dir}{splits+1}/')
+                print(f'{decoding_dir}{splits+1}/')
             for variable in decoded_variables:
                 if variable.startswith('shuffled/'):
-                    #os.chdir(f'{decoding_dir}{splits+1}/')
+                    if 'pre' in decoding_dir:
+                        os.chdir(f'{decoding_dir}{splits+1}/') #shuffled results are in the same folder as regular results for pre
                     new_variable = variable[9:]
                     mat_path = Path(f'decoder_results_shuffled_{new_variable}.mat')
                 else:
