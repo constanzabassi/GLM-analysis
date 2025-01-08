@@ -1110,6 +1110,8 @@ class Plotter:
         plt.show()
 
 
+
+
     def plot_decoding_heatmap_datasets(self,results_dict, decoder_type='sound_category', metric = 'pop_instantaneous_information_mean'):
         """Create suite of analysis plots"""
         
