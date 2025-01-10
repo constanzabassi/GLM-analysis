@@ -21,8 +21,18 @@ class DecoderAnalyzer:
         }
         self.celltype_data = celltype_data
 
-    def analyze_peaks_by_celltype(self, mean_results_all, shuffled_structure, decoder_type='sound_category', start_frame=14, end_frame=None, significance_percentile=95, threshold =None):
-        """Analyze peak responses separated by cell type and flag significantly informative neurons."""
+    def analyze_peaks_by_celltype(self, mean_results_all, shuffled_structure,method ='range_threshold', decoder_type='sound_category', start_frame=14, end_frame=None, significance_percentile=95, threshold =None):
+        """Analyze peak responses separated by cell type and flag significantly informative neurons.
+         Parameters:
+        - data: dict, data for different cell types
+        - method: str, method to calculate significance ('shuffled_peak', 'threshold_peak', 'range_threshold')
+        - threshold: float, threshold value for 'threshold_peak' and 'range_threshold' methods
+        - range_start: int, start of the range for 'range_threshold' method
+        - range_end: int, end of the range for 'range_threshold' method
+        
+        Returns:
+        - results: dict, results of the analysis
+        """
         peaks_by_celltype = {
             dataset: {
                 celltype: {
@@ -60,20 +70,24 @@ class DecoderAnalyzer:
                             peak_val = np.max(neuron_data)
                             peak_frame = np.argmax(neuron_data) + start_frame
                             
-                            # Compute the peak value for the shuffled distribution
-                            shuffled_peak = shuffled_data[peak_frame, idx, :]
-                            # Compute the 95th percentile of the shuffled peak values
-                            shuffled_95th_percentile = np.percentile(shuffled_peak, significance_percentile)
-                            
                             peaks.append(peak_val)
                             peak_frames.append(peak_frame)
                             # Flag the neuron as significant if the peak value exceeds the 95th percentile
-                            if threshold is None:
+                            if method == 'shuffled_peak':#threshold is None:
+                                # Compute the peak value for the shuffled distribution
+                                shuffled_peak = shuffled_data[peak_frame, idx, :]
+                                # Compute the 95th percentile of the shuffled peak values
+                                shuffled_95th_percentile = np.percentile(shuffled_peak, significance_percentile)
                                 is_significant = peak_val > shuffled_95th_percentile
                                 significant_neurons.append(is_significant)
-                            else:
+                            elif method == 'range_threshold':
                                 is_significant = np.any(neuron_data > threshold)
                                 significant_neurons.append(is_significant)
+                            elif method == 'threshold_peak':
+                                is_significant = peak_val > threshold
+                                significant_neurons.append(is_significant)
+                            else:
+                                raise ValueError("Invalid method. Choose from 'shuffled_peak', 'threshold_peak', or 'range_threshold'")
                         peaks_by_celltype[dataset][celltype]['sc'][metric] = {
                             'peak_values': np.array(peaks),
                             'peak_frames': np.array(peak_frames),
@@ -90,12 +104,17 @@ class DecoderAnalyzer:
                     peak_val = np.max(data[start_frame:end_frame])
                     peak_frame = np.argmax(data[start_frame:end_frame]) + start_frame
                     # Retrieve shuffled data for population comparison
-                    shuffled_data = shuffled_structure [dataset] #mean_results_all[dataset][f'shuffled/{decoder_type}'][metric]
-                    shuffled_peak = shuffled_data[peak_frame]
-                    # Compute the 95th percentile of the shuffled peak values
-                    shuffled_95th_percentile = np.percentile(shuffled_peak, significance_percentile)
-                    # Flag the population as significant if the peak value exceeds the 95th percentile
-                    is_significant = peak_val > shuffled_95th_percentile
+                    if method == 'shuffled_peak':#threshold is None:
+                        shuffled_data = shuffled_structure [dataset] #mean_results_all[dataset][f'shuffled/{decoder_type}'][metric]
+                        shuffled_peak = shuffled_data[peak_frame]
+                        # Compute the 95th percentile of the shuffled peak values
+                        shuffled_95th_percentile = np.percentile(shuffled_peak, significance_percentile)
+                        # Flag the population as significant if the peak value exceeds the 95th percentile
+                        is_significant = peak_val > shuffled_95th_percentile
+                    elif method == 'range_threshold':
+                        is_significant = np.any(data[start_frame:end_frame] > threshold)
+                    elif method == 'threshold_peak':
+                        is_significant = peak_val > threshold
                     for celltype, indices in celltype_indices.items():
                         peaks_by_celltype[dataset][celltype]['pop'][metric] = {
                             'peak_value': peak_val,
@@ -189,11 +208,11 @@ class DecoderAnalyzer:
 
         return np.array(all_peaks), neuron_groups
     
-    def analyze_significant_neurons(self, results_dict,shuffled_structure, decoder_type, start_frame, end_frame, metric = 'sc_instantaneous_information_mean',significance_percentile=95):
+    def analyze_significant_neurons(self, results_dict,shuffled_structure,method, decoder_type, start_frame, end_frame, metric = 'sc_instantaneous_information_mean',significance_percentile=95, threshold=None):   
         """Analyze significant neurons for plotting."""
         neuron_ids_by_dataset = {}
         significance_struc = {}
-        peaks_by_celltype = self.analyze_peaks_by_celltype(results_dict,shuffled_structure, decoder_type, start_frame, end_frame, significance_percentile)
+        peaks_by_celltype = self.analyze_peaks_by_celltype(results_dict,shuffled_structure,method, decoder_type, start_frame, end_frame, significance_percentile,threshold)
 
         for dataset in results_dict:
             neuron_ids_by_dataset[dataset] = {}

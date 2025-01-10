@@ -185,10 +185,13 @@ class DataHandlerDecoding:
                     'sc_cumulative_information',
                     'sc_instantaneous_fraction_correct',
                     'sc_cumulative_fraction_correct',
-                    'event_frame'
+                    'event_frame' #have to subtract one to this value because it is in MATLAB indexing
                 ]
                 for key in variables_to_load:
-                    cat_results[variable][splits][key] = temp_results[key]
+                    if key == 'event_frame':
+                        cat_results[variable][splits][key] = temp_results[key] - 1
+                    else:
+                        cat_results[variable][splits][key] = temp_results[key]
 
         return cat_results 
 
@@ -282,9 +285,12 @@ class DataHandlerDecoding:
                     # Append the shuffled data (50 shuffles per fold) to the list
                     shuffled_structure[dataset].append(shuffled_data)
                 # After all folds are processed, concatenate the data into a single array of shape (frames x neurons x all_shuffles)
-                shuffled_structure[dataset] = np.concatenate(shuffled_structure[dataset], axis=2)
+                if shuffled_data.ndim == 2:
+                    shuffled_structure[dataset] = np.concatenate(shuffled_structure[dataset], axis=1)
+                else:
+                    shuffled_structure[dataset] = np.concatenate(shuffled_structure[dataset], axis=2)
             except Exception as e:
-                print(f"Error processing {dataset}: {e}")
+                print(f"Error processing {dataset} on shuffle {fold_num}: {e}")
                 continue
 
         return shuffled_structure
@@ -430,3 +436,15 @@ class DataHandlerDecoding:
                 print(f"No significant neurons found for {mouse_date}")
 
         return significant_neurons, mod_index_neurons, mouse_dates
+
+    def save_process_multiple_datasets_output(self,output, filename):
+        """
+        Save the output of process_multiple_datasets to a file using pickle.
+        
+        Parameters:
+        - output: The output of process_multiple_datasets
+        - filename: str, the filename to save the output
+        """
+        with open(filename, 'wb') as file:
+            pickle.dump(output, file)
+        print(f"Output saved to {filename}")

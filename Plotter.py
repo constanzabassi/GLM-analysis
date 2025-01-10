@@ -18,6 +18,8 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import seaborn as sns
 from matplotlib.ticker import FormatStrFormatter
+from scipy.stats import wilcoxon
+from AnalysisManagerEncoding import AnalysisManagerEncoding as analysisenc #using bonferroni correction
 
 class Plotter:
     def __init__(self, data, celltypecolors=None, save_results=None, color_map_dict = None):
@@ -1200,12 +1202,27 @@ class Plotter:
     def plot_summary_heatmap(self, results_dict, decoder_type, start_frame=14, end_frame=None, metric='sc_cumulative_information_mean', significant_neurons=None, save_path = None):
         """Plot a summary heatmap combining all datasets, normalized by each neuron's maximum value."""
         combined_data = []
-        plt.figure(figsize=(3,3))
+        if end_frame is None:
+                end_frame = len(data)
+
+        overall_size = round(end_frame - start_frame)
+
+        # Determine plot size based on overall_size
+        if overall_size < 100:
+            figsize = (3, 3)
+        elif 100 <= overall_size < 200:
+            figsize = (4, 3)
+        elif 200 <= overall_size < 300:
+            figsize = (5, 3)
+        else:
+            figsize = (6, 3)
+
+        plt.figure(figsize=figsize)
 
         for dataset in results_dict:
             data = results_dict[dataset][decoder_type][metric] #data is frames x neurons
-            if end_frame is None:
-                end_frame = len(data)
+            event_frames = results_dict[dataset][decoder_type]['event_frame_mean']
+            
 
             # Use only significant neurons if they exist
             if significant_neurons is not None and dataset in significant_neurons and len(significant_neurons[dataset]) > 0:
@@ -1227,19 +1244,46 @@ class Plotter:
             sort_idx = np.argsort(peak_frames)[::-1] #[::-1] to reverse it
             combined_data = combined_data[:, sort_idx]
 
+            # Convert x-axis from frames to seconds
+            num_frames = data.shape[0]
+            time_in_seconds = np.arange(num_frames) / 30.0
+            # Use only full seconds for x-axis labels
+            full_seconds = np.arange(0, num_frames // 30 + 1)
+            full_seconds_labels = full_seconds * 30  # Convert back to frame indices for labeling
+
+            # print(f'full sec label: {full_seconds_labels}, time in sec: {time_in_seconds}')
+            
+            #print(round(int(np.floor(np.shape(combined_data)[1]*.25)),0))
+            print(f'Sig neurons total {np.shape(combined_data)[1]}')
+
             # Plot the summary heatmap
-            sns.heatmap(combined_data.T, cmap='viridis', xticklabels=20, yticklabels= int(np.floor(np.shape(combined_data)[1]/100)))
-            plt.title('Summary Neuron Performance (Normalized)')
-            plt.xlabel('Frames')
+            sns.heatmap(combined_data.T, cmap='viridis', xticklabels=30, yticklabels= 100) #int(np.floor(np.shape(combined_data)[1]*.2))
+            
+            #plt.title('Summary Neuron Performance (Normalized)')
+            plt.xlabel('Seconds')
             plt.ylabel('Neurons')
             plt.tight_layout()
-            plt.show()
+            # Clean up the appearance
+            ax = plt.gca()  # get current axis  
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            
+            ax.set_xticklabels(full_seconds, rotation=0)
+            #ax.set_xticklabels(rotation=0)
+            # Add event markers
+            
+            xlim = (0, np.shape(combined_data)[0]) # full trace
+            for frame in event_frames:
+                if frame < xlim[1]:
+                    ax.axvline(x=frame, color='w', linestyle=':', alpha=1)
+            
         else:
             print("No data to plot in the summary heatmap.")
 
         # Save plot if save_path is provided
         if save_path: 
             plt.savefig(save_path, bbox_inches='tight')
+        plt.show()
 
 
 
@@ -1462,6 +1506,389 @@ class Plotter:
 
 
 
+
+    def scatter_plot_with_sem(self,labels, means, sems, colors=['blue', 'red'], title='Scatter Plot', ylabel='Value', save_dir=None):
+        """
+        Create a scatter plot with error bars (SEM).
+        
+        Parameters:
+        - labels: list of str, labels for the points
+        - means: list of float, mean values for each point
+        - sems: list of float, standard error of the mean for each point
+        - colors: list of str, colors for the points
+        - title: str, title of the plot
+        - ylabel: str, label for the y-axis
+        - save_dir: str, directory to save the plot
+        """
+        x = np.arange(len(labels))  # the label locations
+
+        fig, ax = plt.subplots(figsize=(3, 3))
+        # Set global font size and family 
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        
+        # Plot scatter points with error bars
+        for i in range(len(labels)):
+            ax.errorbar(x[i], means[i], yerr=sems[i], fmt='o', color=colors[i], capsize=5, markersize=10, label=labels[i])
+
+        # Add some text for labels, title and custom x-axis tick labels, etc.
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        # Clean up the appearance
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        fig.tight_layout()
+
+        # Get the y-axis limits (used for significance stars)
+        y_limits = plt.gca().get_ylim()
+        x_limits = plt.gca().get_xlim()
+        ax.set(ylim=(y_limits[0]*.9,y_limits[1]*1.1))
+        ax.set(xlim=(x_limits[0]-1,x_limits[1]+1))
+        ax.set_xticklabels(labels,rotation=45)
+
+        # Save the plot if save_dir is provided
+        if save_dir:
+            plt.savefig(f"{save_dir}_scatter_plot.png", bbox_inches='tight')
+
+        #plt.show()
+        return ax, x, y_limits
+    def simple_bar_plot(self,labels, means, sems,colors = ['blue','red'], title='Bar Plot', ylabel='Value', save_dir=None):
+        """
+        Create a simple bar plot with error bars.
+        
+        Parameters:
+        - labels: list of str, labels for the bars
+        - means: list of float, mean values for each bar
+        - sems: list of float, standard error of the mean for each bar
+        - title: str, title of the plot
+        - ylabel: str, label for the y-axis
+        - save_dir: str, directory to save the plot
+        """
+        
+        x = np.arange(len(labels))  # the label locations
+        width = 0.35  # the width of the bars
+
+        fig, ax = plt.subplots(figsize=(3,3))
+        # Set global font size and family 
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        bars = ax.bar(x, means, width, yerr=sems, capsize=4, edgecolor= colors, facecolor='white', linewidth=2) #,ecolor=colors
+
+        # Add some text for labels, title and custom x-axis tick labels, etc.
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        # Clean up the appearance
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        # Get the y-axis limits (used for significance stars)
+        y_limits = plt.gca().get_ylim()
+        ax.set(ylim=(0,y_limits[1]*1.1))
+
+        fig.tight_layout()
+
+        # Save the plot if save_dir is provided
+        if save_dir:
+            plt.savefig(f"{save_dir}_bar_plot.png", bbox_inches='tight') #/{title.replace(' ', '_')}
+
+        #plt.show()
+        return ax,x, y_limits
+
+    def simple_plot_wrapper(self,labels, data,sem, plot_type = 'bar',colors= ['blue','red'], frames = None, ylabel = 'Mean Value', save_dir = None):
+        """ create wrapper for bar plot to calculate significance
+        data: list of values for conditions (active, passive) 
+        """
+        
+        # Calculate mean and SEM
+
+        if frames is None:
+            frames = np.arange(len(data))   
+        means = list(np.mean(data[:,frames], axis = 1))
+        sems = list(np.mean(sem[:,frames], axis = 1)) #, axis = 1
+
+        # Create the bar plot   
+        if 'bar' in plot_type:
+            ax,x, ymax = self.simple_bar_plot(labels, means, sems,colors = colors, title= None, ylabel= ylabel, save_dir=save_dir)
+        elif 'scatter' in plot_type:
+            ax,x, ymax = self.scatter_plot_with_sem(labels, means, sems, colors=colors, title= None, ylabel=ylabel, save_dir=save_dir)
+
+        # Perform pairwise comparisons
+        all_p_values = []
+        comparisons = []
+        for i in range(data.shape[0]):
+            for j in range(i + 1, data.shape[0]):
+                stat, p_value = wilcoxon(data[i, frames], data[j, frames])
+                all_p_values.append(p_value)
+                comparisons.append((i, j))
+
+        corrected_p_values, significance_stars = analysisenc.calculate_bonferroni_significance(self,all_p_values, alpha=0.05)
+
+        # Add significance stars to the plot
+        for (i, j), star in zip(comparisons, significance_stars):
+            if star != 'ns':  # Only add significance line if there is a star
+                self.add_significance_line(ax, x1=x[i], x2=x[j], y=ymax[1], significance=star, color='black')
+
+        plt.show()  # Ensure the plot is updated
+        return all_p_values,corrected_p_values
+
+    def plot_selected_metric_with_sem(self,mean_results_list, decoder_types, metric, start_frame=0, xlim=None, ylim=None, title='Decoding Results', xlabel='Frames', ylabel=None, colors =['blue', 'red', 'green', 'purple', 'orange'],labels =['Active','Passive'], save_dir=None, text_loc = None):
+        """
+        Plot the selected metric from multiple mean_results on the same plot with SEM shading.
+        
+        Parameters:
+        - mean_results_list: list of dicts, results for different conditions
+        - decoder_types: list of str, the type of decoder used for each mean_results
+        - metric: str, the metric to plot
+        - start_frame: int, the starting frame for the plot
+        - xlim: tuple, x-axis limits
+        - ylim: tuple, y-axis limits
+        - title: str, title of the plot
+        - xlabel: str, label for the x-axis
+        - ylabel: str, label for the y-axis
+        - save_dir: str, directory to save the plot
+        """
+        #labels = [f'Condition {i+1}' for i in range(len(mean_results_list))]
+        
+        plt.figure(figsize=(4,3))
+        
+        all_means = []
+        all_sems = []
+        
+        for idx, (mean_results, decoder_type) in enumerate(zip(mean_results_list, decoder_types)):
+            # Get event frames from first dataset
+            first_dataset = list(mean_results.keys())[0]
+            event_frames = mean_results[first_dataset][decoder_type]['event_frame_mean']
+            
+            # Determine if the metric is 'sc' or 'pop'
+            plot_type = 'sc' if 'sc' in metric else 'pop'
+            
+            # Collect data across datasets
+            all_data = []
+            for dataset in mean_results.keys():
+                if decoder_type in mean_results[dataset]:
+                    data = mean_results[dataset][decoder_type][metric]
+
+                    # Average across neurons for sc data
+                    if plot_type == 'sc' and len(data.shape) == 2:  # frames x neurons
+                        data = np.mean(data, axis=1)  # average across neurons
+
+                    all_data.append(data)
+            
+            # Convert lists to NumPy arrays
+            all_data = np.array(all_data)
+            
+            # Use only the frames within xlim if provided
+            if xlim:
+                used_frames = slice(xlim[0], xlim[1])
+            else:
+                used_frames = slice(0, all_data.shape[1])
+            
+            all_data_final = all_data[:, used_frames]
+            
+            # Calculate mean and SEM
+            mean_trace = np.mean(all_data_final, axis=0)
+            sem_trace = np.std(all_data_final, axis=0) / np.sqrt(len(all_data_final))
+            
+            all_means.append(mean_trace)
+            all_sems.append(sem_trace)
+
+            x = np.arange(len(mean_trace)) / 30.0  # Convert frames to seconds
+            
+            # Plot the metric values
+            plt.plot(x, mean_trace, '-', label=labels[idx], color=colors[idx % len(colors)])
+            plt.fill_between(x, mean_trace - sem_trace, mean_trace + sem_trace, alpha=0.3, color=colors[idx % len(colors)])
+            
+            # Add event markers
+            for frame in event_frames:
+                if frame < len(mean_trace):
+                    plt.axvline(x=(frame - start_frame) / 30.0, color='k', linestyle=':', alpha=0.5)
+            
+            # x = np.arange(len(mean_trace))
+            
+            # # Plot the metric values
+            # plt.plot(mean_trace, '-', label=labels[idx], color=colors[idx % len(colors)])
+            # plt.fill_between(x, mean_trace - sem_trace, mean_trace + sem_trace, alpha=0.3, color=colors[idx % len(colors)])
+            
+            # # Add event markers
+            # for frame in event_frames:
+            #     if frame < len(mean_trace):
+            #         plt.axvline(x=frame - start_frame, color='k', linestyle=':', alpha=0.5)
+        
+        # Formatting
+        plt.title(title)
+        plt.xlabel(xlabel)
+        if ylabel:
+            plt.ylabel(ylabel)
+        else:
+            plt.ylabel('Bits' if 'information' in metric else 'Fraction Correct')
+        
+        #plt.xlim(xlim if xlim else (0 + start_frame, len(mean_trace) - start_frame))
+        if xlim:
+            xlim = (xlim[0] / 30.0, xlim[1] / 30.0)
+        plt.xlim(xlim if xlim else (0 + start_frame / 30.0, len(mean_trace) / 30.0 - start_frame / 30.0))
+        xlims = plt.gca().get_xlim()
+        if ylim:
+            plt.ylim(ylim)
+        else:
+            ylim = plt.gca().get_ylim()
+        
+        # Add text annotations for the labels
+        for i, label in enumerate(labels):
+            if text_loc is None:
+                plt.text(xlims[1]-xlims[1]*.1/ 30.0, ylim[1] - ylim[1]*.1*(i+1), label, color=colors[i], verticalalignment='center')
+                #plt.text(xlims[1]-20, ylim[1] - ylim[1]*.1*(i+1), label, color=colors[i], verticalalignment='center')
+            else:
+                plt.text(text_loc[0], text_loc[1], label, color=colors[i], verticalalignment='center')   
+        
+        plt.grid(False)
+        plt.tight_layout()
+
+        # Clean up the appearance
+        ax = plt.gca()  # get current axis  
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        # Save the plot if save_dir is provided
+        if save_dir:
+            plt.savefig(f"{save_dir}/{metric}_comparison_traces.png", bbox_inches='tight')
+        
+        plt.show()
+        
+        # Concatenate all means and SEMs
+        concatenated_means = np.vstack(all_means)
+        concatenated_sems = np.vstack(all_sems)
+        
+        return concatenated_means, concatenated_sems
+
+
+
+    # def plot_selected_metric_with_sem(self, mean_results_all, mean_results_all_passive, decoder_type, metric, start_frame = None,end_frame = None, xlim=None, ylim=None, title=None, xlabel='Frames', ylabel=None, colors = ('blue','red'), save_dir=None):
+    #     """
+    #     Plot the selected metric from mean_results_all and mean_results_all_passive on the same plot with SEM shading.
+        
+    #     Parameters:
+    #     - mean_results_all: dict, results for the active condition
+    #     - mean_results_all_passive: dict, results for the passive condition
+    #     - decoder_type: str, the type of decoder used
+    #     - metric: str, the metric to plot
+    #     - plot_type: str, type of plot ('sc' for single cell, 'pop' for population)
+    #     - xlim: tuple, x-axis limits
+    #     - ylim: tuple, y-axis limits
+    #     - title: str, title of the plot
+    #     - xlabel: str, label for the x-axis
+    #     - ylabel: str, label for the y-axis
+    #     - save_dir: str, directory to save the plot
+    #     """
+    #     # Get event frames from first dataset
+    #     first_dataset = list(mean_results_all.keys())[0]
+    #     event_frames = mean_results_all[first_dataset][decoder_type]['event_frame_mean']
+        
+    #     # Collect data across datasets for active condition
+    #     all_data_active = []
+    #     for dataset in mean_results_all.keys():
+    #         if decoder_type in mean_results_all[dataset]:
+    #             data = mean_results_all[dataset][decoder_type][metric]
+
+    #             # Average across neurons for sc data
+    #             if 'sc' in metric and len(data.shape) == 2:  # frames x neurons
+    #                 data = np.mean(data, axis=1)  # average across neurons
+
+    #             all_data_active.append(data)
+        
+    #     # Collect data across datasets for passive condition
+    #     all_data_passive = []
+    #     for dataset in mean_results_all_passive.keys():
+    #         if decoder_type in mean_results_all_passive[dataset]:
+    #             data = mean_results_all_passive[dataset][decoder_type][metric]
+
+    #             # Average across neurons for sc data
+    #             if 'sc' in metric and len(data.shape) == 2:  # frames x neurons
+    #                 data = np.mean(data, axis=1)  # average across neurons
+
+    #             all_data_passive.append(data)
+
+        
+    #     if end_frame is None:
+    #         end_frame = data.shape[0]
+    #     if start_frame is None:
+    #         start_frame = data.shape[0]
+
+    #     used_frames = np.arange(start_frame, end_frame) # frames to use for plotting    
+    #     # Convert lists to NumPy arrays
+    #     all_data_active = np.array(all_data_active)
+    #     all_data_passive = np.array(all_data_passive)
+        
+    #     # Calculate mean and SEM for active condition
+    #     all_data_active_final = all_data_active[:,used_frames]
+    #     mean_trace_active = np.mean(all_data_active_final, axis=0)
+    #     sem_trace_active = np.std(all_data_active_final, axis=0) / np.sqrt(len(all_data_active_final))
+
+    #     # Calculate mean and SEM for passive condition
+    #     all_data_passive_final = all_data_passive[:,used_frames]  
+    #     mean_trace_passive = np.mean(all_data_passive_final, axis=0)
+    #     sem_trace_passive = np.std(all_data_passive_final, axis=0) / np.sqrt(len(all_data_passive_final))
+
+    #     # Plot the metric values
+    #     plt.figure(figsize=(3.5,3))
+    #     x = np.arange(len(mean_trace_active))
+        
+    #     # Plot active condition
+    #     active_line, = plt.plot(mean_trace_active, color=colors[0], label='Active')
+    #     plt.fill_between(x, mean_trace_active - sem_trace_active, mean_trace_active + sem_trace_active, alpha=0.3, color=colors[0]) #, label='Active SEM'
+        
+    #     # Plot passive condition
+    #     passive_line, = plt.plot(mean_trace_passive, color=colors[1], label='Passive')
+    #     plt.fill_between(x, mean_trace_passive - sem_trace_passive, mean_trace_passive + sem_trace_passive, alpha=0.3, color=colors[1]) #, label='Passive SEM'
+        
+    #     # Add event markers
+    #     for frame in event_frames:
+    #         if frame < len(mean_trace_active):
+    #             plt.axvline(x=frame - start_frame, color='k', linestyle=':', alpha=0.5)
+        
+    #     # Formatting
+    #     plt.title(title)
+    #     plt.xlabel(xlabel)
+    #     if ylabel:
+    #         plt.ylabel(ylabel)
+    #     else:
+    #         plt.ylabel('Bits' if 'information' in metric else 'Fraction Correct')
+        
+    #     plt.xlim(xlim if xlim else (0+ start_frame, len(mean_trace_active)- start_frame))
+    #     if ylim:
+    #         plt.ylim(ylim)
+        
+    #     # Add text annotations for the labels
+    #     plt.text(xlim[1]-20, ylim[1], 'Active', color=colors[0], verticalalignment='center')
+    #     plt.text(xlim[1]-20, ylim[1] - ylim[1]*.1, 'Passive', color=colors[1], verticalalignment='center')
+
+    #     # # Custom legend with colored text
+    #     # legend_labels = ['Active', 'Passive']
+    #     # legend_colors = colors
+    #     # handles = [plt.Line2D([0], [0], color='w', markerfacecolor=color, markersize=10, marker='o') for color in legend_colors]
+
+    #     # #handles = [active_line, passive_line]
+    #     # legend = plt.legend(handles, legend_labels,shadow = None, frameon = False,   loc='center left', bbox_to_anchor=(1, 0.5)) #loc='upper right',
+    #     # for text, color in zip(legend.get_texts(), legend_colors):
+    #     #     text.set_color(color)
+
+    #     # plt.legend(shadow = None, frameon = False,  loc='upper right')
+
+    #     plt.tight_layout()
+
+    #     # Clean up the appearance
+    #     ax = plt.gca()  # get current axis  
+    #     ax.spines['top'].set_visible(False)
+    #     ax.spines['right'].set_visible(False)
+        
+    #     # Save the plot if save_dir is provided
+    #     if save_dir:
+    #         plt.savefig(f"{save_dir}/{metric}_context_comparison_traces.png")
+        
+    #     plt.show()
+    #     return mean_trace_active, sem_trace_active, mean_trace_passive, sem_trace_passive
 
     # def plot_single_neuron_analysis(results_dict, decoder_type='sound_category', start_frame= 14, end_frame = None):
     #     print(start_frame)
