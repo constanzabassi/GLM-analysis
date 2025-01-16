@@ -1441,6 +1441,7 @@ class Plotter:
             else:
                 percentages_by_celltype["all"].append(0)
 
+        print(f'Total significant neurons!! {total_significant_all}')
         # Calculate mean and SEM for each cell type
         means = {ct: np.mean(percentages_by_celltype[ct]) for ct in percentages_by_celltype}
         sems = {ct: np.std(percentages_by_celltype[ct]) / np.sqrt(len(percentages_by_celltype[ct]))
