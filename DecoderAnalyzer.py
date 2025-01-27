@@ -80,10 +80,20 @@ class DecoderAnalyzer:
                                 shuffled_95th_percentile = np.percentile(shuffled_peak, significance_percentile)
                                 is_significant = peak_val > shuffled_95th_percentile
                                 significant_neurons.append(is_significant)
+                            elif method == 'combined':
+                                # Calculate threshold from shuffled data
+                                shuffled_dist = shuffled_data[start_frame:end_frame, idx, :]
+                                threshold = np.percentile(shuffled_dist, significance_percentile, axis=1)
+                                
+                                # Check if any real data point exceeds its corresponding threshold
+                                is_significant = np.any(neuron_data > threshold)
+                                significant_neurons.append(is_significant)
                             elif method == 'range_threshold':
+                                print('range_threshold')
                                 is_significant = np.any(neuron_data > threshold)
                                 significant_neurons.append(is_significant)
                             elif method == 'threshold_peak':
+                                print('threshold_peak')
                                 is_significant = peak_val > threshold
                                 significant_neurons.append(is_significant)
                             else:

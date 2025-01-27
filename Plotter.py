@@ -1621,6 +1621,7 @@ class Plotter:
         comparisons = []
         for i in range(data.shape[0]):
             for j in range(i + 1, data.shape[0]):
+                print(f' {data[i, frames], data[j, frames]} ')
                 stat, p_value = wilcoxon(data[i, frames], data[j, frames])
                 all_p_values.append(p_value)
                 comparisons.append((i, j))
