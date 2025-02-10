@@ -89,11 +89,11 @@ class DecoderAnalyzer:
                                 is_significant = np.any(neuron_data > threshold)
                                 significant_neurons.append(is_significant)
                             elif method == 'range_threshold':
-                                print('range_threshold')
+                                # print('range_threshold')
                                 is_significant = np.any(neuron_data > threshold)
                                 significant_neurons.append(is_significant)
                             elif method == 'threshold_peak':
-                                print('threshold_peak')
+                                # print('threshold_peak')
                                 is_significant = peak_val > threshold
                                 significant_neurons.append(is_significant)
                             else:
