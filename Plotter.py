@@ -66,7 +66,7 @@ class Plotter:
 
         return xlabels
 
-    def x_axis_sec_aligned(stim_frame, length_frames, interval=1, frame_rate=30):
+    def x_axis_sec_aligned(self, stim_frame, length_frames, interval=1, frame_rate=30):
         """
         Convert frame indices to seconds for x-axis ticks.
         
@@ -107,7 +107,7 @@ class Plotter:
         
         return xticks_in, xticks_lab
 
-    def plot_with_seconds( stim_frame,length_frames, frame_rate=30,interval=1):
+    def plot_with_seconds( self, stim_frame,length_frames, frame_rate=30,interval=1):
         """
         Plot data with x-axis in seconds.
         
@@ -1778,7 +1778,7 @@ class Plotter:
         
         # Formatting
         plt.title(title)
-        xticks_in, xticks_lab = plotter.x_axis_sec_aligned(event_frames[0], len(x), interval=1, frame_rate=30) 
+        xticks_in, xticks_lab = self.x_axis_sec_aligned(event_frames[0], len(x), interval=1, frame_rate=30) 
         
         if ylabel:
             plt.ylabel(ylabel)
