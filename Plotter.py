@@ -66,6 +66,63 @@ class Plotter:
 
         return xlabels
 
+    def x_axis_sec_aligned(stim_frame, length_frames, interval=1, frame_rate=30):
+        """
+        Convert frame indices to seconds for x-axis ticks.
+        
+        Args:
+            stim_frame (int): Frame number where the stimulus event occurs
+            length_frames (int): Total number of frames
+            interval (int): Interval for x-ticks (default is 1 second)
+            frame_rate (int): Imaging frame rate (default is 30 Hz)
+        
+        Returns:
+            xticks_in (list): Frame indices for x-ticks
+            xticks_lab (list): Labels for x-ticks in seconds
+        """
+        frames_before = stim_frame 
+        frames_after = len(np.arange(length_frames - stim_frame)) 
+        
+        time_before = np.arange(-frames_before, 1) / frame_rate
+        time_after = np.arange(1, frames_after + 1) / frame_rate
+
+        time_axis = np.concatenate((time_before, time_after))
+         
+        frame_indices = np.arange(stim_frame - frames_before, stim_frame + frames_after + 1) 
+        
+        x_tick_seconds = np.unique(np.floor(time_axis))
+        x_tick_seconds = x_tick_seconds[x_tick_seconds % interval == 0]
+        x_tick_indices = []
+
+        # Ensure valid indices with proper array indexing
+        valid_mask = np.isin(x_tick_seconds, time_axis, assume_unique=True)
+        valid_indices = np.where(valid_mask)[0]  # Get array of indices directly
+
+        # Index arrays with valid_indices
+        x_tick_seconds = x_tick_seconds[valid_indices]
+        x_tick_indices = [np.where(time_axis == sec)[0][0] for sec in x_tick_seconds]
+
+        xticks_in = frame_indices[x_tick_indices] 
+        xticks_lab = [str(int(sec)) for sec in x_tick_seconds]
+        
+        return xticks_in, xticks_lab
+
+    def plot_with_seconds( stim_frame,length_frames, frame_rate=30,interval=1):
+        """
+        Plot data with x-axis in seconds.
+        
+        Args:
+            
+            stim_frame (int): Frame number where the stimulus event occurs
+            frame_rate (int): Imaging frame rate (default is 30 Hz)
+            interval (int): Interval for x-ticks (default is 1 second)  
+        """
+        length_frames = length_frames
+        xticks_in, xticks_lab = x_axis_sec_aligned(stim_frame, length_frames, interval=interval, frame_rate=frame_rate)
+
+        plt.xticks(ticks=xticks_in, labels=xticks_lab)
+        plt.xlabel('Time (s)')
+
     #PREDICTOR PLOTTING FUNCTIONS
     # Create legend for coupling features
     def plot_feature_weights(self,server,animalID, date, model_type, model_chosen, pyr_count=3, som_count=3, pv_count=3, no_abs=1):
@@ -1706,7 +1763,7 @@ class Plotter:
             # Add event markers
             for frame in event_frames:
                 if frame < len(mean_trace):
-                    plt.axvline(x=(frame - start_frame) / 30.0, color='k', linestyle=':', alpha=0.5)
+                    plt.axvline(x=(frame - start_frame) / 30.0, color='k', linestyle=(0, (5, 5)), alpha=0.5)
             
             # x = np.arange(len(mean_trace))
             
@@ -1721,7 +1778,8 @@ class Plotter:
         
         # Formatting
         plt.title(title)
-        plt.xlabel(xlabel)
+        xticks_in, xticks_lab = plotter.x_axis_sec_aligned(event_frames[0], len(x), interval=1, frame_rate=30) 
+        
         if ylabel:
             plt.ylabel(ylabel)
         else:
@@ -1752,6 +1810,11 @@ class Plotter:
         ax = plt.gca()  # get current axis  
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
+
+        #set up x axis
+        plt.xlabel('Time (s)')
+        ax.set_xticks(xticks_in/30)  # Set x-ticks to the integer values (divide by 30 bc x was in sec)
+        ax.set_xticklabels(xticks_lab)  # Set x-tick labels to the integer values
         
         # Save the plot if save_dir is provided
         if save_dir:
