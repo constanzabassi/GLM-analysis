@@ -240,6 +240,84 @@ class DataHandlerDecoding:
                     mean_results_all[variable][f'{measure}_std'] = np.std(split_means, axis=0)
 
         return mean_results, mean_results_all
+    
+    def correct_artifact_in_data(self, cat_results, method='zero', artifact_start=4, artifact_end=13):
+        """
+        Correct artifact in original data before averaging across shuffles.
+        
+        Parameters:
+        -----------
+        cat_results : dict
+            Original results dictionary containing raw decoder outputs
+        method : str
+            'zero' or 'interpolate'
+        artifact_start : int
+            First frame of artifact
+        artifact_end : int
+            Last frame of artifact
+        
+        Returns:
+        --------
+        dict
+            Copy of results with corrected data
+        """
+        corrected_results = {}
+        
+        for variable in cat_results:
+            corrected_results[variable] = {}
+            
+            for split in cat_results[variable]:
+                corrected_results[variable][split] = {}
+                
+                for measure in cat_results[variable][split]:
+                    if measure == 'event_frame':
+                        corrected_results[variable][split][measure] = cat_results[variable][split][measure]
+                        continue
+                        
+                    data = cat_results[variable][split][measure].copy()
+
+                    # Store original cumulative data if present
+                    if 'cumulative' in measure:
+                        corrected_results[variable][split][f'{measure}_original'] = data.copy()
+                    
+                    if method == 'zero':
+                        artifact_start = 0
+                        # Zero out artifact frames
+                        if 'sc_' in measure:  # Single cell data
+                            data[artifact_start:artifact_end+1, :, :] = 0
+                        elif 'pop_' in measure:  # Population data
+                            data[artifact_start:artifact_end+1, :] = 0
+                            
+                    else:  # interpolate
+                        if 'sc_' in measure:  # Single cell data
+                            for neuron in range(data.shape[1]):
+                                for shuffle in range(data.shape[2]):
+                                    values = data[:, neuron, shuffle]
+                                    x_known = [artifact_start-1, artifact_end+1]
+                                    y_known = [values[artifact_start-1], values[artifact_end+1]]
+                                    x_interp = np.arange(artifact_start, artifact_end+1)
+                                    y_interp = np.interp(x_interp, x_known, y_known)
+                                    data[artifact_start:artifact_end+1, neuron, shuffle] = y_interp
+                                    
+                        elif 'pop_' in measure:  # Population data
+                            for shuffle in range(data.shape[1]):
+                                values = data[:, shuffle]
+                                x_known = [artifact_start-1, artifact_end+1]
+                                y_known = [values[artifact_start-1], values[artifact_end+1]]
+                                x_interp = np.arange(artifact_start, artifact_end+1)
+                                y_interp = np.interp(x_interp, x_known, y_known)
+                                data[artifact_start:artifact_end+1, shuffle] = y_interp
+                    
+                    # Recalculate cumulative metrics if needed
+                    if 'cumulative' in measure:
+                        if 'information' in measure:
+                            data = np.cumsum(data, axis=0)
+                        else:  # fraction correct
+                            data = np.cumsum(data, axis=0) / np.arange(1, len(data) + 1)[:, None, None if 'sc_' in measure else None]
+                    
+                    corrected_results[variable][split][measure] = data
+        
+        return corrected_results
 
     def process_multiple_datasets(self, datasets, model_type, single_balanced=False):
         """Process multiple datasets and calculate mean decoding."""
