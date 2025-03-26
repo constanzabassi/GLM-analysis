@@ -24,23 +24,70 @@ from AnalysisManagerEncoding import AnalysisManagerEncoding as analysisenc #usin
 class Plotter:
     def __init__(self, data, celltypecolors=None, save_results=None, color_map_dict = None):
         self.data = data
-        self.celltypecolors = celltypecolors
         self.save_results = save_results
         self.color_map_dict = color_map_dict # Dictionary mapping (celltype, model) to specific colors.
+
+        # Default cell type colors
+        self.default_colors = {
+            'pyr': (0.37, 0.75, 0.49),
+            'som': (0.17, 0.35, 0.8),
+            'pv': (0.82, 0.04, 0.04)
+        }
+
+        # Default variable colors (pairs for regular and shuffled) for each decoded variable
+        self.default_variable_colors = {
+            'sound_category': ['steelblue', 'lightskyblue'],
+            'choice': ['saddlebrown', 'darkorange'],
+            'photostim': ['darkslateblue', 'mediumslateblue'],
+            'outcome': ['mediumvioletred', 'hotpink']
+        }
+        
+        # Use custom colors if provided, otherwise use defaults
+        self.celltypecolors = celltypecolors if celltypecolors is not None else self.default_colors
 
     def add_significance_line(self,ax, x1, x2=None, y=None, significance='', color='black'):
         """
         Add significance line between two bars in the plot.
         If only x1 is provided, draw only the significance star without a line.
+        Parameters:
+        -----------
+        ax : matplotlib.axes.Axes
+            The axes to draw on
+        x1, x2 : float
+            x-coordinates for the line endpoints
+        y : float, optional
+            y-coordinate for the line. If None, uses 95% of ylim
+        significance : str
+            The significance marker to display
+        color : str
+            Color of the line and text
         """
+
+        # Get current y-axis limits
+        ylims = ax.get_ylim()
+        
+        # If y is not provided, set it to 95% of the y-axis range
+        if y is None:
+            y = ylims[1] * 0.95
+
         if x2 is not None:  # Draw line if both x1 and x2 are provided
-            line_y = y + 0.01 if y is not None else 0.05  # Adjust to avoid overlap with bar
-            ax.plot([x1, x1, x2, x2], [y, line_y, line_y, y], lw=1.5, color=color)
-            ax.text((x1 + x2) * 0.5, line_y + 0.01, significance, ha='center', va='bottom', color=color, fontsize=14)
+            # Calculate line height as small percentage of y-axis range
+            line_height = (ylims[1] - ylims[0]) * 0.02
+            line_y = y 
+            text_y = y + line_height
+
+            # Draw the line
+            ax.plot([x1, x1, x2, x2], [y, line_y, line_y, y], 
+                    lw=1.5, color=color)
+            
+            # Add text
+            ax.text((x1 + x2) * 0.5, text_y, significance, 
+                    ha='center', va='bottom', color=color, fontsize=14)
         else:  # Only x1 is provided, so draw only the significance star
             if y is not None:
-                ax.text(x1, y , significance, ha='center', va='bottom', color=color, fontsize=14)
-
+                ax.text(x1, y, significance, 
+                    ha='center', va='bottom', color=color, fontsize=14)
+                    
     def generate_xlabels(self,cell_types_first_half, cell_types_second_half, connector='w'):
         """
         Generates combined x-axis labels for the bar plot based on two halves of cell types.
