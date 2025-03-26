@@ -1829,6 +1829,74 @@ class Plotter:
         return concatenated_means, concatenated_sems
 
 
+    def plot_dataset_metric_with_sem(self, mean_results_list, dataset_key, decoder_types, metric, 
+                                start_frame=0, xlim=None, ylim=None, title=None, 
+                                xlabel='Frames', ylabel=None, colors=['blue', 'red'], 
+                                labels=['Active','Passive'], save_dir=None):
+        """Plot metric for specific dataset across conditions."""
+        plt.figure(figsize=(4,3))
+        
+        for idx, (mean_results, decoder_type) in enumerate(zip(mean_results_list, decoder_types)):
+            # Get data for specific dataset
+            if dataset_key not in mean_results:
+                print(f"Dataset {dataset_key} not found in results")
+                continue
+                
+            # Get event frames
+            event_frames = mean_results[dataset_key][decoder_type]['event_frame_mean']
+            
+            # Determine metric type
+            plot_type = 'sc' if 'sc' in metric else 'pop'
+            
+            # Get data for this dataset
+            data = mean_results[dataset_key][decoder_type][metric]
+            
+            # Calculate mean and SEM
+            if plot_type == 'sc':
+                mean_trace = np.mean(data, axis=1)
+                sem_trace = scipy.stats.sem(data, axis=1)
+            else:
+                mean_trace = data
+            
+            
+            # Create x-axis
+            x = np.arange(len(mean_trace))
+            
+            # Plot
+            plt.plot(x[start_frame:], mean_trace[start_frame:], 
+                    color=colors[idx], label=labels[idx])
+            if plot_type == 'sc':
+                plt.fill_between(x[start_frame:], 
+                                mean_trace[start_frame:] - sem_trace[start_frame:],
+                                mean_trace[start_frame:] + sem_trace[start_frame:],
+                                alpha=0.2, color=colors[idx])
+            
+            # Add event frame line
+            plt.axvline(x=event_frames[0], color='k', linestyle='--', alpha=0.5)
+        
+        # Customize plot
+        if title is None:
+            title = f"{dataset_key} - {metric}"
+        plt.title(title)
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel if ylabel else metric)
+        plt.legend(frameon=False)
+
+        xticks_in, xticks_lab = self.x_axis_sec_aligned(event_frames[0], len(mean_trace), interval=1, frame_rate=30)
+        plt.xticks(ticks=xticks_in, labels=xticks_lab)
+        plt.xlabel('Time (s)')
+        
+        if xlim:
+            plt.xlim(xlim)
+        if ylim:
+            plt.ylim(ylim)
+        
+        if save_dir:
+            plt.savefig(os.path.join(save_dir, f"{dataset_key}_{metric}.png"))
+        
+        plt.show()
+
+
 
     # def plot_selected_metric_with_sem(self, mean_results_all, mean_results_all_passive, decoder_type, metric, start_frame = None,end_frame = None, xlim=None, ylim=None, title=None, xlabel='Frames', ylabel=None, colors = ('blue','red'), save_dir=None):
     #     """
