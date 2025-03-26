@@ -1105,8 +1105,18 @@ class Plotter:
         plt.yticks(np.arange(0, 1.1, 0.2))
 
         plt.title(title)
+        # Create legend with just colored text
+        legend_elements = [
+            plt.Line2D([0], [0], marker='o', color='none', label=cell_type, 
+                    markerfacecolor='none', linestyle='None')
+            for cell_type in color_map.keys()
+        ]
+        legend = plt.legend(handles=legend_elements, frameon=False, 
+                        handlelength=0, handletextpad=0.1)
+        for text, color in zip(legend.get_texts(), color_map.values()):
+            text.set_color(color)
 
-        plt.legend(frameon = False)
+        # plt.legend(frameon = False)
         # plt.axis('equal')
         
         # # Clean up the appearance
@@ -1126,6 +1136,7 @@ class Plotter:
         # Save or show plot
         if save_path:
             plt.savefig(save_path, format = 'svg')
+            plt.savefig(save_path.replace('.svg','.pdf'), format = 'pdf')
         else:
             plt.show()
 
