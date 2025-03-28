@@ -1279,12 +1279,16 @@ class Plotter:
                     yticklabels=list(results_dict.keys()),
                     cmap='viridis')
         plt.title('Information Evolution Across Datasets')
-        plt.xlabel('Time (frames)')
+        # plt.xlabel('Time (frames)')
         
         plt.tight_layout()
+        xticks_in, xticks_lab = self.x_axis_sec_aligned(0, data_matrix.shape[1], interval=20, frame_rate=30)
+
+        plt.xticks(ticks=xticks_in, labels=xticks_lab)
+        plt.xlabel('Time (s)')
         plt.show()
 
-    def plot_neuron_performance_heatmap(self, results_dict, decoder_type, start_frame=14, end_frame=None, metric='sc_cumulative_information_mean', significant_neurons=None):
+    def plot_neuron_performance_heatmap(self, results_dict, decoder_type, start_frame=14, end_frame=None, metric='sc_cumulative_information_mean', significance_struc=None):
         """Plot heatmap of neuron performance, using only significant neurons if they exist and sorting by peak time."""
         plt.figure(figsize=(12, len(results_dict) * 2))
         
@@ -1302,19 +1306,28 @@ class Plotter:
             # If peak frames are identical, sort by maximum information
             sort_idx = sort_idx[np.argsort(max_info[sort_idx])][::-1] #[::-1] to reverse it
 
-            # Use only significant neurons if they exist
-            if significant_neurons is not None and dataset in significant_neurons and len(significant_neurons[dataset]) > 0:
-                significant_neuron_mask = np.isin(np.arange(data.shape[1]), significant_neurons[dataset])
-                sort_idx = np.where(significant_neuron_mask)[0]  # Only keep significant neurons
+            # Use significant neurons if provided
+            if significance_struc is not None and dataset in significance_struc:
+                sig_neurons = significance_struc[dataset]['sig_neurons_all']
+                data = data[:, sig_neurons]
 
             plt.subplot(len(results_dict), 1, list(results_dict.keys()).index(dataset) + 1)
             sns.heatmap(data[:, sort_idx].T, cmap='viridis', xticklabels=20, yticklabels=False)
             plt.title(f'{dataset} Neuron Performance')
 
         plt.tight_layout()
+        xticks_in, xticks_lab = self.x_axis_sec_aligned(event_frames[0], len(x), interval=1, frame_rate=30) 
+        # Set x-ticks to be in seconds
+        for ax in plt.gcf().axes:
+            # Ensure we only set x-ticks for the last plot
+            if ax == plt.gcf().axes[-1]:
+                plt.xticks(ticks=xticks_in, labels=xticks_lab)
+                plt.xlabel('Time (s)')
+            else:
+                ax.set_xticks([])
         plt.show()
 
-    def plot_summary_heatmap(self, results_dict, decoder_type, start_frame=14, end_frame=None, metric='sc_cumulative_information_mean', significant_neurons=None, save_path = None):
+    def plot_summary_heatmap(self, results_dict, decoder_type, start_frame=14, end_frame=None, metric='sc_cumulative_information_mean', significance_struc=None, save_path = None):
         """Plot a summary heatmap combining all datasets, normalized by each neuron's maximum value."""
         combined_data = []
         if end_frame is None:
@@ -1339,10 +1352,10 @@ class Plotter:
             event_frames = results_dict[dataset][decoder_type]['event_frame_mean']
             
 
-            # Use only significant neurons if they exist
-            if significant_neurons is not None and dataset in significant_neurons and len(significant_neurons[dataset]) > 0:
-                neuron_mask = np.isin(np.arange(data.shape[1]), significant_neurons[dataset])
-                data = data[:, neuron_mask]
+            # Use significant neurons if provided
+            if significance_struc is not None and dataset in significance_struc:
+                sig_neurons = significance_struc[dataset]['sig_neurons_all']
+                data = data[:, sig_neurons]
 
             # Normalize each neuron by its maximum value
             data = data[start_frame:end_frame, :]
@@ -1479,27 +1492,55 @@ class Plotter:
         if save_path: 
             plt.savefig(save_path, bbox_inches='tight')
 
-    def plot_time_course_by_cell_type(self, results_dict, decoder_type,start_frame = 14, end_frame = None, metric = 'sc_instantaneous_information_mean'):
-        """Plot average information time course by cell type."""
+    def plot_time_course_by_cell_type(self, results_dict, decoder_type, start_frame=14, end_frame=None, 
+                                 metric='sc_instantaneous_information_mean', significance_struc=None):
+        """
+        Plot average information time course by cell type.
+        
+        Parameters:
+        -----------
+        results_dict : dict
+            Dictionary containing results data
+        decoder_type : str
+            Type of decoder used
+        start_frame : int
+            Starting frame for analysis
+        end_frame : int, optional
+            Ending frame for analysis
+        metric : str
+            Metric to plot
+        significance_struc : dict, optional
+            Dictionary containing significant neuron indices by dataset
+        """
         plt.figure(figsize=(3, 3))
         for cel_index, (celltype, color) in enumerate(self.celltypecolors.items()):
             all_traces = []
             for dataset in results_dict:
                 data = results_dict[dataset][decoder_type][metric]
                 if end_frame is None:
-                    end_frame(len(data))
+                    end_frame = len(data)
                 celltype_idx = results_dict[dataset]['celltype_array'] == cel_index
+
+                # Filter for significant neurons if provided
+                if significance_struc is not None and dataset in significance_struc:
+                    if celltype in significance_struc[dataset]:
+                        sig_neurons = significance_struc[dataset][celltype]['neuron_indices']
+                        celltype_idx = np.logical_and(celltype_idx, 
+                                                    np.isin(np.arange(len(celltype_idx)), 
+                                                    sig_neurons))
 
                 if np.any(celltype_idx):
                     mean_trace = np.mean(data[start_frame:end_frame, celltype_idx], axis=1)
                     all_traces.append(mean_trace)
 
-            mean = np.mean(all_traces, axis=0)
-            sem = np.std(all_traces, axis=0) / np.sqrt(len(all_traces))
-            plt.plot(mean, color=color, label=celltype)
-            plt.fill_between(range(len(mean)), mean - sem, mean + sem, alpha=0.2, color=color)
+            if all_traces:
+                mean = np.mean(all_traces, axis=0)
+                sem = np.std(all_traces, axis=0) / np.sqrt(len(all_traces))
+                plt.plot(mean, color=color, label=celltype)
+                plt.fill_between(range(len(mean)), mean-sem, mean+sem, alpha=0.2, color=color)
 
         ax = plt.gca()
+        ax.axvline(x=start_frame, color='k', linestyle=':', alpha=0.5)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.set_box_aspect(1)
@@ -1507,56 +1548,53 @@ class Plotter:
         plt.title('Average Information Time Course by Cell Type')
         plt.xlabel('Time (frames)')
         plt.ylabel('Information (bits)')
-        # plt.legend()
         plt.show()
 
-    def plot_significant_neuron_percentages_by_celltype(self, significant_neurons, neuron_groups, save_path=None):
+    def plot_significant_neuron_percentages_by_celltype(self, significance_struc, neuron_groups, save_path=None):
         """
         Plot the percentage of significantly modulated neurons per dataset for each cell type and all neurons combined.
         
         Parameters:
-        significant_neurons: dict
-            Dictionary containing significant neuron indices for each dataset.
-        neuron_groups: dict
-            Dictionary containing all neuron indices for each dataset, organized by cell type.
-        save_path: str, optional
-            Path to save the plot. If None, the plot will not be saved.
+        -----------
+        significance_struc : dict
+            Dictionary containing significant neuron data by dataset and cell type, including 'sig_neurons_all'
+        neuron_groups : dict
+            Dictionary containing all neuron indices for each dataset, organized by cell type
+        save_path : str, optional
+            Path to save the plot
         """
-        # Set global font size and family 
         plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
-        # Initialize dictionary to store percentages
         percentages_by_celltype = {ct: [] for ct in self.celltypecolors.keys()}
         percentages_by_celltype["all"] = []
+        
+        # Track totals across all datasets
+        total_significant_across_datasets = 0
+        total_neurons_across_datasets = 0
 
-        # Calculate percentages
-        for dataset, significant_neuron_indices in significant_neurons.items():
-            total_significant_all = 0
+        for dataset in significance_struc:
             total_neurons_all = 0
+            total_significant_all = len(significance_struc[dataset]['sig_neurons_all'])
+            total_significant_across_datasets += total_significant_all
 
-            for celltype in self.celltypecolors.keys():
-                # Get all neurons for the current cell type
+            for celltype in self.celltypecolors:
                 celltype_neurons = neuron_groups[dataset]['neuron_groups'].get(celltype, np.array([])).flatten()
-
-                # Find significant neurons within this cell type
-                total_significant = np.isin(celltype_neurons, significant_neuron_indices).sum()
                 total_neurons = len(celltype_neurons)
-
+                total_neurons_all += total_neurons
+                
                 if total_neurons > 0:
+                    significant_neurons = significance_struc[dataset][celltype]['neuron_indices']
+                    total_significant = len(significant_neurons)
                     percentages_by_celltype[celltype].append((total_significant / total_neurons) * 100)
                 else:
                     percentages_by_celltype[celltype].append(0)
 
-                # Track totals for "all" category
-                total_significant_all += total_significant
-                total_neurons_all += total_neurons
-
-            # Add percentage for "all neurons"
+            total_neurons_across_datasets += total_neurons_all
             if total_neurons_all > 0:
                 percentages_by_celltype["all"].append((total_significant_all / total_neurons_all) * 100)
-            else:
-                percentages_by_celltype["all"].append(0)
 
-        print(f'Total significant neurons!! {total_significant_all}')
+        print(f'Total significant neurons across all datasets: {total_significant_across_datasets}')
+        print(f'Total neurons across all datasets: {total_neurons_across_datasets}')
+
         # Calculate mean and SEM for each cell type
         means = {ct: np.mean(percentages_by_celltype[ct]) for ct in percentages_by_celltype}
         sems = {ct: np.std(percentages_by_celltype[ct]) / np.sqrt(len(percentages_by_celltype[ct]))

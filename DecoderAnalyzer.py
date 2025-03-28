@@ -65,6 +65,8 @@ class DecoderAnalyzer:
                         peaks = []
                         peak_frames = []
                         significant_neurons = []  # Track significant neurons for this metric
+                        global_indices = []  # Add list for global indices
+
                         for idx in indices:
                             neuron_data = data[start_frame:end_frame, idx]
                             peak_val = np.max(neuron_data)
@@ -72,6 +74,8 @@ class DecoderAnalyzer:
                             
                             peaks.append(peak_val)
                             peak_frames.append(peak_frame)
+                            global_indices.append(idx)  # Store global index
+
                             # Flag the neuron as significant if the peak value exceeds the 95th percentile
                             if method == 'shuffled_peak':#threshold is None:
                                 # Compute the peak value for the shuffled distribution
@@ -103,7 +107,8 @@ class DecoderAnalyzer:
                             'peak_frames': np.array(peak_frames),
                             'mean_peak': np.mean(peaks),
                             'sem_peak': np.std(peaks) / np.sqrt(len(peaks)),
-                            'significant_neurons': np.array(significant_neurons)  # Store significance for single-cell
+                            'significant_neurons': np.array(significant_neurons),  # Store significance for single-cell
+                            'global_indices': np.array(global_indices)  # Add global indices to output
                         }
             # Process population metrics
             for metric in pop_metrics:
@@ -219,14 +224,30 @@ class DecoderAnalyzer:
         return np.array(all_peaks), neuron_groups
     
     def analyze_significant_neurons(self, results_dict,shuffled_structure,method, decoder_type, start_frame, end_frame, metric = 'sc_instantaneous_information_mean',significance_percentile=95, threshold=None):   
-        """Analyze significant neurons for plotting."""
+        """
+        Analyze significant neurons for plotting.
+        
+        Returns:
+        --------
+        neuron_ids_by_dataset : dict
+            Dictionary of significant neuron indices by dataset and celltype
+        significance_struc : dict
+            Dictionary containing peak values, frames, and indices for significant neurons
+        all_significant_indices : list
+            List of global indices for all significant neurons across all celltypes
+        """
         neuron_ids_by_dataset = {}
         significance_struc = {}
+        significance_all = {}
+        all_significant_indices = []  # New list to store all significant indices
+
+        # Analyze peaks by cell type
         peaks_by_celltype = self.analyze_peaks_by_celltype(results_dict,shuffled_structure,method, decoder_type, start_frame, end_frame, significance_percentile,threshold)
 
         for dataset in results_dict:
             neuron_ids_by_dataset[dataset] = {}
             significance_struc[dataset] = {}
+            dataset_significant_indices = []  # Track significant indices per dataset
             
             for celltype in peaks_by_celltype[dataset]:
                 neuron_ids_by_dataset[dataset][celltype] = []
@@ -236,12 +257,24 @@ class DecoderAnalyzer:
                 # Extract significant neurons
                 significant_neurons = peaks_by_celltype[dataset][celltype]['sc'][metric]['significant_neurons']
                 neuron_ids_by_dataset[dataset][celltype] = np.where(significant_neurons)[0].tolist()
+                global_indices = peaks_by_celltype[dataset][celltype]['sc'][metric]['global_indices']
+
+                # Store global indices of significant neurons
+                significant_indices = np.where(significant_neurons)[0]
+                significant_global_indices = global_indices[significant_indices]
+                dataset_significant_indices.extend(significant_global_indices)  # Accumulate only for this dataset
+
                 # Add peak data for significant neurons
                 significant_indices = neuron_ids_by_dataset[dataset][celltype]
                 significance_struc[dataset][celltype]['peak_values'] = peaks_by_celltype[dataset][celltype]['sc'][metric]['peak_values'][significant_indices]
                 significance_struc[dataset][celltype]['peak_frames'] = peaks_by_celltype[dataset][celltype]['sc'][metric]['peak_frames'][significant_indices]
+                significance_struc[dataset][celltype]['neuron_indices'] = significant_global_indices
+
+            # Add combined significant neurons for the dataset
+            significance_struc[dataset]['sig_neurons_all'] = np.sort(np.array(dataset_significant_indices))
+            significance_all[dataset] = np.sort(np.array(dataset_significant_indices))
             
-        return neuron_ids_by_dataset, significance_struc
+        return neuron_ids_by_dataset, significance_struc, significance_all
     
     def analyze_significant_neurons_by_threshold(self, results_dict, decoder_type, start_frame, end_frame, metric='sc_instantaneous_information_mean', threshold=0.5):
         """Analyze significant neurons by threshold, looping through cell types defined in self.cell_types."""
