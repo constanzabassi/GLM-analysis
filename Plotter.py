@@ -22,10 +22,34 @@ from scipy.stats import wilcoxon
 from AnalysisManagerEncoding import AnalysisManagerEncoding as analysisenc #using bonferroni correction
 
 class Plotter:
-    def __init__(self, data, celltypecolors=None, save_results=None, color_map_dict = None):
+    def __init__(self, data, celltypecolors=None, save_results=None, color_map_dict = None, event_frames=None):
+        """
+        Initialize Plotter class with default colors and event frames
+        
+        Parameters:
+        -----------
+        data : dict, optional
+            Data to plot
+        celltypecolors : dict, optional
+            Custom colors for cell types
+        save_results : str, optional
+            Path to save results
+        color_map_dict : dict, optional
+            Dictionary mapping (celltype, model) to specific colors
+        event_frames : array-like, optional
+            Frame indices of events to mark on plots. If None, uses default frames
+        """
+
         self.data = data
         self.save_results = save_results
         self.color_map_dict = color_map_dict # Dictionary mapping (celltype, model) to specific colors.
+        # Default event frames
+        self.default_event_frames = np.array([6., 38., 70., 131., 145.])
+        # Event meanings:
+        # [0] (6): Sound onset/photostim
+        # [3] (131): Choice
+        # [4] (145): Outcome
+        self.event_frames = event_frames if event_frames is not None else self.default_event_frames
 
         # Default cell type colors
         self.default_colors = {
@@ -44,6 +68,14 @@ class Plotter:
         
         # Use custom colors if provided, otherwise use defaults
         self.celltypecolors = celltypecolors if celltypecolors is not None else self.default_colors
+
+        self.default_cell_type_labels = {
+            'pyr': 'Pyr',
+            'som': 'SOM',
+            'pv': 'PV'
+        }
+        # Use custom colors if provided, otherwise use defaults
+        self.cell_type_labels = celltypecolors if celltypecolors is not None else self.default_cell_type_labels
 
     def add_significance_line(self,ax, x1, x2=None, y=None, significance='', color='black'):
         """
@@ -711,7 +743,7 @@ class Plotter:
 
         # Create legend elements with invisible markers and colored labels
         legend_elements = [
-            plt.Line2D([0], [0], marker='o', color='none', label=cell_type, markerfacecolor='none', linestyle='None')
+            plt.Line2D([0], [0], marker='o', color='none', label=self.cell_type_labels.values(), markerfacecolor='none', linestyle='None')
             for cell_type in color_dict.keys()
         ]
 
@@ -804,7 +836,7 @@ class Plotter:
 
         # Label x-axis ticks
         ax.set_xticks(positions)
-        ax.set_xticklabels(neuron_groups.keys(), fontsize=14)
+        ax.set_xticklabels(self.cell_type_labels.values(), fontsize=14) #neuron_groups.keys()
 
         # Hide x-axis major ticks
         ax.tick_params(axis='x', which='major', length=0)
@@ -862,7 +894,7 @@ class Plotter:
         ax.set_ylabel(f'{measure_string}', fontsize=14)
         ax.set_xlabel('Cell type', fontsize=14)
         ax.set_xticks(positions)
-        ax.set_xticklabels(neuron_groups.keys(), fontsize=14)
+        ax.set_xticklabels(self.cell_type_labels.values(), fontsize=14) #neuron_groups.keys()
         ax.tick_params(axis='x', which='major', length=0)
 
         # # Clean up the appearance
@@ -1036,7 +1068,7 @@ class Plotter:
         
         plt.show()
 
-    def plot_cdf_coupling_index(self, coupling_index, cell_ids, colors,title, save_path=None,xlabel = 'Coupling Index', xval = 1.1, xint = 0.2):
+    def plot_cdf_coupling_index(self, coupling_index, cell_ids, colors,title, save_path=None,xlabel = 'Coupling Index', xval = 1.1, xint = 0.2, perform_stats=False):
         """
         Create a CDF plot for coupling index across different cell types.
 
@@ -1055,6 +1087,10 @@ class Plotter:
         plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
 
         plt.figure(figsize=(3, 3))
+
+        # Store data by cell type for statistical testing
+        data_by_celltype = {}
+
         # Create a mapping from cell labels to colors
         color_map = {label: colors[label] for label in np.unique(cell_ids)}
         
@@ -1067,6 +1103,8 @@ class Plotter:
         for cell_type in cell_types:
             # Get indices for the current cell type
             indices = np.where(cell_ids == cell_type)[0]
+            type_data = coupling_index[indices]
+            data_by_celltype[cell_type] = type_data
                 
             # Get coupling index values for the current cell type
             type_coupling_index = coupling_index[indices]
@@ -1084,7 +1122,7 @@ class Plotter:
             p1 = n1 / np.sum(n1)  # Probability
             cdf = np.cumsum(p1)  # Cumulative sum to get CDF
             
-            plt.plot(x1[:-1], cdf, label=cell_type, linewidth= 2, color=color_map[cell_type])  # x1[:-1] because histogram bins include right edge
+            plt.plot(x1[:-1], cdf, label=self.cell_type_labels[cell_type], linewidth= 2, color=color_map[cell_type])  # x1[:-1] because histogram bins include right edge
         
         
 
@@ -1107,7 +1145,7 @@ class Plotter:
         plt.title(title)
         # Create legend with just colored text
         legend_elements = [
-            plt.Line2D([0], [0], marker='o', color='none', label=cell_type, 
+            plt.Line2D([0], [0], marker='o', color='none', label=self.cell_type_labels[cell_type], 
                     markerfacecolor='none', linestyle='None')
             for cell_type in color_map.keys()
         ]
@@ -1115,6 +1153,23 @@ class Plotter:
                         handlelength=0, handletextpad=0.1)
         for text, color in zip(legend.get_texts(), color_map.values()):
             text.set_color(color)
+
+        # Perform statistical comparisons if requested
+        if perform_stats:
+            print("\nStatistical Comparisons:")
+            comparisons = list(itertools.combinations(cell_types, 2))
+            for type1, type2 in comparisons:
+                data1 = data_by_celltype[type1]
+                data2 = data_by_celltype[type2]
+                
+                # Kolmogorov-Smirnov test for distribution differences
+                ks_stat, p_value = scipy.stats.ks_2samp(data1, data2)
+                print(f"{type1} vs {type2}:")
+                print(f"KS statistic: {ks_stat:.4f}, p-value: {p_value:.4f}")
+                
+                # Mann-Whitney U test for median differences
+                u_stat, p_value = scipy.stats.mannwhitneyu(data1, data2, alternative='two-sided')
+                print(f"Mann-Whitney U statistic: {u_stat:.4f}, p-value: {p_value:.4f}\n")
 
         # plt.legend(frameon = False)
         # plt.axis('equal')
@@ -1282,7 +1337,8 @@ class Plotter:
         # plt.xlabel('Time (frames)')
         
         plt.tight_layout()
-        xticks_in, xticks_lab = self.x_axis_sec_aligned(0, data_matrix.shape[1], interval=20, frame_rate=30)
+        event_onset = self.get_event_frame_for_decoder(decoder_type)
+        xticks_in, xticks_lab = self.x_axis_sec_aligned(event_onset- 0, data_matrix.shape[1], interval=10, frame_rate=30)
 
         plt.xticks(ticks=xticks_in, labels=xticks_lab)
         plt.xlabel('Time (s)')
@@ -1540,7 +1596,7 @@ class Plotter:
                 plt.fill_between(range(len(mean)), mean-sem, mean+sem, alpha=0.2, color=color)
 
         ax = plt.gca()
-        ax.axvline(x=start_frame, color='k', linestyle=':', alpha=0.5)
+        # ax.axvline(x=start_frame, color='k', linestyle=':', alpha=0.5)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.set_box_aspect(1)
@@ -1549,8 +1605,9 @@ class Plotter:
         # plt.xlabel('Time (frames)')
         plt.ylabel('Information (bits)')
 
-        event_onset = 0
-        xticks_in, xticks_lab = self.x_axis_sec_aligned(event_onset, end_frame - start_frame, interval=10, frame_rate=30)
+        event_onset = self.get_event_frame_for_decoder(decoder_type)
+        xticks_in, xticks_lab = self.x_axis_sec_aligned(event_onset- start_frame, end_frame - start_frame, interval=10, frame_rate=30)
+        ax.axvline(x=event_onset- start_frame, color='k', linestyle=(0, (5, 5)), alpha=0.5)
 
         plt.xticks(ticks=xticks_in, labels=xticks_lab)
         plt.xlabel('Time (s)')
@@ -1572,7 +1629,7 @@ class Plotter:
         """
         plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
         percentages_by_celltype = {ct: [] for ct in self.celltypecolors.keys()}
-        percentages_by_celltype["all"] = []
+        percentages_by_celltype["All"] = []
         
         # Track totals across all datasets
         total_significant_across_datasets = 0
@@ -1604,7 +1661,7 @@ class Plotter:
 
             total_neurons_across_datasets += total_neurons_all
             if total_neurons_all > 0:
-                percentages_by_celltype["all"].append((total_significant_all / total_neurons_all) * 100)
+                percentages_by_celltype["All"].append((total_significant_all / total_neurons_all) * 100)
 
         print(f'Total significant neurons across all datasets: {total_significant_across_datasets}')
         print(f'Total neurons across all datasets: {total_neurons_across_datasets}')
@@ -1616,19 +1673,19 @@ class Plotter:
 
         # Plot bar chart
         fig, ax = plt.subplots(figsize=(3,3))
-        x_positions = np.arange(len(self.celltypecolors) + 1)  # One bar per cell type + "all"
+        x_positions = np.arange(len(self.celltypecolors) + 1)  # One bar per cell type + "All"
         colors = [self.celltypecolors[ct] for ct in self.celltypecolors.keys()] + ["black"] #[(0, 0, 0)]#
 
-        # # ax.bar(x_positions, [means[ct] for ct in list(self.celltypecolors.keys()) + ["all"]], 
-        # #     yerr=[sems[ct] for ct in list(self.celltypecolors.keys()) + ["all"]],
+        # # ax.bar(x_positions, [means[ct] for ct in list(self.celltypecolors.keys()) + ["All"]], 
+        # #     yerr=[sems[ct] for ct in list(self.celltypecolors.keys()) + ["All"]],
         # #     color=colors, edgecolor="black", capsize=5, alpha=1, width=0.6)
 
         # # Bar plot with error bars, colored edges, white interior, and error bar caps
 
         # Plot each bar individually to set the color, edgecolor, and error bar styling
         for i, (mean, sem, color) in enumerate(zip(
-            [means[ct] for ct in list(self.celltypecolors.keys()) + ["all"]],
-            [sems[ct] for ct in list(self.celltypecolors.keys()) + ["all"]],
+            [means[ct] for ct in list(self.celltypecolors.keys()) + ["All"]],
+            [sems[ct] for ct in list(self.celltypecolors.keys()) + ["All"]],
             colors,
         )):
             # Create the bar
@@ -1655,7 +1712,7 @@ class Plotter:
 
         # Aesthetics
         ax.set_xticks(x_positions)
-        ax.set_xticklabels(list(self.celltypecolors.keys()) + ["all"], fontsize=12)
+        ax.set_xticklabels(list(self.cell_type_labels.values())+ ["All"], fontsize=12) #list(self.celltypecolors.keys()) + ["All"], fontsize=12)
         ax.set_ylabel("% Modulated Neurons", fontsize=14)
         #ax.set_title("Significantly Modulated Neurons Across Cell Types", fontsize=14)
         ax.spines["top"].set_visible(False)
@@ -1669,7 +1726,7 @@ class Plotter:
 
         # Print summary
         print("Significantly Modulated Neurons (% ± SEM):")
-        for celltype in list(self.celltypecolors.keys()) + ["all"]:
+        for celltype in list(self.celltypecolors.keys()) + ["All"]:
             print(f"{celltype}: {means[celltype]:.2f} ± {sems[celltype]:.2f}%")
 
 
@@ -2005,6 +2062,35 @@ class Plotter:
             plt.savefig(os.path.join(save_dir, f"{dataset_key}_{metric}.png"))
         
         plt.show()
+
+
+    def get_event_frame_for_decoder(self, decoder_type):
+        """
+        Get the event frame for a given decoder type.
+        
+        Parameters:
+        -----------
+        decoder_type : str
+            Type of decoder (e.g., 'outcome', 'choice', 'sound_category', 'photostim')
+            Can include 'shuffled/' prefix
+        
+        Returns:
+        --------
+        float
+            Event frame number (6 for sound/photostim, 131 for choice, 145 for outcome)
+        """
+        # Remove 'shuffled/' prefix if present
+        decoder_base = decoder_type.replace('shuffled/', '')
+        
+        # Map decoder types to event frame indices
+        decoder_to_event = {
+            'outcome': self.event_frames[4],    # Frame 145
+            'choice': self.event_frames[3],     # Frame 131
+            'sound_category': self.event_frames[0],  # Frame 6
+            'photostim': self.event_frames[0]   # Frame 6
+        }
+        
+        return decoder_to_event.get(decoder_base, self.event_frames[0])  # Default to first frame if not found
 
 
 
