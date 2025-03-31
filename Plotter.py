@@ -853,7 +853,68 @@ class Plotter:
         #find significant changes between groups
         # add_significance_stars(ax, data, neuron_groups, alpha=0.05)
 
-    def bar_plot(self, data, neuron_groups, colors, measure_string, bar_width=0.5, save_path = None):
+    def violin_plot(self, data, neuron_groups, colors, measure_string, save_path=None):
+        """
+        Create a violin plot to compare distribution across cell types.
+        
+        Parameters:
+        -----------
+        data : array-like
+            Data to plot
+        neuron_groups : dict
+            Dictionary containing indices for each cell type
+        colors : dict
+            Dictionary of colors for each cell type
+        measure_string : str
+            Label for y-axis
+        save_path : str, optional
+            Path to save the plot
+        """
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        fig, ax = plt.subplots(1, 1, figsize=(3, 3))
+        
+        # Prepare data for violin plot
+        plot_data = []
+        labels = []
+        color_list = []
+        
+        positions = np.arange(1, len(neuron_groups) + 1)
+        for i, (group, cel_indices) in enumerate(neuron_groups.items()):
+            flat_indices = np.ravel(cel_indices)
+            filtered_data = [data[idx] for idx in flat_indices if not np.isnan(data[idx])]
+            plot_data.append(filtered_data)
+            labels.append(self.cell_type_labels[group])
+            color_list.append(colors[group])
+        
+        # Create violin plot
+        parts = ax.violinplot(plot_data, positions=positions, showmeans=True)
+        
+        # Customize violin plot appearance
+        for i, pc in enumerate(parts['bodies']):
+            pc.set_facecolor('none')
+            pc.set_edgecolor(color_list[i])
+            pc.set_linewidth(2)
+        
+        # Customize mean lines
+        parts['cmeans'].set_color('black')
+        parts['cmeans'].set_linewidth(2)
+        
+        # Set labels and title
+        ax.set_ylabel(measure_string)
+        ax.set_xticks(positions)
+        ax.set_xticklabels(labels)
+        
+        # Clean up appearance
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        if save_path:
+            plt.savefig(save_path, bbox_inches='tight')
+        
+        plt.show()
+        return ax
+
+    def bar_plot(self, data, neuron_groups, colors, measure_string, bar_width=0.5, ylims = 0.5, save_path = None):
         """
         Create a bar plot with error bars to compare fraction deviance across cell types.
         Parameters:
@@ -876,6 +937,9 @@ class Plotter:
         positions = np.arange(len(neuron_groups)) + 1
         means = []
         errors = []
+        color_list = []
+        labels = []
+
         for group, indices in neuron_groups.items():
             flat_indices = np.ravel(indices)  # Flatten the indices to 1D array
             # Filter out NaN values from group data
@@ -884,11 +948,25 @@ class Plotter:
             # group_data = [data[idx] for idx in flat_indices]
             means.append(np.mean(group_data))
             errors.append(np.std(group_data) / np.sqrt(len(group_data)))  # Standard error
+            color_list.append(colors[group])
+            labels.append(self.cell_type_labels[group])
+
         means = np.array(means)
         errors = np.array(errors)
         # Create bar plot with uncolored inside and colored outlines
-        bars = ax.bar(positions, means, yerr=errors, capsize=5, edgecolor=[colors[group] for group in neuron_groups],
-                    facecolor='white', linewidth=2, width=bar_width, ecolor='black')#, ecolor=[colors[group] for group in neuron_groups]
+        # bars = ax.bar(positions, means, yerr=errors, capsize=5, edgecolor=[colors[group] for group in neuron_groups],
+        #             facecolor='white', linewidth=2, width=bar_width, ecolor=[colors[group] for group in neuron_groups])#, ecolor=[colors[group] for group in neuron_groups]
+        # Plot each bar separately with its own color
+        for i, (group, mean, error) in enumerate(zip(neuron_groups, means, errors)):
+            ax.bar(positions[i], mean,
+                yerr=error,
+                capsize=5,
+                color='white',
+                edgecolor=colors[group],
+                linewidth=2,
+                width=bar_width,
+                error_kw={'ecolor': colors[group]})
+    
         # Set labels and title
         ax.set_title(f'{measure_string} Across Cell types', fontsize=14)
         ax.set_ylabel(f'{measure_string}', fontsize=14)
@@ -896,6 +974,9 @@ class Plotter:
         ax.set_xticks(positions)
         ax.set_xticklabels(self.cell_type_labels.values(), fontsize=14) #neuron_groups.keys()
         ax.tick_params(axis='x', which='major', length=0)
+
+        if ylims:
+            ax.set_ylim(0, ylims)
 
         # # Clean up the appearance
         ax.spines['top'].set_visible(False)
