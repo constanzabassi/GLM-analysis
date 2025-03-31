@@ -1546,8 +1546,15 @@ class Plotter:
         ax.set_box_aspect(1)
 
         plt.title('Average Information Time Course by Cell Type')
-        plt.xlabel('Time (frames)')
+        # plt.xlabel('Time (frames)')
         plt.ylabel('Information (bits)')
+
+        event_onset = 0
+        xticks_in, xticks_lab = self.x_axis_sec_aligned(event_onset, end_frame - start_frame, interval=10, frame_rate=30)
+
+        plt.xticks(ticks=xticks_in, labels=xticks_lab)
+        plt.xlabel('Time (s)')
+
         plt.show()
 
     def plot_significant_neuron_percentages_by_celltype(self, significance_struc, neuron_groups, save_path=None):
@@ -1576,15 +1583,22 @@ class Plotter:
             total_significant_all = len(significance_struc[dataset]['sig_neurons_all'])
             total_significant_across_datasets += total_significant_all
 
+            # Get total neurons for this dataset
+            total_neurons_all = sum(len(neurons.flatten()) 
+                                for neurons in neuron_groups[dataset]['neuron_groups'].values())
+
             for celltype in self.celltypecolors:
                 celltype_neurons = neuron_groups[dataset]['neuron_groups'].get(celltype, np.array([])).flatten()
-                total_neurons = len(celltype_neurons)
-                total_neurons_all += total_neurons
+                # total_neurons = sum(len(neurons.flatten()) 
+                #                 for neurons in neuron_groups[dataset]['neuron_groups'].values())
+                # total_neurons_all += total_neurons
+
+                total_neurons_celltype = len(celltype_neurons)
                 
-                if total_neurons > 0:
+                if total_neurons_celltype > 0:
                     significant_neurons = significance_struc[dataset][celltype]['neuron_indices']
                     total_significant = len(significant_neurons)
-                    percentages_by_celltype[celltype].append((total_significant / total_neurons) * 100)
+                    percentages_by_celltype[celltype].append((total_significant / total_neurons_all) * 100)
                 else:
                     percentages_by_celltype[celltype].append(0)
 
