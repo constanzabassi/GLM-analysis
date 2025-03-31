@@ -23,7 +23,12 @@ class DataHandlerDecoding:
             decoded_variables = {'sound_category', 'choice', 'photostim', 'outcome',
                                 'shuffled/sound_category', 'shuffled/choice', 'shuffled/photostim', 'shuffled/outcome'} 
         else:  
-            self.decoded_variables = decoded_variables  
+            # self.decoded_variables = decoded_variables  
+            # Convert input to list if it's a set
+            self.decoded_variables = (
+                list(decoded_variables) if isinstance(decoded_variables, set) 
+                else decoded_variables
+            )
         self.cat_results = {}
         self.mean_results = {}
         self.mean_results_all = {}
@@ -150,6 +155,7 @@ class DataHandlerDecoding:
                 os.chdir(f'{decoding_dir}{splits+1}_1/')
                 print(f'{decoding_dir}{splits+1}_1/')
             else:
+                {'Loading regular results without single balance'}
                 os.chdir(f'{decoding_dir}{splits+1}/')
                 print(f'{decoding_dir}{splits+1}/')
             for variable in decoded_variables:
