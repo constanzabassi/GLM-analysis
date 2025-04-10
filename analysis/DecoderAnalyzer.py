@@ -19,14 +19,14 @@ class DecoderAnalyzer:
                    'pop_instantaneous_fraction_correct_mean',
                    'pop_cumulative_fraction_correct_mean']
         }
-        self.celltype_data = celltype_data
+        self.celltype_info = celltype_data
 
         # Set random seed for numpy
         np.random.seed(random_seed)
         # Set random seed for Python's random module
         random.seed(random_seed)
 
-    def analyze_peaks_by_celltype(self, mean_results_all, shuffled_structure,method ='range_threshold', decoder_type='sound_category', start_frame=14, end_frame=None, significance_percentile=95, threshold =None):
+    def analyze_peaks_by_celltype(self, mean_results_all, shuffled_structure,method ='range_threshold', decoder_type='sound_category', start_frame=14, end_frame=None, significance_percentile=95, threshold =None, window = 2):
         """Analyze peak responses separated by cell type and flag significantly informative neurons.
          Parameters:
         - data: dict, data for different cell types
@@ -90,6 +90,40 @@ class DecoderAnalyzer:
                                 shuffled_95th_percentile = np.percentile(shuffled_peak, significance_percentile)
                                 is_significant = peak_val > shuffled_95th_percentile
                                 significant_neurons.append(is_significant)
+                            elif method == 'shuffled_peak_window':
+                                # window = 1  # or 2 for wider window
+                                frame_range = np.arange(max(start_frame, peak_frame - window),
+                                                        min(end_frame, peak_frame + window + 1))
+                                shuffled_peaks = shuffled_data[frame_range, idx, :].max(axis=0)  # max across window
+                                # Compute the 95th percentile of the shuffled peak values
+                                shuffled_95th_percentile = np.percentile(shuffled_peaks, significance_percentile)
+                                is_significant = peak_val > shuffled_95th_percentile
+                                significant_neurons.append(is_significant)
+                            elif method == 'shuffled_peak_zscore':
+                                # window = 1  # number of frames on each side of peak to include
+                                significance_zscore = 2.0  # you can tweak this cutoff
+                                
+                                # Get a time window around the peak frame
+                                frame_start = max(start_frame, peak_frame - window)
+                                frame_end = min(end_frame, peak_frame + window + 1)
+                                frame_range = np.arange(frame_start, frame_end)
+
+                                # Get the max value from the shuffled distribution within this window
+                                shuffled_peaks = shuffled_data[frame_range, idx, :].max(axis=0)
+
+                                # Compute z-score of the real peak against the shuffled distribution
+                                shuff_mean = np.mean(shuffled_peaks)
+                                shuff_std = np.std(shuffled_peaks)
+
+                                # Handle case where std is 0 (flat shuffle)
+                                if shuff_std == 0:
+                                    z_score = np.inf if peak_val > shuff_mean else -np.inf
+                                else:
+                                    z_score = (peak_val - shuff_mean) / shuff_std
+
+                                is_significant = z_score > significance_zscore
+                                significant_neurons.append(is_significant)
+
                             elif method == 'combined':
                                 # Calculate threshold from shuffled data
                                 shuffled_dist = shuffled_data[start_frame:end_frame, idx, :]
@@ -97,6 +131,17 @@ class DecoderAnalyzer:
                                 
                                 # Check if any real data point exceeds its corresponding threshold
                                 is_significant = np.any(neuron_data > threshold)
+                                significant_neurons.append(is_significant)
+                            elif method == 'combined_thr':
+                                # Calculate threshold from shuffled data
+                                shuffled_dist = shuffled_data[start_frame:end_frame, idx, :]
+                                shuff_threshold = np.percentile(shuffled_dist, significance_percentile) #, axis=1
+                                
+                                # Check if any real data point exceeds its corresponding threshold and some external threshold
+                                # Use parentheses and combine conditions properly
+                                condition1 = neuron_data > shuff_threshold
+                                condition2 = neuron_data > threshold
+                                is_significant = np.any(condition1 & condition2)
                                 significant_neurons.append(is_significant)
                             elif method == 'range_threshold':
                                 # print('range_threshold')
@@ -292,7 +337,7 @@ class DecoderAnalyzer:
             significance_struc[dataset] = {}
 
             # Get the indices for neurons of this cell type
-            celltype_array = self.celltype_data[dataset]['celltype_array']
+            celltype_array = self.celltype_info[dataset]['celltype_array']
             # Get indices for each cell type
             celltype_indices = {
                 'pyr': np.where(celltype_array == 0)[0],
@@ -332,6 +377,100 @@ class DecoderAnalyzer:
                 significance_struc[dataset][celltype]['peak_frames'] = np.argmax(data_celltype[:, significant_neurons], axis=0) + start_frame
 
         return neuron_ids_by_dataset, significance_struc
+
+
+    def wrapper_info_plots_analysis(self, 
+                                       results_dict,
+                                       shuffled_structure,
+                                       plotter,
+                                       decoder_type='sound_category',
+                                       start_frame=14,
+                                       end_frame=None,
+                                       metric='sc_instantaneous_information_mean',
+                                       significance_percentile=95,
+                                       threshold=None,
+                                       method='shuffled_peaks',
+                                       save_path=None):
+        """
+        Orchestrate single neuron analysis and visualization.
+        
+        Args:
+            results_dict (dict): Dictionary containing decoder results
+            shuffled_structure (dict): Dictionary containing shuffled data
+            plotter (Plotter): Plotter instance for visualization
+            decoder_type (str): Type of decoder analysis
+            start_frame (int): Starting frame for analysis
+            end_frame (int, optional): Ending frame for analysis
+            metric (str): Metric to analyze
+            significance_percentile (float): Percentile for significance
+            threshold (float, optional): Threshold value
+            method (str): Method for analysis ('shuffled_peaks', 'combined', etc.)
+            save_path (str, optional): Base path for saving plots
+        
+        Returns:
+            tuple: (significant_neurons_data, significance_struc, significant_neurons)
+        """
+        # Analyze significant neurons
+        significant_neurons_data, significance_struc, significant_neurons = self.analyze_significant_neurons(
+            results_dict,
+            shuffled_structure,
+            method,
+            decoder_type,
+            start_frame,
+            end_frame,
+            metric,
+            significance_percentile,
+            threshold=threshold
+        )
+        
+        # Generate plots
+        plotter.plot_significant_neurons_distribution(
+            significance_struc,
+            save_path=f'{save_path}_hist.pdf'
+        )
+        
+        plotter.plot_time_course_by_cell_type(
+            results_dict,
+            decoder_type,
+            start_frame=start_frame,
+            end_frame=end_frame,
+            metric=metric,
+            significance_struc=significance_struc
+        )
+        
+        plotter.plot_summary_heatmap(
+            results_dict,
+            decoder_type,
+            start_frame,
+            end_frame,
+            metric,
+            significance_struc,
+            save_path=f'{save_path}_heatmap.pdf'
+        )
+        
+        plotter.plot_significant_neuron_percentages_by_celltype(
+            significance_struc,
+            self.celltype_info,
+            save_path=f'{save_path}.pdf'
+        )
+        
+        # Print debug information
+        print("Structure of significance_struc:")
+        for dataset in significance_struc:
+            for celltype in significance_struc[dataset]:
+                if celltype != 'sig_neurons_all':
+                    print(f"Dataset: {dataset}, Celltype: {celltype}, "
+                          f"Neurons: {len(significance_struc[dataset][celltype]['neuron_indices'])}")
+            print(f"Dataset: {dataset}, All sig neurons: "
+                  f"{len(significance_struc[dataset]['sig_neurons_all'])}")
+        
+        print("\nStructure of significant_neurons:")
+        if isinstance(significant_neurons, np.ndarray):
+            print(f"Total significant neurons: {len(significant_neurons)}")
+        else:
+            print(f"Type of significant_neurons: {type(significant_neurons)}")
+        
+        return significant_neurons_data, significance_struc, significant_neurons
 
     
     # def analyze_significant_neurons_by_threshold(self, results_dict, decoder_type, start_frame, end_frame, metric='sc_instantaneous_information_mean', threshold=0.5):
