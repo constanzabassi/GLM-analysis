@@ -60,9 +60,9 @@ class Plotter:
 
         # Default variable colors (pairs for regular and shuffled) for each decoded variable
         self.default_variable_colors = {
-            'sound_category': ['steelblue', 'lightskyblue'],
-            'choice': ['saddlebrown', 'darkorange'],
-            'photostim': ['darkslateblue', 'mediumslateblue'],
+            'sound_category': ['darkslateblue', 'mediumslateblue'],
+            'choice': ['steelblue', 'lightskyblue'],
+            'photostim': ['saddlebrown', 'darkorange'],
             'outcome': ['mediumvioletred', 'hotpink']
         }
         
