@@ -186,7 +186,7 @@ class Plotter:
         
         return xticks_in, xticks_lab
 
-    def plot_with_seconds( self, stim_frame,length_frames, frame_rate=30,interval=1):
+    def plot_with_seconds( self, stim_frame,length_frames, frame_rate=30,interval=1 ,ax=None):
         """
         Plot data with x-axis in seconds.
         
@@ -195,12 +195,18 @@ class Plotter:
             stim_frame (int): Frame number where the stimulus event occurs
             frame_rate (int): Imaging frame rate (default is 30 Hz)
             interval (int): Interval for x-ticks (default is 1 second)  
+            ax = current axis
         """
+
+        if ax is None:
+            ax = plt.gca()
+
         length_frames = length_frames
         xticks_in, xticks_lab = self.x_axis_sec_aligned(stim_frame, length_frames, interval=interval, frame_rate=frame_rate)
 
-        plt.xticks(ticks=xticks_in, labels=xticks_lab)
-        plt.xlabel('Time (s)')
+        ax.set_xticks(xticks_in)
+        ax.set_xticklabels(xticks_lab)
+        ax.set_xlabel('Time (s)')
 
     #PREDICTOR PLOTTING FUNCTIONS
     # Create legend for coupling features

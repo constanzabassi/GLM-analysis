@@ -1,6 +1,8 @@
 from .path_utils import setup_paths
+# from .initialize import init_modules
 
 __all__ = ['setup_paths']
+
 # # First stage - only path setup
 # from .path_utils import setup_paths
 
