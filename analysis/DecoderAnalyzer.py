@@ -102,7 +102,7 @@ class DecoderAnalyzer:
                             elif method == 'shuffled_peak_zscore':
                                 # window = 1  # number of frames on each side of peak to include
                                 significance_zscore = 2.0  # you can tweak this cutoff
-                                
+
                                 # Get a time window around the peak frame
                                 frame_start = max(start_frame, peak_frame - window)
                                 frame_end = min(end_frame, peak_frame + window + 1)
@@ -188,6 +188,33 @@ class DecoderAnalyzer:
                             'is_significant': is_significant  # Store significance for population
                         }
         return peaks_by_celltype
+
+    import numpy as np
+
+    def universal_shuffled_threshold(self,shuffled_data, start_frame, end_frame, significance_percentile=95):
+        """
+        Determines significant neurons based on a universal threshold computed from all shuffled peaks.
+
+        Parameters:
+        - data: 2D array (frames x neurons), real info values
+        - shuffled_data: 3D array (frames x neurons x shuffles), shuffled info values
+        - start_frame: int, analysis start frame
+        - end_frame: int, analysis end frame
+        - significance_percentile: float, percentile for the universal threshold (default 95)
+
+        Returns:
+        - significant_neurons: list of bool, True if neuron is significant
+        - universal_threshold: float, the computed threshold from shuffled data
+        """
+        # Step 1: Get all peak values from shuffled data
+        shuffled_peaks_all = np.max(shuffled_data[start_frame:end_frame, :, :], axis=0)  # shape: (neurons x shuffles)
+        all_shuffled_peaks_flat = shuffled_peaks_all.flatten()
+
+        # Step 2: Compute the percentile threshold
+        universal_threshold = np.percentile(all_shuffled_peaks_flat, significance_percentile)
+
+        return universal_threshold
+
     
     def format_peaks_for_cdf(self, peaks_by_celltype, metric='sc_instantaneous_information_mean', significant_only=True):
         """
