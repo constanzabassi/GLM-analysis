@@ -191,7 +191,7 @@ class DecoderAnalyzer:
 
     import numpy as np
 
-    def universal_shuffled_threshold(self,shuffled_data, start_frame, end_frame, significance_percentile=95):
+    def universal_shuffled_threshold(self,shuffled_structure, start_frame, end_frame, significance_percentile=95,mode='peak'):
         """
         Determines significant neurons based on a universal threshold computed from all shuffled peaks.
 
@@ -201,19 +201,41 @@ class DecoderAnalyzer:
         - start_frame: int, analysis start frame
         - end_frame: int, analysis end frame
         - significance_percentile: float, percentile for the universal threshold (default 95)
+        - mode: str, either 'peak' or 'mean' to choose the summary metric from shuffled data
 
         Returns:
         - significant_neurons: list of bool, True if neuron is significant
         - universal_threshold: float, the computed threshold from shuffled data
         """
-        # Step 1: Get all peak values from shuffled data
-        shuffled_peaks_all = np.max(shuffled_data[start_frame:end_frame, :, :], axis=0)  # shape: (neurons x shuffles)
-        all_shuffled_peaks_flat = shuffled_peaks_all.flatten()
+        # Store thresholds for each dataset
+        dataset_thresholds = {}
+        
+        # Calculate threshold for each dataset
+        for dataset in shuffled_structure:
+            # Get shuffled data for this dataset
+            shuffled_data = shuffled_structure[dataset]
 
-        # Step 2: Compute the percentile threshold
-        universal_threshold = np.percentile(all_shuffled_peaks_flat, significance_percentile)
+            if mode == 'peak':
+                # Use max (peak) across frames
+                summary_values = np.max(shuffled_data[start_frame:end_frame, :, :], axis=0)  # shape: (neurons x shuffles)
+            elif mode == 'mean':
+                # Use mean across frames
+                summary_values = np.mean(shuffled_data[start_frame:end_frame, :, :], axis=0)  # shape: (neurons x shuffles)
+            else:
+                raise ValueError("Mode must be 'peak' or 'mean'.")
 
-        return universal_threshold
+            summary_flat = summary_values.flatten()
+            dataset_thresholds[dataset] = np.percentile(summary_flat, significance_percentile)
+        
+        # Calculate universal threshold as mean across datasets
+        universal_threshold = np.mean(list(dataset_thresholds.values()))
+        std_threshold = np.std(list(dataset_thresholds.values()))
+        
+        return {
+            'thresholds': dataset_thresholds,
+            'universal_threshold': universal_threshold,
+            'std_threshold': std_threshold
+        }
 
     
     def format_peaks_for_cdf(self, peaks_by_celltype, metric='sc_instantaneous_information_mean', significant_only=True):
