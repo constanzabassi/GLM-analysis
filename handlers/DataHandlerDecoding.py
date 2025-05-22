@@ -188,6 +188,7 @@ class DataHandlerDecoding:
                         print(f'File not found, trying fallback directory: {fallback_dir}')
                 else:
                     mat_path = Path(f'decoder_results_regular_{variable}.mat')
+                    # variable = variable.split('_')[0]
 
                 
                 print(mat_path)

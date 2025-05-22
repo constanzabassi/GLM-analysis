@@ -19,6 +19,7 @@ class DatasetProcessor:
     def process_datasets(self, 
                         data_loaders: List, 
                         celltype_info: Dict,
+                        save_string = 'VR',
                         save_path: Optional[str] = None) -> Dict:
         """
         Process multiple datasets and store aligned data.

@@ -103,6 +103,88 @@ class CellVisualizer:
             # plt.close()
         
         return fig, axes
+
+    def plot_informative_cell_overlay(self, 
+                                  aligned_imaging: np.ndarray,
+                                  cell_id: int,
+                                  all_conditions: List[tuple],
+                                  condition_colors: List[str],
+                                  title_base: Optional[str] = None,
+                                  peak_info: Optional[float] = None,
+                                  frames: Optional[tuple] = None,
+                                  save_path: Optional[str] = None) -> Tuple[plt.Figure, plt.Axes]:
+        """
+        Overlay mean ± SEM activity of a cell across all conditions on the same plot.
+
+        Parameters:
+        -----------
+        aligned_imaging : np.ndarray
+            Shape (trials, neurons, frames)
+        cell_id : int
+            Index of cell to plot
+        all_conditions : list of tuples
+            List of (trials, combination, label) for each condition
+        condition_colors : list of str
+            List of colors corresponding to each condition
+        title_base : str, optional
+            Title prefix
+        peak_info : float, optional
+            Peak info value for title
+        frames : tuple, optional
+            Start and end frames to plot (start_frame, end_frame)
+        save_path : str, optional
+            If provided, figure is saved here
+
+        Returns:
+        --------
+        fig, ax : Tuple of matplotlib Figure and Axes
+        """
+
+        fig, ax = plt.subplots(figsize=(4, 3))
+
+        for (trials, _, label), color in zip(all_conditions, condition_colors):
+            cell_data = aligned_imaging[trials, cell_id, :]
+
+            # Apply frame selection
+            if frames is not None:
+                start_frame, end_frame = frames
+                cell_data = cell_data[:, start_frame:end_frame]
+
+            mean_trace = np.mean(cell_data, axis=0)
+            sem_trace = np.std(cell_data, axis=0) / np.sqrt(len(trials))
+
+            ax.plot(mean_trace, color=color, linewidth=2, label=label)
+            ax.fill_between(np.arange(len(mean_trace)),
+                            mean_trace - sem_trace,
+                            mean_trace + sem_trace,
+                            alpha=0.3,
+                            color=color)
+
+        # Add event markers
+        for frame, event_label in zip(self.event_frames, self.event_labels):
+            ax.axvline(x=frame, color='r', linestyle='--', alpha=0.5)
+
+        # Labels and style
+        ax.set_xlabel('Frames')
+        ax.set_ylabel('ΔF/F')
+        title = f"{title_base or 'Cell'} {cell_id}"
+        if peak_info is not None:
+            title += f" | Peak info: {peak_info:.2f}"
+        ax.set_title(title, fontsize=12)
+
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_box_aspect(1)
+        ax.legend(frameon=False, fontsize=9)
+
+        # Optional time axis
+        self.plotter.plot_with_seconds(0, len(mean_trace), 30)
+
+        if save_path:
+            plt.savefig(save_path, bbox_inches='tight')
+
+        return fig, ax
+
     
     # def plot_informative_cell(self, 
     #                         aligned_imaging: np.ndarray,
