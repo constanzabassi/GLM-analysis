@@ -77,7 +77,7 @@ class Plotter:
         # Use custom colors if provided, otherwise use defaults
         self.cell_type_labels = celltypecolors if celltypecolors is not None else self.default_cell_type_labels
 
-    def add_significance_line(self,ax, x1, x2=None, y=None, significance='', color='black'):
+    def add_significance_line(self,ax, x1, x2=None, y=None, significance='', color='black', star_height_percentage = 0.02, fontsize=14):
         """
         Add significance line between two bars in the plot.
         If only x1 is provided, draw only the significance star without a line.
@@ -104,7 +104,7 @@ class Plotter:
 
         if x2 is not None:  # Draw line if both x1 and x2 are provided
             # Calculate line height as small percentage of y-axis range
-            line_height = (ylims[1] - ylims[0]) * 0.02
+            line_height = (ylims[1] - ylims[0]) * star_height_percentage
             line_y = y 
             text_y = y + line_height
 
@@ -114,11 +114,11 @@ class Plotter:
             
             # Add text
             ax.text((x1 + x2) * 0.5, text_y, significance, 
-                    ha='center', va='bottom', color=color, fontsize=14)
+                    ha='center', va='bottom', color=color, fontsize=fontsize)
         else:  # Only x1 is provided, so draw only the significance star
             if y is not None:
                 ax.text(x1, y, significance, 
-                    ha='center', va='bottom', color=color, fontsize=14)
+                    ha='center', va='bottom', color=color, fontsize=fontsize)
                     
     def generate_xlabels(self,cell_types_first_half, cell_types_second_half, connector='w'):
         """
@@ -1934,7 +1934,14 @@ class Plotter:
         for i in range(data.shape[0]):
             for j in range(i + 1, data.shape[0]):
                 print(f' {data[i, frames], data[j, frames]} ')
-                stat, p_value = wilcoxon(data[i, frames], data[j, frames])
+                # Fixed the argument order in permutation_test call
+                p_value, _ = analysisenc.perform_permutation_test(
+                    self,
+                    data1=data[i, frames],
+                    data2=data[j, frames],
+                    paired=False,
+                    n_permutations=10000
+                )
                 all_p_values.append(p_value)
                 comparisons.append((i, j))
 

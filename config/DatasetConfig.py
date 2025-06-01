@@ -89,30 +89,53 @@ class DatasetConfig:
         filtered_datasets = []
         filtered_keys = []
 
-        if len(unique_vars) == 1 or (len(unique_vars) == 2 and 
-            {'sound_category', 'choice'}.issubset(unique_vars)):
-            
-            indices_to_remove = set()
+        # Check each dataset
+        all_datasets = self.get_datasets()
+        for i, (dataset, key) in enumerate(zip(all_datasets, self.mouse_dates_keys)):
+            # Get available variables for this dataset
+            available_vars = set()
             for var in unique_vars:
-                base_var = var.replace('shuffled/', '')
-                if base_var in self.variable_indices:
-                    indices_to_remove.update(self.variable_indices[base_var]['missing'])
+                if var in self.variable_indices and i not in self.variable_indices[var]['missing']:
+                    available_vars.add(var)
             
-            # Include specified datasets
-            if include_datasets:
-                indices_to_remove = indices_to_remove - set(include_datasets)
+            # Determine if dataset should be included
+            include = False
+            if include_datasets and i in include_datasets:
+                include = True
+            elif require_all and available_vars == unique_vars:
+                include = True
+            elif not require_all and available_vars:
+                include = True
+                
+            if include:
+                filtered_datasets.append(dataset)
+                filtered_keys.append(key)
+                print(f"\nIncluding dataset {key}:")
+                print(f"Available variables: {available_vars}")
+        # if len(unique_vars) == 1 or (len(unique_vars) == 2 and 
+        #     {'sound_category', 'choice'}.issubset(unique_vars)):
             
-            print(f"Indices to remove: {indices_to_remove}")
+        #     indices_to_remove = set()
+        #     for var in unique_vars:
+        #         base_var = var.replace('shuffled/', '')
+        #         if base_var in self.variable_indices:
+        #             indices_to_remove.update(self.variable_indices[base_var]['missing'])
             
-            # Filter datasets
-            all_datasets = self.get_datasets()
-            for i, (dataset, key) in enumerate(zip(all_datasets, self.mouse_dates_keys)):
-                if i not in indices_to_remove:
-                    filtered_datasets.append(dataset)
-                    filtered_keys.append(key)
-        else:
-            filtered_datasets = self.get_datasets()
-            filtered_keys = self.mouse_dates_keys.copy()
+        #     # Include specified datasets
+        #     if include_datasets:
+        #         indices_to_remove = indices_to_remove - set(include_datasets)
+            
+        #     print(f"Indices to remove: {indices_to_remove}")
+            
+        #     # Filter datasets
+        #     all_datasets = self.get_datasets()
+        #     for i, (dataset, key) in enumerate(zip(all_datasets, self.mouse_dates_keys)):
+        #         if i not in indices_to_remove:
+        #             filtered_datasets.append(dataset)
+        #             filtered_keys.append(key)
+        # else:
+        #     filtered_datasets = self.get_datasets()
+        #     filtered_keys = self.mouse_dates_keys.copy()
 
         print(f"\nFiltered datasets ({len(filtered_datasets)}):")
         for animalID, date, server in filtered_datasets:

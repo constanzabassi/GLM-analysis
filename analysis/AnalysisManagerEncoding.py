@@ -3,6 +3,7 @@ import os
 import pickle
 import scipy
 from scipy import stats
+from scipy.stats import permutation_test
 import h5py
 import random
 
@@ -170,6 +171,52 @@ class AnalysisManagerEncoding:
         
         p_value = (more_extreme + 1) / (num_permutations + 1)  # Adding 1 to avoid p=0
         return observed_diff, p_value
+
+
+    def perform_permutation_test(self, data1, data2, paired=True, n_permutations=10000):
+        """
+        Perform permutation test between two groups using scipy.stats.
+        
+        Parameters:
+        -----------
+        data1, data2 : array-like
+            Data arrays to compare
+        paired : bool
+            Whether to perform paired (True) or unpaired (False) test
+        n_permutations : int
+            Number of permutations to perform
+        
+        Returns:
+        --------
+        float
+            p-value from permutation test
+        float
+            observed difference in means
+        """
+        data1 = np.array(data1)
+        data2 = np.array(data2)
+        
+        # Calculate observed difference in means
+        observed_diff = np.mean(data1) - np.mean(data2)
+        
+        if paired:
+            def stat_func(x, y):
+                return np.mean(x - y)
+            permutation_type = "samples"
+        else:
+            def stat_func(x, y):
+                return np.mean(x) - np.mean(y)
+            permutation_type = "independent"
+        
+        # Perform permutation test
+        res = permutation_test(
+            (data1, data2), 
+            stat_func,
+            n_resamples=n_permutations,
+            permutation_type=permutation_type
+        )
+        
+        return res.pvalue, observed_diff
     
     def plot_coupling_index_across_celltypes_cdf(self,results_list, model_types, threshold=0.05, comparisons=[('No Coupling', 'All')], significant_neurons=None, xlim_val = 1, recalculate_modulation=False):
         """
