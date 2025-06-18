@@ -497,7 +497,7 @@ class Plotter:
         """
 
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
 
         # Initialize the plot
         plt.figure(figsize=(3,3))
@@ -567,7 +567,7 @@ class Plotter:
         """
 
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
 
         # Initialize the plot
         plt.figure(figsize=(3,3))
@@ -698,7 +698,7 @@ class Plotter:
             None
         """
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
         fig, ax = plt.subplots(1, 1, figsize=(3, 3))
         
         # Get unique cell types from cell_ids
@@ -791,7 +791,7 @@ class Plotter:
         Create a box-and-whisker plot with significance bars.
         """
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
 
         fig, ax = plt.subplots(1,1, figsize = (3,3))
         #ax = plt.axes()
@@ -878,7 +878,7 @@ class Plotter:
         save_path : str, optional
             Path to save the plot
         """
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
         fig, ax = plt.subplots(1, 1, figsize=(3, 3))
         
         # Prepare data for violin plot
@@ -938,7 +938,7 @@ class Plotter:
             The width of the bars in the plot.
         """
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
 
         fig, ax = plt.subplots(1, 1, figsize=(2, 2))
         # Calculate positions for each cell type group along the x-axis
@@ -1013,7 +1013,7 @@ class Plotter:
             None
         """
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
 
         # Get unique cell types from cell_ids
         cell_types = np.unique(cell_ids)
@@ -1100,7 +1100,7 @@ class Plotter:
         #set colors
         colors = self.celltypecolors
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
 
         # Create a figure with 3 subplots (one for each cell type)
         fig, axs = plt.subplots(1, 3, figsize=(12, 4), sharey=True)
@@ -1173,7 +1173,7 @@ class Plotter:
         #convert to numpy array!!
         cell_ids = np.array(cell_ids)
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
 
         plt.figure(figsize=(3, 3))
 
@@ -1296,7 +1296,7 @@ class Plotter:
             save_dir (str): Directory to save plots (optional)
         """
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
         
         # Metrics to plot
         metrics = [
@@ -1704,10 +1704,10 @@ class Plotter:
 
         plt.show()
 
-    def plot_significant_neuron_percentages_by_celltype(self, significance_struc, neuron_groups, save_path=None):
+    def plot_significant_neuron_percentages_by_celltype_total(self, significance_struc, neuron_groups, save_path=None):
         """
         Plot the percentage of significantly modulated neurons per dataset for each cell type and all neurons combined.
-        
+        This function calculates the percentage of significant neurons for each cell type across all neurons.
         Parameters:
         -----------
         significance_struc : dict
@@ -1717,7 +1717,7 @@ class Plotter:
         save_path : str, optional
             Path to save the plot
         """
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
         percentages_by_celltype = {ct: [] for ct in self.celltypecolors.keys()}
         percentages_by_celltype["All"] = []
         
@@ -1820,6 +1820,124 @@ class Plotter:
             print(f"{celltype}: {means[celltype]:.2f} ± {sems[celltype]:.2f}%")
 
 
+    def plot_significant_neuron_percentages_by_celltype(self, significance_struc, neuron_groups, save_path=None):
+        """
+        Plot the percentage of significantly modulated neurons per dataset for each cell type (% within each cell type).
+        
+        Parameters:
+        -----------
+        significance_struc : dict
+            Dictionary containing significant neuron data by dataset and cell type.
+        neuron_groups : dict
+            Dictionary containing all neuron indices for each dataset, organized by cell type.
+        save_path : str, optional
+            Path to save the plot
+        """
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        percentages_by_celltype = {ct: [] for ct in self.celltypecolors.keys()}
+        
+        # Track totals across all datasets
+        total_significant_across_datasets = 0
+        total_neurons_across_datasets = 0
+
+        for dataset in significance_struc:
+            for celltype in self.celltypecolors:
+                celltype_neurons = neuron_groups[dataset]['neuron_groups'].get(celltype, np.array([])).flatten()
+                total_neurons_celltype = len(celltype_neurons)
+                total_neurons_across_datasets += total_neurons_celltype
+
+                if total_neurons_celltype > 0:
+                    significant_neurons = significance_struc[dataset][celltype]['neuron_indices']
+                    total_significant = len(significant_neurons)
+                    total_significant_across_datasets += total_significant
+                    percentages_by_celltype[celltype].append((total_significant / total_neurons_celltype) * 100)
+                else:
+                    percentages_by_celltype[celltype].append(0)
+
+        print(f'Total significant neurons across all datasets: {total_significant_across_datasets}')
+        print(f'Total neurons across all datasets: {total_neurons_across_datasets}')
+
+        # Calculate mean and SEM for each cell type
+        means = {ct: np.mean(percentages_by_celltype[ct]) for ct in percentages_by_celltype}
+        sems = {ct: np.std(percentages_by_celltype[ct]) / np.sqrt(len(percentages_by_celltype[ct])) 
+                for ct in percentages_by_celltype}
+
+        # Plot bar chart
+        fig, ax = plt.subplots(figsize=(1, 1), dpi=300)
+        x_positions = np.arange(len(self.celltypecolors))
+        colors = [self.celltypecolors[ct] for ct in self.celltypecolors]
+
+        for i, (ct, color) in enumerate(zip(self.celltypecolors, colors)):
+            mean = means[ct]
+            sem = sems[ct]
+            ax.bar(
+                x_positions[i],
+                mean,
+                facecolor='white',
+                edgecolor=color,
+                alpha=1,
+                width=0.6,
+                linewidth=1
+            )
+            ax.errorbar(
+                x_positions[i],
+                mean,
+                yerr=sem,
+                fmt='none',
+                ecolor=color,
+                elinewidth=1,
+                capsize=2,
+                capthick=1
+            )
+
+        # Aesthetics
+        ax.set_xticks(x_positions)
+        ax.set_xticklabels([plotter.cell_type_labels[ct] for ct in plotter.celltypecolors])
+        plt.xticks(rotation=45)
+        ax.set_ylabel("% Informative")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ylims =  plt.gca().get_ylim()
+
+        # perform permutation test for each cell type
+        celltype_keys = list(plotter.celltypecolors.keys())
+        all_p_values = []
+        comparisons = []
+        for i, celltype in enumerate(celltype_keys):
+            for j in range(i + 1, len(celltype_keys)):
+                other_celltype = celltype_keys[j]
+                comparisons.append((i, j))
+                # Get data for the two cell types
+                data_i = np.array(percentages_by_celltype[celltype])
+                data_j = np.array(percentages_by_celltype[celltype])
+                if len(data_i) == 0 or len(data_j) == 0:
+                    print(f"No significant peaks found for {celltype} or {other_celltype}. Skipping permutation test.")
+                    continue
+                
+                # Perform permutation test
+                p_value, _ = perform_permutation_test(data_i, data_j, paired=False, n_permutations=10000)
+                all_p_values.append(p_value)
+                print(f"Permutation test p-value for {celltype} vs {other_celltype}: {p_value:.4f}")    
+
+        _, significance_stars = analysisenc.calculate_bonferroni_significance(all_p_values, alpha=0.05)
+
+        # Add significance stars to the plot
+        count = 0
+        for (i, j), star in zip(comparisons, significance_stars):
+            if star != 'ns':  # Only add significance line if there is a star
+                plotter.add_significance_line(ax, x1=i, x2=j, y=ylims[1]-.05+count,significance=star, color='black')
+                count += .05
+
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight")
+        plt.tight_layout()
+        plt.show()
+
+        print("Significantly Modulated Neurons (% ± SEM):")
+        for ct in plotter.celltypecolors:
+            print(f"{ct}: {means[ct]:.2f} ± {sems[ct]:.2f}%")
+
+        return means, sems, percentages_by_celltype
 
 
     def scatter_plot_with_sem(self,labels, means, sems, colors=['blue', 'red'], title='Scatter Plot', ylabel='Value', save_dir=None):
@@ -1839,7 +1957,7 @@ class Plotter:
 
         fig, ax = plt.subplots(figsize=(3, 3))
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
         
         # Plot scatter points with error bars
         for i in range(len(labels)):
@@ -1887,7 +2005,7 @@ class Plotter:
 
         fig, ax = plt.subplots(figsize=(3,3))
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
         bars = ax.bar(x, means, width, yerr=sems, capsize=4, edgecolor= colors, facecolor='white', linewidth=2) #,ecolor=colors
 
         # Add some text for labels, title and custom x-axis tick labels, etc.
@@ -2192,7 +2310,7 @@ class Plotter:
         """Plot distribution of significant informative neurons."""
         fig, axes = plt.subplots(1, 2, figsize=(3, 1.6), dpi=300) #, constrained_layout=True
         plt.subplots_adjust(wspace=0.1,left=0.2, top=2)    # Adjust for more space between plots
-        plt.rcParams.update({'font.size': 10, 'font.family': 'arial'})  # Updated font size for clarity
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})  # Updated font size for clarity
 
         celltypes = list(['PYR', 'SOM', 'PV'])  # Define cell types to plot
         # Adjusted bin edges and color palette
