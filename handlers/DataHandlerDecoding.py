@@ -6,6 +6,8 @@ import random
 import h5py
 from pathlib import Path
 import argparse
+import re
+import scipy.io
 
 class DataHandlerDecoding:
     """

@@ -5,6 +5,11 @@ import scipy
 from scipy import stats
 import h5py
 import random
+import re
+
+#import stats class
+from utils.general_stats import GeneralStats
+from utils.Plotter import Plotter as plotter
 
 class DecoderAnalyzer:
     def __init__(self, celltype_data, random_seed=412):
@@ -25,6 +30,7 @@ class DecoderAnalyzer:
         np.random.seed(random_seed)
         # Set random seed for Python's random module
         random.seed(random_seed)
+        self.stats = GeneralStats()  # Instantiate GeneralStats
 
     def analyze_peaks_by_celltype(self, mean_results_all, shuffled_structure,method ='range_threshold', decoder_type='sound_category', start_frame=14, end_frame=None, significance_percentile=95, threshold =None, window = 2):
         """Analyze peak responses separated by cell type and flag significantly informative neurons.
@@ -89,6 +95,17 @@ class DecoderAnalyzer:
                                 # Compute the 95th percentile of the shuffled peak values
                                 shuffled_95th_percentile = np.percentile(shuffled_peak, significance_percentile)
                                 is_significant = peak_val > shuffled_95th_percentile
+                                significant_neurons.append(is_significant)
+                            elif method == 'shuffled_timepoint':
+                                # For each timepoint, compare to shuffled 95th percentile
+                                shuff = shuffled_data[start_frame:end_frame, idx, :]
+                                shuff_95 = np.percentile(shuff, significance_percentile, axis=1)
+                                sig_mask = neuron_data > shuff_95
+                                # Set non-significant info to zero
+                                neuron_data_sig = neuron_data * sig_mask
+                                peak_val = np.max(neuron_data_sig)
+                                peak_frame = np.argmax(neuron_data_sig) + start_frame
+                                is_significant = np.any(sig_mask)
                                 significant_neurons.append(is_significant)
                             elif method == 'shuffled_peak_window':
                                 # window = 1  # or 2 for wider window
@@ -188,8 +205,6 @@ class DecoderAnalyzer:
                             'is_significant': is_significant  # Store significance for population
                         }
         return peaks_by_celltype
-
-    import numpy as np
 
     def universal_shuffled_threshold(self,shuffled_structure, start_frame, end_frame, significance_percentile=95,mode='peak'):
         """
@@ -473,10 +488,10 @@ class DecoderAnalyzer:
         )
         
         # Generate plots
-        plotter.plot_significant_neurons_distribution(
-            significance_struc,
-            save_path=f'{save_path}_hist.pdf'
-        )
+        # plotter.plot_significant_neurons_distribution(
+        #     significance_struc,
+        #     save_path=f'{save_path}_hist.pdf'
+        # )
         
         plotter.plot_time_course_by_cell_type(
             results_dict,
@@ -497,11 +512,11 @@ class DecoderAnalyzer:
             save_path=f'{save_path}_heatmap.pdf'
         )
         
-        plotter.plot_significant_neuron_percentages_by_celltype(
-            significance_struc,
-            self.celltype_info,
-            save_path=f'{save_path}.pdf'
-        )
+        # plotter.plot_significant_neuron_percentages_by_celltype(
+        #     significance_struc,
+        #     self.celltype_info,
+        #     save_path=f'{save_path}.pdf'
+        # )
         
         # Print debug information
         print("Structure of significance_struc:")
@@ -521,6 +536,47 @@ class DecoderAnalyzer:
         
         return significant_neurons_data, significance_struc, significant_neurons
 
+    def sort_peaks_by_information(self, peaks_by_celltype, metric='sc_instantaneous_information_mean'):
+        """
+        Sorts neurons by peak information value for all datasets and cell types.
+        
+        Returns a nested dict with sorted 'global_indices' and 'peak_values' arrays.
+
+        ids_only is a dict with only global indices, useful for MATLAB compatibility.
+        """
+        sorted_peaks = {}
+        sorted_peaks_ids_only = {}
+        for dataset in peaks_by_celltype:
+            sorted_peaks[dataset] = {}
+            sorted_peaks_ids_only[dataset] = {}
+            for celltype in peaks_by_celltype[dataset]:
+                info_dict = peaks_by_celltype[dataset][celltype]['sc'][metric]
+                peak_values = np.array(info_dict['peak_values'])
+                global_indices = np.array(info_dict['global_indices'])
+                # Sort descending by peak_values
+                sorted_idx = np.argsort(peak_values)[::-1]
+                sorted_peaks[dataset][celltype] = {
+                    'global_indices': global_indices[sorted_idx],
+                    'peak_values': peak_values[sorted_idx]
+                }
+                # Store only global indices
+                sorted_peaks_ids_only[dataset][celltype] = np.array(global_indices[sorted_idx])
+        return sorted_peaks_ids_only, sorted_peaks
+
+    def flatten_for_matlab(self,sorted_peaks_ids_only):
+        """
+        Convert nested dict to a flat dict with tuple keys for MATLAB compatibility
+        """
+        mat_dict = {}
+        for dataset in sorted_peaks_ids_only:
+            # Replace invalid characters in dataset name
+            safe_dataset = re.sub(r'\W|^(?=\d)', '_', dataset)
+            for celltype in sorted_peaks_ids_only[dataset]:
+                key = f"{safe_dataset}_{celltype}"
+                mat_dict[key] = np.array(sorted_peaks_ids_only[dataset][celltype])
+        return mat_dict
+    
+    
     
     # def analyze_significant_neurons_by_threshold(self, results_dict, decoder_type, start_frame, end_frame, metric='sc_instantaneous_information_mean', threshold=0.5):
     #     """Analyze significant neurons that exceed a given threshold value for plotting."""

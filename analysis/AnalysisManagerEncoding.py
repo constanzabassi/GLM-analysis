@@ -23,33 +23,14 @@ import seaborn as sns
 from matplotlib.ticker import FormatStrFormatter
 #from .Plotter import Plotter as plotter
 
+#import stats class
+from utils.general_stats import GeneralStats
+
 class AnalysisManagerEncoding:
     def __init__(self, data, plotter):
         self.data = data
         self.plotter = plotter  # Store the plotter module
-
-    def calculate_bonferroni_significance(self,all_p_values, alpha=0.05):
-        """
-        Calculate Bonferroni corrected significance stars based on p-values.
-        """
-        num_tests = len(all_p_values)
-        bonferroni_threshold = alpha / num_tests
-        print(f"Bonferroni corrected alpha threshold: {bonferroni_threshold:.5f}")
-
-        corrected_p_values = [p * num_tests for p in all_p_values]
-        significance_stars = []
-
-        for corrected_p in corrected_p_values:
-            if corrected_p < 0.001:
-                significance_stars.append('***')
-            elif corrected_p < 0.01:
-                significance_stars.append('**')
-            elif corrected_p < 0.05:
-                significance_stars.append('*')
-            else:
-                significance_stars.append('ns')  # Not significant
-        
-        return corrected_p_values, significance_stars
+        self.stats = GeneralStats()  # Instantiate GeneralStats
 
     def generate_scatter_plots(self, results, model_type, comparisons = [
             ('No Coupling', 'All'),
@@ -156,67 +137,6 @@ class AnalysisManagerEncoding:
         # coupling_index[extreme_indices] = np.nan
 
         return coupling_index
-    
-    def paired_permutation_test(self,data1, data2, num_permutations=10000):
-        """Perform a paired permutation test between two datasets."""
-        observed_diff = np.nanmean(data1) - np.nanmean(data2)
-        combined = np.concatenate((data1, data2))
-        
-        more_extreme = 0
-        for _ in range(num_permutations):
-            np.random.shuffle(combined)
-            perm_diff = np.nanmean(combined[:len(data1)]) - np.nanmean(combined[len(data1):])
-            if abs(perm_diff) >= abs(observed_diff):
-                more_extreme += 1
-        
-        p_value = (more_extreme + 1) / (num_permutations + 1)  # Adding 1 to avoid p=0
-        return observed_diff, p_value
-
-
-    def perform_permutation_test(self, data1, data2, paired=True, n_permutations=10000):
-        """
-        Perform permutation test between two groups using scipy.stats.
-        
-        Parameters:
-        -----------
-        data1, data2 : array-like
-            Data arrays to compare
-        paired : bool
-            Whether to perform paired (True) or unpaired (False) test
-        n_permutations : int
-            Number of permutations to perform
-        
-        Returns:
-        --------
-        float
-            p-value from permutation test
-        float
-            observed difference in means
-        """
-        data1 = np.array(data1)
-        data2 = np.array(data2)
-        
-        # Calculate observed difference in means
-        observed_diff = np.mean(data1) - np.mean(data2)
-        
-        if paired:
-            def stat_func(x, y):
-                return np.mean(x - y)
-            permutation_type = "samples"
-        else:
-            def stat_func(x, y):
-                return np.mean(x) - np.mean(y)
-            permutation_type = "independent"
-        
-        # Perform permutation test
-        res = permutation_test(
-            (data1, data2), 
-            stat_func,
-            n_resamples=n_permutations,
-            permutation_type=permutation_type
-        )
-        
-        return res.pvalue, observed_diff
     
     def plot_coupling_index_across_celltypes_cdf(self,results_list, model_types, threshold=0.05, comparisons=[('No Coupling', 'All')], significant_neurons=None, xlim_val = 1, recalculate_modulation=False):
         """
@@ -416,6 +336,11 @@ class AnalysisManagerEncoding:
             #                 if idx not in filtered_indices:
             #                     coupling_index_by_comparison[comparison][cell_type][model_type][idx] = np.nan
 
+        comparisons_list = []
+        test_stats = []
+        p_values = []
+        all_stats_dict = {}
+
         for comparison in comparisons:
             label1, label2 = comparison
             # Paired permutation test for each cell type between model types
@@ -427,10 +352,21 @@ class AnalysisManagerEncoding:
                     data2 = np.array(coupling_index_by_comparison[comparison][cell_type][model_b])
 
                     # Perform paired permutation test
-                    observed_diff, p_value = self.paired_permutation_test(data1, data2)
+                    p_value, observed_diff= self.stats.perform_permutation_test(self, data1, data2, paired=True, n_permutations=10000)#paired_permutation_test(data1, data2)
 
                     print(f"Model {model_a} vs {model_b}:")
                     print(f"Observed Difference: {observed_diff:.4f}, P-value: {p_value:.4f}")
+
+                    comparisons_list.append((f"{comparison}_{cell_type}_{model_a}", f"{comparison}_{cell_type}_{model_b}"))
+                    test_stats.append(observed_diff)
+                    p_values.append(p_value)
+
+                    # Save stats for each group
+                    label1_stats = f"{comparison}_{cell_type}_{model_a}"
+                    label2_stats = f"{comparison}_{cell_type}_{model_b}"
+                    all_stats_dict[label1_stats] = self.stats.get_basic_stats(data1)
+                    all_stats_dict[label2_stats] = self.stats.get_basic_stats(data2)
+
 
             # Plot the CDF of coupling index for each cell type for the current comparison
             # Set global font size and family 
@@ -511,6 +447,11 @@ class AnalysisManagerEncoding:
             plt.savefig(os.path.join(self.plotter.save_results, save_string))
             plt.show()
 
+        # Save statistical test results to table
+        save_path = os.path.join(self.plotter.save_results)
+        df_tests = self.stats.to_table(comparisons_list, test_stats, p_values, save_path=f'{save_path}/stat_tests_{measure_string}.csv')
+        df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path}/basic_stats_{measure_string}.csv')
+
         return coupling_index_by_comparison, used_neurons
     
     def bar_plot_separated_coupling_index_diff(self, coupling_index_by_celltype, comparisons, model_pairs, colors, measure_string, bar_width=0.5, save_path=None, minmax=(0, 0.1), xaxislabel = None):
@@ -577,6 +518,11 @@ class AnalysisManagerEncoding:
                 bar_heights = [bar.get_height() for bar in bars]
                 bar_heights_al.append(bar_heights)
 
+            # variables to store statistics
+            all_stats_dict = {}
+            comparisons_list = []
+            test_stats = []
+
             # Statistical tests for differences from zero using Wilcoxon signed-rank test
             significance_stars = []
             for model1, model2 in model_pairs:
@@ -592,7 +538,33 @@ class AnalysisManagerEncoding:
                             p_values_for_this_comparison.append(p_value)
                             all_p_values.append(p_value)
                             print(f"{comparison} - {cell_type}: {model1} vs {model2} Wilcoxon p-value: {p_value:.5f}")
+
+                            comparisons_list.append((f"{comparison}_{cell_type}_{model1}", f"{comparison}_{cell_type}_{model2}"))
+                            test_stats.append(stat)
+
                             # Collect bar positions for drawing lines and stars
+
+                            ## save stats for each comparison
+                            # Suppose you have stats for several groups:
+                            stats_dict = {
+                                'group1': self.stats.get_basic_stats(cell_data[model1]),
+                                'group2': self.stats.get_basic_stats(cell_data[model2]),
+                                # etc.
+                            }
+
+                            # Save stats for each group
+                            label1 = f"{comparison}_{cell_type}_{model1}"
+                            label2 = f"{comparison}_{cell_type}_{model2}"
+                            all_stats_dict[label1] = self.stats.get_basic_stats(cell_data[model1])
+                            all_stats_dict[label2] = self.stats.get_basic_stats(cell_data[model2])
+
+            # After the plotting loop, save all stats to a table
+            if save_path:
+                df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path}/basic_stats_{measure_string}.csv')
+                df_tests = self.stats.to_table(comparisons_list, test_stats, p_values, save_path=f'{save_path}/stat_tests_{measure_string}.csv',type = 'wilcoxon')
+            else:
+                df_stats = self.stats.basic_stats_to_table(all_stats_dict)
+                df_tests = self.stats.to_table(comparisons_list, test_stats, p_values,type = 'wilcoxon')
 
             if xaxislabel is None:
                 ax.set_xticks(np.arange(len(model_pairs)) + 1 + bar_width)
@@ -621,7 +593,7 @@ class AnalysisManagerEncoding:
             
 
             # Calculate Bonferroni significance
-            corrected_p_values, significance_stars = self.calculate_bonferroni_significance(p_values_for_this_comparison)
+            corrected_p_values, significance_stars = self.stats.calculate_bonferroni_significance(p_values_for_this_comparison)
 
             # Draw significance lines and stars
             for idx, (p, star) in enumerate(zip(corrected_p_values, significance_stars)):
@@ -635,6 +607,8 @@ class AnalysisManagerEncoding:
                     # x2 = bar_positions[idx] + bar_width / 2
                     x1 = all_pos[idx]
                     self.plotter.add_significance_line(axs[i], x1, y=y, significance=star)
+
+            
         
         # Add a global title for the figure
         #fig.suptitle(f'{measure_string} Differences Across Comparisons and Cell Types', fontsize=16)

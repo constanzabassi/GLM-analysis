@@ -2,7 +2,6 @@ import numpy as np
 import os
 import pickle
 import scipy
-import h5py
 import random
 
 import numpy as np
@@ -19,7 +18,9 @@ from matplotlib.lines import Line2D
 import seaborn as sns
 from matplotlib.ticker import FormatStrFormatter
 from scipy.stats import wilcoxon
-from analysis.AnalysisManagerEncoding import AnalysisManagerEncoding as analysisenc #using bonferroni correction
+
+#import stats class
+from utils.general_stats import GeneralStats
 
 class Plotter:
     def __init__(self, data, celltypecolors=None, save_results=None, color_map_dict = None, event_frames=None):
@@ -76,6 +77,7 @@ class Plotter:
         }
         # Use custom colors if provided, otherwise use defaults
         self.cell_type_labels = celltypecolors if celltypecolors is not None else self.default_cell_type_labels
+        self.stats = GeneralStats()  # Instantiate GeneralStats
 
     def add_significance_line(self,ax, x1, x2=None, y=None, significance='', color='black', star_height_percentage = 0.02, fontsize=14):
         """
@@ -1601,39 +1603,39 @@ class Plotter:
     #     plt.show()
 
 
-    def plot_significant_neurons_distribution(self, significant_neurons_data, save_path = None):
-        """Plot distribution of significant neurons."""
-        fig, axes = plt.subplots(1, 2, figsize=(6, 3))
+    # def plot_significant_neurons_distribution(self, significant_neurons_data, save_path = None):
+    #     """Plot distribution of significant neurons."""
+    #     fig, axes = plt.subplots(1, 2, figsize=(6, 3))
 
-        for celltype, color in self.celltypecolors.items():
-            all_peaks = []
-            all_peaks_locs = []
+    #     for celltype, color in self.celltypecolors.items():
+    #         all_peaks = []
+    #         all_peaks_locs = []
 
-            for dataset in significant_neurons_data:
-                peaks = significant_neurons_data[dataset][celltype]['peak_values']
-                peaks_locs = significant_neurons_data[dataset][celltype]['peak_frames']
+    #         for dataset in significant_neurons_data:
+    #             peaks = significant_neurons_data[dataset][celltype]['peak_values']
+    #             peaks_locs = significant_neurons_data[dataset][celltype]['peak_frames']
 
-                all_peaks.extend(peaks)
-                all_peaks_locs.extend(peaks_locs)
+    #             all_peaks.extend(peaks)
+    #             all_peaks_locs.extend(peaks_locs)
 
-            axes[0].hist(all_peaks, alpha=1.0, color=color, label=celltype, histtype='step', linewidth=2)
-            axes[1].hist(all_peaks_locs, alpha=1.0, color=color, label=celltype, histtype='step', linewidth=2)
+    #         axes[0].hist(all_peaks, alpha=1.0, color=color, label=celltype, histtype='step', linewidth=2)
+    #         axes[1].hist(all_peaks_locs, alpha=1.0, color=color, label=celltype, histtype='step', linewidth=2)
 
-        axes[0].set_xlabel('Information (bits)')
-        axes[0].spines['top'].set_visible(False)
-        axes[0].spines['right'].set_visible(False)
+    #     axes[0].set_xlabel('Information (bits)')
+    #     axes[0].spines['top'].set_visible(False)
+    #     axes[0].spines['right'].set_visible(False)
 
-        axes[1].set_xlabel('Peak Frame')
-        axes[1].spines['top'].set_visible(False)
-        axes[1].spines['right'].set_visible(False)
+    #     axes[1].set_xlabel('Peak Frame')
+    #     axes[1].spines['top'].set_visible(False)
+    #     axes[1].spines['right'].set_visible(False)
 
-        fig.suptitle('Significant Neurons Distribution by Cell Type')
-        plt.tight_layout()
-        plt.show()
+    #     fig.suptitle('Significant Neurons Distribution by Cell Type')
+    #     plt.tight_layout()
+    #     plt.show()
 
-        # Save plot if save_path is provided
-        if save_path: 
-            plt.savefig(save_path, bbox_inches='tight')
+    #     # Save plot if save_path is provided
+    #     if save_path: 
+    #         plt.savefig(save_path, bbox_inches='tight')
 
     def plot_time_course_by_cell_type(self, results_dict, decoder_type, start_frame=14, end_frame=None, 
                                  metric='sc_instantaneous_information_mean', significance_struc=None):
@@ -1935,8 +1937,7 @@ class Plotter:
             for j in range(i + 1, data.shape[0]):
                 print(f' {data[i, frames], data[j, frames]} ')
                 # Fixed the argument order in permutation_test call
-                p_value, _ = analysisenc.perform_permutation_test(
-                    self,
+                p_value, _ = self.stats.perform_permutation_test(
                     data1=data[i, frames],
                     data2=data[j, frames],
                     paired=False,
@@ -1945,7 +1946,7 @@ class Plotter:
                 all_p_values.append(p_value)
                 comparisons.append((i, j))
 
-        corrected_p_values, significance_stars = analysisenc.calculate_bonferroni_significance(self,all_p_values, alpha=0.05)
+        corrected_p_values, significance_stars = self.stats.calculate_bonferroni_significance(all_p_values, alpha=0.05)
 
         # Add significance stars to the plot
         for (i, j), star in zip(comparisons, significance_stars):
@@ -2186,6 +2187,202 @@ class Plotter:
         }
         
         return decoder_to_event.get(decoder_base, self.event_frames[0])  # Default to first frame if not found
+    
+    def plot_significant_neurons_distribution(self,significant_neurons_data, event_frames=None, save_path=None, figure_type='cdf',star_height_percentage=0.05): 
+        """Plot distribution of significant informative neurons."""
+        fig, axes = plt.subplots(1, 2, figsize=(3, 1.6), dpi=300) #, constrained_layout=True
+        plt.subplots_adjust(wspace=0.1,left=0.2, top=2)    # Adjust for more space between plots
+        plt.rcParams.update({'font.size': 10, 'font.family': 'arial'})  # Updated font size for clarity
+
+        celltypes = list(['PYR', 'SOM', 'PV'])  # Define cell types to plot
+        # Adjusted bin edges and color palette
+        bin_edges_bits = np.arange(0.06, .2, .01)
+
+        #save peaks and peak locations for each cell type across all datasets concatenated
+        collected_peaks = {celltype: {'peak_values': [], 'peak_frames': []} for celltype in self.celltypecolors.keys()}
+
+        # Collect peaks and peak locations for each cell type across datasets   
+        for celltype, color in self.celltypecolors.items():
+            all_peaks = []
+            all_peaks_locs = []
+            for dataset in significant_neurons_data:
+                peaks = significant_neurons_data[dataset][celltype]['peak_values']
+                peaks_locs = significant_neurons_data[dataset][celltype]['peak_frames']
+                all_peaks.extend(peaks)
+                all_peaks_locs.extend(peaks_locs)
+
+            # collect all peaks and peak locations for each cell type
+            if not all_peaks:  # Check if there are no peaks for this cell type
+                print(f"No significant peaks found for cell type {celltype} in dataset {dataset}. Skipping plot.")
+            else:
+                #save the peaks and peak locations for each cell type
+                collected_peaks [celltype]['peak_values'] = all_peaks
+                collected_peaks [celltype]['peak_frames'] = all_peaks_locs
+                
+            if figure_type == 'violin':
+                # Plot violin plot with more customization
+                sns.violinplot(
+                    x=[celltype] * len(all_peaks),
+                    y=all_peaks,
+                    ax=axes[0],
+                    color=color,
+                    inner='box',
+                    linewidth=1,
+                    edgecolor=color,  # Add edge color for better visibility
+                    # bw=0.3  # Adjust bandwidth for smoother distributions
+                )
+                axes[0].set_ylabel("Peak Info. (bits)")
+                axes[0].set_xticklabels(celltypes, rotation=45,)
+                axes[0].set_ylim(0, 0.25)  # Setting y-axis limits to match example
+            if figure_type == 'cdf':
+                # Calculate CDF
+                x1 = np.linspace(0.05, .15, 100)  # Define range of x values
+                n1, _ = np.histogram(all_peaks, bins=x1)  # Histogram counts
+                p1 = n1 / np.sum(n1)  # Probability
+                cdf = np.cumsum(p1)  # Cumulative sum to get CDF
+                
+                axes[0].plot(x1[:-1], cdf, linewidth= 1, color=color)  # x1[:-1] because histogram bins include right edge
+                axes[0].set_ylabel("Cumulative Fraction")
+            elif figure_type == 'histogram':
+                # Plot histogram
+                ## Normalize to percent using density=True and scaling y by 100
+                weights = np.ones_like(all_peaks) / len(all_peaks)  # Normalize weights to sum to 1
+                axes[0].hist(all_peaks, alpha=1.0, color=color, label=celltype,
+                            histtype='step', linewidth=1, density=False,bins = bin_edges_bits,weights=weights)
+                axes[0].set_ylabel("Fraction")
+
+            # get ylimits
+            ylims =  plt.gca().get_ylim()
+            # Histogram for peak locations with customized style
+
+            # Calculate CDF
+            x1 = np.linspace(1, 169-14, 169-14)  # Define range of x values
+            n1, _ = np.histogram(all_peaks_locs, bins=x1)  # Histogram counts
+            p1 = n1 / np.sum(n1)  # Probability
+            cdf = np.cumsum(p1)  # Cumulative sum to get CDF
+            
+            # axes[1].plot(x1[:-1], cdf, linewidth= 1, color=color)  # x1[:-1] because histogram bins include right edge
+            # axes[1].set_ylabel("cdf")
+            axes[1].hist(all_peaks_locs, alpha=0.7, color=color, bins=np.arange(0, 169, 15), label=celltype, density=False, weights=np.ones_like(all_peaks_locs) / len(all_peaks_locs), histtype='step', linewidth=1)   
+            
+        axes[1].set_ylabel("Fraction")
+        axes[1].set_xlabel('Peak Info. (bits)')
+        axes[1].spines['top'].set_visible(False)
+        axes[1].spines['right'].set_visible(False)
+
+        #clean up plots
+        axes[0].spines['top'].set_visible(False)
+        axes[0].spines['right'].set_visible(False)
+        # plt.gcf().subplots_adjust(top=0.85)  # Increase space at top for stars
+        axes[1].spines['top'].set_visible(False)
+        axes[1].spines['right'].set_visible(False)
+
+        # Adding labels for event frames if provided
+        if event_frames is not None:
+            event_labels = ['S1', 'S2', 'S3', 'T', 'R']
+            xlim = axes[1].get_xlim()
+            for frame in event_frames:
+                if frame < xlim[1]:
+                    axes[1].axvline(x=frame, color='k', linestyle=(0, (5, 5)), alpha=0.3)
+            axes[1].set_xticks(event_frames)
+            axes[1].set_xticklabels(event_labels)
+            plt.xticks(rotation=45)
+        plt.tight_layout()
+
+        # perform permutation test for each cell type
+        # Perform pairwise comparisons
+        celltype_keys = list(self.celltypecolors.keys())
+        all_p_values = []
+        comparisons = []
+        comparisons_names = []
+        p_values = []
+        test_stats = []
+        all_stats_dict = {}
+
+        for i, celltype in enumerate(celltype_keys):
+            for j in range(i + 1, len(celltype_keys)):
+                other_celltype = celltype_keys[j]
+                comparisons.append((i, j))
+                # Get data for the two cell types
+                data_i = np.array(collected_peaks[celltype]['peak_values'])
+                data_j = np.array(collected_peaks[other_celltype]['peak_values'])
+                if len(data_i) == 0 or len(data_j) == 0:
+                    print(f"No significant peaks found for {celltype} or {other_celltype}. Skipping permutation test.")
+                    continue
+                
+                # Perform permutation test
+                p_value, stat = self.stats.perform_permutation_test(data_i, data_j, paired=False, n_permutations=10000)
+                all_p_values.append(p_value)
+
+                comparisons_names.append((f"{celltype}_peak_vals", f"{other_celltype}_peak_vals"))
+                test_stats.append(stat)
+                p_values.append(p_value)
+
+                # Save stats for each group
+                label1 = f"{celltype}_peakvals"
+                label2 = f"{other_celltype}_peakvals"
+                all_stats_dict[label1] = self.stats.get_basic_stats(data_i)
+                all_stats_dict[label2] = self.stats.get_basic_stats(data_j)
+
+                print(f"Permutation test p-value for {celltype} vs {other_celltype}: {p_value:.4f}")    
+
+        _, significance_stars = self.stats.calculate_bonferroni_significance(all_p_values, alpha=0.05)
+
+        # Add significance stars to the plot
+        ylims = axes[0].get_ylim()
+        y_range = ylims[1] - ylims[0]
+        base_height = ylims[1] - (y_range * 0.1)  # Start stars at 90% of max height
+        step_height = y_range * star_height_percentage  # Use parameter to control spacing
+
+
+        # Add significance stars to the plot
+        count = 0
+        for (i, j), star in zip(comparisons, significance_stars):
+            if star != 'ns':  # Only add significance line if there is a star
+                star_y = ylims[1]-.05+count# base_height + (step_height * count) #
+                self.add_significance_line(axes[0], x1=i, x2=j, y=star_y,significance=star, color='black',star_height_percentage = star_height_percentage, fontsize=8)
+                count += .05
+
+
+        for i, celltype in enumerate(celltype_keys):
+            for j in range(i + 1, len(celltype_keys)):
+                other_celltype = celltype_keys[j]
+                comparisons.append((i, j))
+                # Get data for the two cell types
+                data_i = np.array(collected_peaks[celltype]['peak_frames'])
+                data_j = np.array(collected_peaks[other_celltype]['peak_frames'])
+                if len(data_i) == 0 or len(data_j) == 0:
+                    print(f"No significant peaks found for {celltype} or {other_celltype}. Skipping permutation test.")
+                    continue
+                
+                # Perform permutation test
+                p_value, stat = self.stats.perform_permutation_test(data_i, data_j, paired=False, n_permutations=10000)
+                all_p_values.append(p_value)
+
+                comparisons_names.append((f"{celltype}_peak_locs", f"{other_celltype}_peak_locs"))
+                test_stats.append(stat)
+                p_values.append(p_value)
+
+                # Save stats for each group
+                label1 = f"{celltype}_peaklocs"
+                label2 = f"{other_celltype}_peaklocs"
+                all_stats_dict[label1] = self.stats.get_basic_stats(data_i)
+                all_stats_dict[label2] = self.stats.get_basic_stats(data_j)
+
+                print(f"Permutation test locs p-value for {celltype} vs {other_celltype}: {p_value:.4f}")
+
+        # get actual save_path by getting the string in front of the last /
+        if save_path and '/' in save_path:
+            save_path_updated = save_path[:save_path.rfind('/')]
+        if save_path:
+            plt.savefig(save_path,  dpi=300) #bbox_inches='tight',
+            df_tests = self.stats.to_table(comparisons_names, test_stats, p_values, save_path=f'{save_path_updated}/stat_tests_info_neurons_peaks.csv',type='permutation')
+            df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_info_neurons_peaks.csv')
+        else:
+            df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values,type='permutation')
+        plt.show()
+
+
 
 
 
