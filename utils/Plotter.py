@@ -79,7 +79,7 @@ class Plotter:
         self.cell_type_labels = celltypecolors if celltypecolors is not None else self.default_cell_type_labels
         self.stats = GeneralStats()  # Instantiate GeneralStats
 
-    def add_significance_line(self,ax, x1, x2=None, y=None, significance='', color='black', star_height_percentage = 0.02, fontsize=14):
+    def add_significance_line(self,ax, x1, x2=None, y=None, significance='', color='black', star_height_percentage = 0.02, fontsize=8):
         """
         Add significance line between two bars in the plot.
         If only x1 is provided, draw only the significance star without a line.
@@ -438,7 +438,7 @@ class Plotter:
         for i, (group, cel_indices) in enumerate(neuron_groups.items()):
             
             sns.heatmap(np.squeeze(mean_neuron_feature_unique[:,cel_indices]),vmin= minmax[0], vmax = minmax[1], cmap = palette , ax=ax[i], cbar=False) #model_output_all[0]['B_weights']
-            ax[i].set_xlabel(group, fontsize=14)
+            ax[i].set_xlabel(group, fontsize=8)
             if i ==1 or i ==2: # delete y axis of middle and right graphs
                 ax[i].set_yticks([])
 
@@ -653,11 +653,11 @@ class Plotter:
         sns.heatmap(np.squeeze(mean_neuron_feature_unique[specified_features,:]),vmin= minmax[0], vmax= minmax[1], cmap = colors) #model_output_all[0]['B_weights']
 
         # Graph title
-        ax.set_title('Average Weights Across Features', fontsize=14)
+        ax.set_title('Average Weights Across Features', fontsize=8)
             
         # Label x and y-axis
-        ax.set_ylabel('Behavioral Features', fontsize=14)
-        ax.set_xlabel('Neurons', fontsize=14)
+        ax.set_ylabel('Behavioral Features', fontsize=8)
+        ax.set_xlabel('Neurons', fontsize=8)
 
         #set y labels
         # unique_feature_indices = {str(unique_f): idx for idx, unique_f in enumerate(behav_features_unique)}
@@ -669,7 +669,7 @@ class Plotter:
         ax.tick_params(axis ='y', labelrotation =0)
 
         # Label x-axis ticks
-        # ax.set_xticklabels(neuron_groups.keys(), fontsize=14)
+        # ax.set_xticklabels(neuron_groups.keys(), fontsize=8)
 
         # Hide x-axis major ticks
         ax.tick_params(axis='x', which='major', length=0)
@@ -732,9 +732,9 @@ class Plotter:
 
         
         # Set labels and title
-        plt.xlabel(f'{measure_string}', fontsize=14)
-        plt.ylabel(f'{measure_string2}', fontsize=14)
-        plt.title(f'{measure_string} vs {measure_string2}', fontsize=14)
+        plt.xlabel(f'{measure_string}', fontsize=8)
+        plt.ylabel(f'{measure_string2}', fontsize=8)
+        plt.title(f'{measure_string} vs {measure_string2}', fontsize=8)
 
         # Set equal limits for x and y axes
         if colors is None:
@@ -836,15 +836,15 @@ class Plotter:
         #     patch.set_facecolor(colors[group])
         
         # Graph title
-        ax.set_title(f'{measure_string} Across Cell types', fontsize=14)
+        ax.set_title(f'{measure_string} Across Cell types', fontsize=8)
             
         # Label x and y-axis
-        ax.set_ylabel(f'{measure_string}', fontsize=14)
-        ax.set_xlabel('Cell type', fontsize=14)
+        ax.set_ylabel(f'{measure_string}', fontsize=8)
+        ax.set_xlabel('Cell type', fontsize=8)
 
         # Label x-axis ticks
         ax.set_xticks(positions)
-        ax.set_xticklabels(self.cell_type_labels.values(), fontsize=14) #neuron_groups.keys()
+        ax.set_xticklabels(self.cell_type_labels.values(), fontsize=8) #neuron_groups.keys()
 
         # Hide x-axis major ticks
         ax.tick_params(axis='x', which='major', length=0)
@@ -976,11 +976,11 @@ class Plotter:
                 error_kw={'ecolor': colors[group]})
     
         # Set labels and title
-        ax.set_title(f'{measure_string} Across Cell types', fontsize=14)
-        ax.set_ylabel(f'{measure_string}', fontsize=14)
-        ax.set_xlabel('Cell type', fontsize=14)
+        ax.set_title(f'{measure_string} Across Cell types', fontsize=8)
+        ax.set_ylabel(f'{measure_string}', fontsize=8)
+        ax.set_xlabel('Cell type', fontsize=8)
         ax.set_xticks(positions)
-        ax.set_xticklabels(self.cell_type_labels.values(), fontsize=14) #neuron_groups.keys()
+        ax.set_xticklabels(self.cell_type_labels.values(), fontsize=8) #neuron_groups.keys()
         ax.tick_params(axis='x', which='major', length=0)
 
         if ylims:
@@ -1063,8 +1063,8 @@ class Plotter:
 
             ax.axvline(x = 0, linestyle = 'dashed', color = 'k', alpha = 1)
             #ax.set_title(f'Cell Type: {cell_type}')
-            ax.set_xlabel('Difference in Deviance Explained', fontsize=14)
-            ax.set_ylabel('Frequency', fontsize=14)
+            ax.set_xlabel('Difference in Deviance Explained', fontsize=8)
+            ax.set_ylabel('Frequency', fontsize=8)
             # # Clean up the appearance
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
@@ -1130,7 +1130,7 @@ class Plotter:
                         facecolor='white', linewidth=2, width=bar_width, ecolor=colors[cell_type])
 
             # Set labels and title for each subplot
-            ax.set_title(f'{cell_type}', fontsize=14)
+            ax.set_title(f'{cell_type}', fontsize=8)
             ax.set_xticks(positions)
             ax.set_xticklabels(data.keys(), rotation=45, ha='right', fontsize=10)
             ax.tick_params(axis='x', which='major', length=0)
@@ -1139,7 +1139,7 @@ class Plotter:
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
             if i == 0:
-                ax.set_ylabel(f'{measure_string}', fontsize=14)
+                ax.set_ylabel(f'{measure_string}', fontsize=8)
 
             ax.set_ylim(minmax[0],minmax[1])
         
@@ -1803,8 +1803,8 @@ class Plotter:
         # Aesthetics
         ax.set_xticks(x_positions)
         ax.set_xticklabels(list(self.cell_type_labels.values())+ ["All"], fontsize=12) #list(self.celltypecolors.keys()) + ["All"], fontsize=12)
-        ax.set_ylabel("% Modulated Neurons", fontsize=14)
-        #ax.set_title("Significantly Modulated Neurons Across Cell Types", fontsize=14)
+        ax.set_ylabel("% Modulated Neurons", fontsize=8)
+        #ax.set_title("Significantly Modulated Neurons Across Cell Types", fontsize=8)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
