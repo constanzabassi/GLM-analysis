@@ -112,7 +112,7 @@ class Plotter:
 
             # Draw the line
             ax.plot([x1, x1, x2, x2], [y, line_y, line_y, y], 
-                    lw=1.5, color=color)
+                    lw=1, color=color)
             
             # Add text
             ax.text((x1 + x2) * 0.5, text_y, significance, 
@@ -1892,7 +1892,7 @@ class Plotter:
 
         # Aesthetics
         ax.set_xticks(x_positions)
-        ax.set_xticklabels([plotter.cell_type_labels[ct] for ct in plotter.celltypecolors])
+        ax.set_xticklabels([self.cell_type_labels[ct] for ct in self.celltypecolors])
         plt.xticks(rotation=45)
         ax.set_ylabel("% Informative")
         ax.spines["top"].set_visible(False)
@@ -1900,9 +1900,13 @@ class Plotter:
         ylims =  plt.gca().get_ylim()
 
         # perform permutation test for each cell type
-        celltype_keys = list(plotter.celltypecolors.keys())
+        celltype_keys = list(self.celltypecolors.keys())
         all_p_values = []
         comparisons = []
+        all_stats_dict = {}
+        test_stats = []
+        comparisons_names = []
+        # Loop through each pair of cell types
         for i, celltype in enumerate(celltype_keys):
             for j in range(i + 1, len(celltype_keys)):
                 other_celltype = celltype_keys[j]
@@ -1915,26 +1919,41 @@ class Plotter:
                     continue
                 
                 # Perform permutation test
-                p_value, _ = perform_permutation_test(data_i, data_j, paired=False, n_permutations=10000)
+                p_value, stat = self.stats.perform_permutation_test(data_i, data_j, paired=False, n_permutations=10000)
                 all_p_values.append(p_value)
-                print(f"Permutation test p-value for {celltype} vs {other_celltype}: {p_value:.4f}")    
+                test_stats.append(stat)
+                comparisons_names.append((f"{celltype}_%_sig_info", f"{other_celltype}_%_sig_info"))
 
-        _, significance_stars = analysisenc.calculate_bonferroni_significance(all_p_values, alpha=0.05)
+                print(f"Permutation test p-value for {celltype} vs {other_celltype}: {p_value:.4f}")   
+                # Save stats for each group
+                label1 = f"{celltype}_%_sig_info"
+                label2 = f"{other_celltype}_%_sig_info"
+                all_stats_dict[label1] = self.stats.get_basic_stats(data_i)
+                all_stats_dict[label2] = self.stats.get_basic_stats(data_j) 
+
+        _, significance_stars = self.stats.calculate_bonferroni_significance(all_p_values, alpha=0.05)
 
         # Add significance stars to the plot
         count = 0
         for (i, j), star in zip(comparisons, significance_stars):
             if star != 'ns':  # Only add significance line if there is a star
-                plotter.add_significance_line(ax, x1=i, x2=j, y=ylims[1]-.05+count,significance=star, color='black')
+                self.add_significance_line(ax, x1=i, x2=j, y=ylims[1]-.05+count,significance=star, color='black')
                 count += .05
+
+        # get actual save_path by getting the string in front of the last /
+        if save_path and '/' in save_path:
+            save_path_updated = save_path[:save_path.rfind('/')]
 
         if save_path:
             plt.savefig(save_path, bbox_inches="tight")
+            df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, save_path=f'{save_path_updated}/stat_tests_info_sig_percent.csv',type='permutation')
+            df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_info_sig_percent.csv')
+
         plt.tight_layout()
         plt.show()
 
         print("Significantly Modulated Neurons (% ± SEM):")
-        for ct in plotter.celltypecolors:
+        for ct in self.celltypecolors:
             print(f"{ct}: {means[ct]:.2f} ± {sems[ct]:.2f}%")
 
         return means, sems, percentages_by_celltype
