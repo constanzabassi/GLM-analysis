@@ -233,7 +233,7 @@ class CellVisualizer:
         """
 
         condition_labels = [label for (_, _, label) in all_conditions]
-        group_labels = split_condition_labels(condition_labels, subplot_split)
+        group_labels = self.split_condition_labels(condition_labels, subplot_split)
 
         n_groups = len(group_labels)
         if orientation == "vertical":
@@ -346,7 +346,7 @@ class CellVisualizer:
 
         return fig, axs
 
-    def plot_avg_informative_cell_overlay(aligned_imaging: np.ndarray,
+    def plot_avg_informative_cell_overlay(self,aligned_imaging: np.ndarray,
                                   results: dict,  # Additional input for neuron data
                                   cell_id: int,
 
@@ -368,7 +368,7 @@ class CellVisualizer:
         plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
 
         condition_labels = [label for (_, _, label) in all_conditions]
-        group_labels = split_condition_labels(condition_labels, subplot_split)
+        group_labels = self.split_condition_labels(condition_labels, subplot_split)
         # print(f"Group labels: {group_labels}")
 
         n_groups = len(group_labels)
@@ -413,10 +413,10 @@ class CellVisualizer:
                                     color=color)
 
             # Add event lines
-            if event_frames is not None:
-                for frame in event_frames:
+            if self.event_frames is not None:
+                for frame in self.event_frames:
                     ax.axvline(x=frame , color='k', linestyle=(0, (2, 2)), alpha=0.5) 
-            ax.set_xticks(event_frames)
+            ax.set_xticks(self.event_frames)
             ax.set_xticklabels([])
 
             # clean up appearance
@@ -428,7 +428,7 @@ class CellVisualizer:
             #                 (f" | Peak info: {peak_info:.2f}" if peak_info else ""),
             #                 fontsize=10)
             # ax.set_title((f"Info: {peak_info:.2f}" if peak_info else ""), fontsize=10)
-            ax.set_ylabel("Act.\n(a.u.)", fontsize=10)
+            ax.set_ylabel("Act.\n(a.u.)", fontsize=8)
 
             #make sure  y-limits are the same for all subplots
             if len(axs) > 1:  
@@ -459,8 +459,8 @@ class CellVisualizer:
         #     ax_info.axvline(x=frame - start_frame, color='k', linestyle='--', alpha=0.5)
 
         # Add event lines
-        if event_frames is not None:
-            for frame in event_frames:
+        if self.event_frames is not None:
+            for frame in self.event_frames:
                 ax_info.axvline(x=frame , color='k', linestyle=(0, (2, 2)), alpha=0.5) 
         ax_info.set_xticks(self.event_frames)
         ax_info.set_xticklabels(self.event_labels)
@@ -480,7 +480,7 @@ class CellVisualizer:
 
 
 
-    def split_condition_labels(all_condition_labels, split_by):
+    def split_condition_labels(self,all_condition_labels, split_by):
         """        Split condition labels into groups based on specified criteria.  
         """
         if split_by is None or split_by.lower() == 'all':
