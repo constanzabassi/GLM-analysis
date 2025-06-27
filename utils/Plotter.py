@@ -23,7 +23,7 @@ from scipy.stats import wilcoxon
 from utils.general_stats import GeneralStats
 
 class Plotter:
-    def __init__(self, data, celltypecolors=None, save_results=None, color_map_dict = None, event_frames=None):
+    def __init__(self, data, celltypecolors=None, save_results=None, color_map_dict = None, event_frames=None, event_labels=None):
         """
         Initialize Plotter class with default colors and event frames
         
@@ -51,6 +51,7 @@ class Plotter:
         # [3] (131): Choice
         # [4] (145): Outcome
         self.event_frames = event_frames if event_frames is not None else self.default_event_frames
+        self.event_labels = event_labels if event_labels is not None else ['S1', 'S2', 'S3', 'T', 'R']
 
         # Default cell type colors
         self.default_colors = {
@@ -1461,15 +1462,29 @@ class Plotter:
             plt.title(f'{dataset} Neuron Performance')
 
         plt.tight_layout()
-        xticks_in, xticks_lab = self.x_axis_sec_aligned(event_frames[0], len(x), interval=1, frame_rate=30) 
+        # xticks_in, xticks_lab = self.x_axis_sec_aligned(self.event_frames[0], len(x), interval=1, frame_rate=30) 
         # Set x-ticks to be in seconds
-        for ax in plt.gcf().axes:
-            # Ensure we only set x-ticks for the last plot
-            if ax == plt.gcf().axes[-1]:
-                plt.xticks(ticks=xticks_in, labels=xticks_lab)
-                plt.xlabel('Time (s)')
-            else:
-                ax.set_xticks([])
+        # for ax in plt.gcf().axes:
+        #     # Ensure we only set x-ticks for the last plot
+        #     if ax == plt.gcf().axes[-1]:
+        #         plt.xticks(ticks=xticks_in, labels=xticks_lab)
+        #         plt.xlabel('Time (s)')
+        #     else:
+        #         ax.set_xticks([])
+
+
+        # Adding labels for event frames if provided
+        axes = plt.gca()  # get current axis  
+        if self.event_frames is not None:
+            
+            xlim = axes.get_xlim()
+            for frame in self.event_frames:
+                if frame < xlim[1]:
+                    axes.axvline(x=frame, color='w', linestyle=(0, (5, 5)), alpha=0.3)
+            axes.set_xticks(self.event_frames)
+            axes.set_xticklabels(self.event_labels)
+            plt.xticks(rotation=45)
+       
         plt.show()
 
     def plot_summary_heatmap(self, results_dict, decoder_type, start_frame=14, end_frame=None, metric='sc_cumulative_information_mean', significance_struc=None, save_path = None):
@@ -2416,13 +2431,13 @@ class Plotter:
 
         # Adding labels for event frames if provided
         if event_frames is not None:
-            event_labels = ['S1', 'S2', 'S3', 'T', 'R']
+            
             xlim = axes[1].get_xlim()
             for frame in event_frames:
                 if frame < xlim[1]:
                     axes[1].axvline(x=frame, color='k', linestyle=(0, (5, 5)), alpha=0.3)
             axes[1].set_xticks(event_frames)
-            axes[1].set_xticklabels(event_labels)
+            axes[1].set_xticklabels(self.event_labels)
             plt.xticks(rotation=45)
         plt.tight_layout()
 
@@ -2519,7 +2534,145 @@ class Plotter:
             df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values,type='permutation')
         plt.show()
 
+    def plot_significant_neurons_dataset_means(
+        self,
+        significant_neurons_data,
+        event_frames=None,
+        save_path=None,
+        figure_type='bar',
+        star_height_percentage=0.05
+    ):
+        """
+        Plot the mean (and SEM) of peak values per dataset, per cell type.
+        Each point/bar represents the mean peak value for a cell type in a single dataset.
+        """
 
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        celltypes = list(self.celltypecolors.keys())
+        dataset_names = list(significant_neurons_data.keys())
+
+        fig, ax = plt.subplots(1, 2, figsize=(3, 1.6), dpi=300) #, constrained_layout=True
+        plt.subplots_adjust(wspace=0.1,left=0.2, top=2)    # Adjust for more space between plots
+        
+        # Collect means and SEMs for each cell type across datasets
+        means_by_celltype = {ct: [] for ct in celltypes}
+        sems_by_celltype = {ct: [] for ct in celltypes}
+
+        for ct in celltypes:
+            for dataset in dataset_names:
+                peaks = np.array(significant_neurons_data[dataset][ct]['peak_values'])
+                if len(peaks) > 0:
+                    means_by_celltype[ct].append(np.mean(peaks))
+                    sems_by_celltype[ct].append(np.std(peaks) / np.sqrt(len(peaks)))
+                else:
+                    means_by_celltype[ct].append(np.nan)
+                    sems_by_celltype[ct].append(np.nan)
+
+        # Convert to arrays for easier handling
+        means_arr = np.array([means_by_celltype[ct] for ct in celltypes])
+        sems_arr = np.array([sems_by_celltype[ct] for ct in celltypes])
+
+        fig, ax = plt.subplots(figsize=(3, 2), dpi=300)
+
+        # Plotting
+        x = np.arange(len(celltypes))
+        means = np.nanmean(means_arr, axis=1)
+        sems = np.nanstd(means_arr, axis=1) / np.sqrt(np.sum(~np.isnan(means_arr), axis=1))
+
+        if figure_type == 'bar':
+            bars = ax.bar(
+                x,
+                means,
+                yerr=sems,
+                capsize=5,
+                color='white',
+                edgecolor=[self.celltypecolors[ct] for ct in celltypes],
+                linewidth=2,
+            )
+            # Overlay individual dataset means as scatter
+            for i, ct in enumerate(celltypes):
+                yvals = means_by_celltype[ct]
+                ax.scatter(
+                    np.full(len(yvals), x[i]),
+                    yvals,
+                    color=self.celltypecolors[ct],
+                    alpha=0.7,
+                    zorder=10,
+                    s=20,
+                )
+        elif figure_type == 'violin':
+            # Prepare data for violin plot
+            plot_data = [means_by_celltype[ct] for ct in celltypes]
+            sns.violinplot(
+                data=plot_data,
+                ax=ax,
+                palette=[self.celltypecolors[ct] for ct in celltypes],
+                inner='box',
+                linewidth=1,
+            )
+            ax.set_xticks(x)
+            ax.set_xticklabels([self.cell_type_labels[ct] for ct in celltypes], rotation=45)
+            ax.set_ylabel("Dataset Mean Peak Info (bits)")
+        elif figure_type == 'scatter':
+            for i, ct in enumerate(celltypes):
+                yvals = means_by_celltype[ct]
+                ax.scatter(
+                    np.full(len(yvals), x[i]),
+                    yvals,
+                    color=self.celltypecolors[ct],
+                    alpha=0.7,
+                    zorder=10,
+                    s=30,
+                    label=self.cell_type_labels[ct]
+                )
+            ax.set_xticks(x)
+            ax.set_xticklabels([self.cell_type_labels[ct] for ct in celltypes], rotation=45)
+            ax.set_ylabel("Dataset Mean Peak Info (bits)")
+
+        ax.set_xticks(x)
+        ax.set_xticklabels([self.cell_type_labels[ct] for ct in celltypes], rotation=45)
+        ax.set_ylabel("Dataset Mean Peak Info (bits)")
+        ax.set_title("Mean Peak Info per Dataset")
+
+        # Statistical comparisons between cell types (using dataset means)
+        all_p_values = []
+        comparisons = []
+        test_stats = []
+        for i in range(len(celltypes)):
+            for j in range(i + 1, len(celltypes)):
+                data_i = np.array(means_by_celltype[celltypes[i]])
+                data_j = np.array(means_by_celltype[celltypes[j]])
+                # Remove NaNs
+                mask = ~np.isnan(data_i) & ~np.isnan(data_j)
+                if np.sum(mask) > 1:
+                    p_value, stat = self.stats.perform_permutation_test(
+                        data_i[mask], data_j[mask], paired=False, n_permutations=10000
+                    )
+                    all_p_values.append(p_value)
+                    test_stats.append(stat)
+                    comparisons.append((i, j))
+                else:
+                    all_p_values.append(np.nan)
+                    test_stats.append(np.nan)
+                    comparisons.append((i, j))
+
+        # Bonferroni correction and significance stars
+        valid_pvals = [p for p in all_p_values if not np.isnan(p)]
+        _, significance_stars = self.stats.calculate_bonferroni_significance(valid_pvals, alpha=0.05)
+
+        # Add significance stars
+        count = 0
+        ylims = ax.get_ylim()
+        for (i, j), star in zip([c for c, p in zip(comparisons, all_p_values) if not np.isnan(p)], significance_stars):
+            if star != 'ns':
+                star_y = ylims[1] - 0.05 + count
+                self.add_significance_line(ax, x1=i, x2=j, y=star_y, significance=star, color='black', star_height_percentage=star_height_percentage)
+                count += 0.05
+
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, bbox_inches='tight')
+        plt.show()
 
 
 

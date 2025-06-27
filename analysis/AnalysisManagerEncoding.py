@@ -352,7 +352,7 @@ class AnalysisManagerEncoding:
                     data2 = np.array(coupling_index_by_comparison[comparison][cell_type][model_b])
 
                     # Perform paired permutation test
-                    p_value, observed_diff= self.stats.perform_permutation_test(self, data1, data2, paired=True, n_permutations=10000)#paired_permutation_test(data1, data2)
+                    p_value, observed_diff= self.stats.perform_permutation_test(data1, data2, paired=True, n_permutations=10000)#paired_permutation_test(data1, data2)
 
                     print(f"Model {model_a} vs {model_b}:")
                     print(f"Observed Difference: {observed_diff:.4f}, P-value: {p_value:.4f}")
@@ -449,8 +449,8 @@ class AnalysisManagerEncoding:
 
         # Save statistical test results to table
         save_path = os.path.join(self.plotter.save_results)
-        df_tests = self.stats.to_table(comparisons_list, test_stats, p_values, save_path=f'{save_path}/stat_tests_{measure_string}.csv')
-        df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path}/basic_stats_{measure_string}.csv')
+        df_tests = self.stats.to_table(comparisons_list, test_stats, p_values, save_path=f'{save_path}/stat_tests_coupling_index.csv', type='permutation')
+        df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path}/basic_stats_coupling_index.csv')
 
         return coupling_index_by_comparison, used_neurons
     
