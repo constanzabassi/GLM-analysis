@@ -454,7 +454,7 @@ class AnalysisManagerEncoding:
 
         return coupling_index_by_comparison, used_neurons
     
-    def bar_plot_separated_coupling_index_diff(self, coupling_index_by_celltype, comparisons, model_pairs, colors, measure_string, bar_width=0.5, save_path=None, minmax=(0, 0.1), xaxislabel = None):
+    def bar_plot_separated_coupling_index_diff(self, coupling_index_by_celltype, comparisons, model_pairs, colors, measure_string, bar_width=0.5, save_path=None, minmax=(0, 0.1), xaxislabel = None, figsize = (3, 1)):
         """
         Create a bar plot with error bars to compare coupling index differences across cell types within each comparison.
 
@@ -480,10 +480,10 @@ class AnalysisManagerEncoding:
         all_p_values = []
 
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
 
         # Create a figure with subplots, one for each comparison
-        fig, axs = plt.subplots(1, len(comparisons), figsize=(6, 3), sharey=True)
+        fig, axs = plt.subplots(1, len(comparisons), figsize=figsize , sharey=True)
         
         # Iterate over comparisons to create each subplot
         for i, comparison in enumerate(comparisons):
@@ -511,7 +511,7 @@ class AnalysisManagerEncoding:
                 # Create bar plot with uncolored inside and colored outlines
                 bars = ax.bar(positions, means, yerr=errors, capsize=2, 
                             edgecolor=colors[cell_type],
-                            facecolor='white', linewidth=1.5, width=bar_width, ecolor=colors[cell_type])
+                            facecolor='white', linewidth=1, width=bar_width, ecolor=colors[cell_type])
                 
                 # Get heights of the current bars
                 # Get heights of the current bars
@@ -558,13 +558,15 @@ class AnalysisManagerEncoding:
                             all_stats_dict[label1] = self.stats.get_basic_stats(cell_data[model1])
                             all_stats_dict[label2] = self.stats.get_basic_stats(cell_data[model2])
 
+            # Clean the measure string for saving
+            safe_measure_string = measure_string.replace('\n', ' ').replace('/', '-').strip()
             # After the plotting loop, save all stats to a table
             if save_path:
-                df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path}/basic_stats_{measure_string}.csv')
-                df_tests = self.stats.to_table(comparisons_list, test_stats, p_values, save_path=f'{save_path}/stat_tests_{measure_string}.csv',type = 'wilcoxon')
+                df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path}/basic_stats_{safe_measure_string}.csv')
+                df_tests = self.stats.to_table(comparisons_list, test_stats, p_values_for_this_comparison, save_path=f'{save_path}/stat_tests_{safe_measure_string}.csv',type = 'wilcoxon signed-rank test against zero')
             else:
                 df_stats = self.stats.basic_stats_to_table(all_stats_dict)
-                df_tests = self.stats.to_table(comparisons_list, test_stats, p_values,type = 'wilcoxon')
+                df_tests = self.stats.to_table(comparisons_list, test_stats, p_values_for_this_comparison,type = 'wilcoxon signed-rank test against zero')
 
             if xaxislabel is None:
                 ax.set_xticks(np.arange(len(model_pairs)) + 1 + bar_width)
@@ -576,9 +578,9 @@ class AnalysisManagerEncoding:
                 # Use provided x-axis labels for each subplot
                 if i < len(xaxislabel):  # Ensure there are enough labels for each comparison
                     ax.set_xticks(np.squeeze(all_pos))
-                    ax.set_xticklabels(xaxislabel[i], rotation=45, ha='right', fontsize=10)
+                    ax.set_xticklabels(xaxislabel[i], rotation=45, ha='right', fontsize=8)
                     #ax.set_title(f'{comparison}', fontsize=14)
-                    ax.set_title(f'{xaxislabel[i][0][:3]} coupling', fontsize=14)
+                    ax.set_title(f'{xaxislabel[i][0][:3]} coupling', fontsize=8)
                 else:
                     ax.set_xticks(np.arange(len(model_pairs)) + 1 + bar_width)
                     ax.set_xticklabels([f'{model1} - {model2}' for model1, model2 in model_pairs], rotation=45, ha='right', fontsize=10)
@@ -587,9 +589,11 @@ class AnalysisManagerEncoding:
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
             if i == 0:
-                ax.set_ylabel(f'{measure_string}', fontsize=14)
+                ax.set_ylabel(f'{measure_string}', fontsize=8)
 
             ax.set_ylim(minmax[0], minmax[1])
+            if minmax[0] < 0:
+                ax.axhline(0, color='black', linewidth=0.5, linestyle=(0, (5, 5)), alpha=0.5) #axes[0].axvline(x=182, linestyle='dashed', color='k', alpha=1)
             
 
             # Calculate Bonferroni significance
@@ -770,7 +774,7 @@ class AnalysisManagerEncoding:
 
         plt.show()
 
-    def scatter_plot_separated_celltype_mean(self,coupling_index_by_celltype, model_pairs, measure_string, minmax=(0, 0.1),markerstyles = "o",version = 1,comparisons=None):
+    def scatter_plot_separated_celltype_mean(self,coupling_index_by_celltype, model_pairs, measure_string, minmax=(0, 0.1),markerstyles = "o",version = 1,comparisons=None, figisize = (1.5,1.5)):
         """
         Create a scatter plot comparing mean coupling indices between two models for each cell type.
 
@@ -798,7 +802,7 @@ class AnalysisManagerEncoding:
 
         """
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
 
         # Use all comparisons if none are provided
         if comparisons is None:
@@ -809,7 +813,7 @@ class AnalysisManagerEncoding:
 
         if version ==1: 
             # Create a figure with subplots, one for each cell type
-            fig, axs = plt.subplots(1, len(cell_types), figsize=(9, 3), sharex=True, sharey=True)
+            fig, axs = plt.subplots(1, len(cell_types), figsize=figsize, sharex=True, sharey=True) # figsize=(9, 3)
             # Iterate over cell types to create each subplot
             for i, cell_type in enumerate(cell_types):
                 ax = axs[i]  # Select the subplot
@@ -827,7 +831,7 @@ class AnalysisManagerEncoding:
                             mean_model2 = np.nanmean(cell_data[model2])  # Mean across neurons for model2
 
                             # Plot the mean of model1 on the x-axis vs. model2 on the y-axis
-                            scatter = ax.scatter(mean_model1, mean_model2, color=colors[cell_type], alpha=0.7, s=60, label=f'{model1} vs {model2}', edgecolor='black', marker = markerstyles[cmp])
+                            scatter = ax.scatter(mean_model1, mean_model2, color=colors[cell_type], alpha=0.7, s=20, label=f'{model1} vs {model2}', edgecolor='black', marker = markerstyles[cmp])
 
                             # # Clean up the appearance
                             ax.spines['top'].set_visible(False)
@@ -839,10 +843,10 @@ class AnalysisManagerEncoding:
                             labels.append(f'{comparison[1]}')
                 
                 # Set labels and title for each subplot
-                ax.set_title(f'{cell_type}', fontsize=14)
+                ax.set_title(f'{cell_type}', fontsize=8)
                 if i == 0:
-                    ax.set_ylabel(f'{measure_string} {model2}', fontsize=14)
-                ax.set_xlabel(f'{measure_string} {model1}', fontsize=14)
+                    ax.set_ylabel(f'{measure_string} {model2}', fontsize=8)
+                ax.set_xlabel(f'{measure_string} {model1}', fontsize=8)
                 ax.set_xlim(minmax[0], minmax[1])
                 ax.set_ylim(minmax[0], minmax[1])
 
@@ -851,7 +855,7 @@ class AnalysisManagerEncoding:
 
                 
                 # Add the legend for this subplot
-                ax.legend(handles, labels, loc= (.7,0), fontsize=10, frameon=False,handletextpad=0.1) #'lower right'
+                ax.legend(handles, labels, loc= (.7,0), fontsize=6, frameon=False,handletextpad=0.1) #'lower right'
 
                 ticks = np.arange(minmax[0], minmax[1], 0.1)
                 plt.xticks(ticks)
@@ -863,7 +867,7 @@ class AnalysisManagerEncoding:
         
         else:
             # Create a figure with subplots, one for each cell type
-            fig, axs = plt.subplots(1, 1, figsize=(3, 3), sharex=True, sharey=True)
+            fig, axs = plt.subplots(1, 1, figsize=figsize, sharex=True, sharey=True) #figsize(3, 3)
             #fig, axs = plt.subplots(1, 1, figsize=(10,10), sharex=True, sharey=True)
             
             for i, cell_type in enumerate(cell_types):
@@ -888,7 +892,7 @@ class AnalysisManagerEncoding:
 
                             # Plot the mean of model1 on the x-axis vs. model2 on the y-axis
                             #scatter = ax.scatter(mean_model1, mean_model2, color=colors[cell_type], alpha=0.7, s=50, label=f'{model1} vs {model2}', edgecolor='black', marker = markerstyles[cmp])
-                            scatter = ax.scatter(mean_model1, mean_model2,facecolors='none',  alpha=1, s=50, label=f'{model1} vs {model2}', edgecolor=colors[cell_type], marker = markerstyles[cmp], linewidths=1.2)
+                            scatter = ax.scatter(mean_model1, mean_model2,facecolors='none',  alpha=1, s=20, label=f'{model1} vs {model2}', edgecolor=colors[cell_type], marker = markerstyles[cmp], linewidths=1.2)
                             print(f'cell_type {cell_type}, {mean_model1},{mean_model2}')
 
                             # # Clean up the appearance
@@ -901,10 +905,10 @@ class AnalysisManagerEncoding:
                             labels.append(f'{comparison[0]}')
                 
                 # Set labels and title for each subplot
-                ax.set_title(f'{cell_type}', fontsize=14)
+                # ax.set_title(f'{cell_type}', fontsize=8)
                 if i == 0:
-                    ax.set_ylabel(f'{measure_string} {model2}', fontsize=16)
-                ax.set_xlabel(f'{measure_string} {model1}', fontsize=16)
+                    ax.set_ylabel(f'{measure_string} {model2}', fontsize=8)
+                ax.set_xlabel(f'{measure_string} {model1}', fontsize=8)
                 ax.set_xlim(minmax[0], minmax[1])
                 ax.set_ylim(minmax[0], minmax[1])
 
@@ -916,10 +920,21 @@ class AnalysisManagerEncoding:
                 plt.yticks(ticks)
 
                 # Add the legend for this subplot
-                ax.legend(handles, labels, loc= (.7,0), fontsize=10, frameon=False,handletextpad=0.1) #'lower right'
+                # ax.legend(handles, labels, loc= (.7,0), fontsize=8, frameon=False,handletextpad=0.1) #'lower right'
+                # Add the legend for this subplot
+                labels = ["Pyr coupling", "SOM coupling", "PV coupling"]
+                # After the loop is done and you have `handles` and `labels`
+                import copy
+                legend_handles = []
+                for h in handles:
+                    h_copy = copy.copy(h)
+                    h_copy.set_edgecolor('black')  # Make the legend symbol black
+                    h_copy.set_facecolor('none')   # Keep it consistent with facecolors='none' used in plotting
+                    legend_handles.append(h_copy)
+                ax.legend(legend_handles, labels, loc=(.7, 0), fontsize=6, frameon=False, handletextpad=0.1, labelcolor='black')
 
         # Add a global title for the figure
-        fig.suptitle(f'{measure_string} Comparison Across Cell Types', fontsize=16)
+        # fig.suptitle(f'{measure_string} Comparison Across Cell Types', fontsize=8)
         
 
         #to save svg so that we can edit texts!
@@ -933,7 +948,7 @@ class AnalysisManagerEncoding:
         # Save plot if save_path is provided
         if self.plotter.save_results: 
             os.chdir(self.plotter.save_results)
-            plt.savefig(f'scatter_{model1}_vs_{model2}_coupling_celltypes_version{version}.svg', bbox_inches='tight')
+            plt.savefig(f'scatter_{model1}_vs_{model2}_coupling_celltypes_version{version}.pdf', bbox_inches='tight')
         
         plt.show()
 

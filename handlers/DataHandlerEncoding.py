@@ -154,7 +154,7 @@ class DataHandlerEncoding:
 
         return celltype_array, neuron_groups, colors
 
-    def load_data(self,animalID, date, server, model_type):
+    def load_data(self,animalID, date, server, model_type, results_type = 'results'):
         """
         Load and process GLM results for a given dataset.
         
@@ -163,6 +163,7 @@ class DataHandlerEncoding:
             date (str): The date of the dataset.
             server (str): The server location.
             model_type (str): The type of the GLM model.
+            results_type (str): The type of results to load (default is 'results').
 
         Returns:
             dict: A dictionary containing the mean deviance explained for each model.
@@ -172,11 +173,11 @@ class DataHandlerEncoding:
         save_directory_v1 = os.path.join(f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}')
         
         # Load data from all models
-        model_output_all = self.load_GLM_results_cluster(os.path.join(save_directory_v1, 'results'), 'poss_model_1_data_cluster_')
-        model_output_behav = self.load_GLM_results_cluster(os.path.join(save_directory_v1, 'results'), 'poss_model_0_data_cluster_')
-        model_output_no_pyr = self.load_GLM_results_cluster(os.path.join(save_directory_v1, 'results'), 'poss_model_2_data_cluster_')
-        model_output_no_som = self.load_GLM_results_cluster(os.path.join(save_directory_v1, 'results'), 'poss_model_3_data_cluster_')
-        model_output_no_pv = self.load_GLM_results_cluster(os.path.join(save_directory_v1, 'results'), 'poss_model_4_data_cluster_')
+        model_output_all = self.load_GLM_results_cluster(os.path.join(save_directory_v1, results_type), 'poss_model_1_data_cluster_')
+        model_output_behav = self.load_GLM_results_cluster(os.path.join(save_directory_v1, results_type), 'poss_model_0_data_cluster_')
+        model_output_no_pyr = self.load_GLM_results_cluster(os.path.join(save_directory_v1, results_type), 'poss_model_2_data_cluster_')
+        model_output_no_som = self.load_GLM_results_cluster(os.path.join(save_directory_v1, results_type), 'poss_model_3_data_cluster_')
+        model_output_no_pv = self.load_GLM_results_cluster(os.path.join(save_directory_v1, results_type), 'poss_model_4_data_cluster_')
 
         print(f'shapes model outputs: {len(model_output_all)}, {len(model_output_behav)}, {len(model_output_no_pyr)}, {len(model_output_no_som)}, {len(model_output_no_pv)}')
 
@@ -210,7 +211,7 @@ class DataHandlerEncoding:
         return results
 
 
-    def process_multiple_datasets(self,datasets, model_type):
+    def process_multiple_datasets(self,datasets, model_type, results_type = 'results'):
         """
         Process multiple datasets and calculate mean deviance explained for each.
 
@@ -226,7 +227,7 @@ class DataHandlerEncoding:
         for animalID, date, server in datasets:
             key = f'{animalID}_{date}'
             print(f'Processing dataset: {key}')
-            results = self.load_data(animalID, date, server, model_type)
+            results = self.load_data(animalID, date, server, model_type, results_type =results_type)
             all_results[key] = results
 
         return all_results

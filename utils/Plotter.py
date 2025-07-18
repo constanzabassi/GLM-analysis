@@ -624,15 +624,15 @@ class Plotter:
         if animalID is not None:
             if save_string is not None:
                 plt.ylabel(fr'{save_string} |$\beta$ Weights|')
-                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{animalID}_{date}_{model_type}_{save_string}.svg')
+                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{animalID}_{date}_{model_type}_{save_string}.pdf')
             else:
-                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{animalID}_{date}_{model_type}.svg')
+                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{animalID}_{date}_{model_type}.pdf')
         else:
             if save_string is not None:
                 plt.ylabel(fr'{save_string} |$\beta$ Weights|')
-                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{model_type}_{save_string}.svg')
+                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{model_type}_{save_string}.pdf')
             else:
-                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{model_type}.svg')
+                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{model_type}.pdf')
         plt.show()
 
     # # Example usage
@@ -781,7 +781,7 @@ class Plotter:
 
         # Save plot if save_path is provided
         if save_path: 
-            plt.savefig(save_path, bbox_inches='tight', format = 'svg')
+            plt.savefig(save_path, bbox_inches='tight', format = 'pdf')
         
         # Show plot
         plt.show()  
@@ -2339,7 +2339,169 @@ class Plotter:
         }
         
         return decoder_to_event.get(decoder_base, self.event_frames[0])  # Default to first frame if not found
-    
+    def plot_significant_neuron_session_means(
+        self,
+        significant_neurons_data,
+        event_frames=None,
+        save_path=None,
+        figure_type='cdf',
+        star_height_percentage=0.05
+    ):
+        """
+        Plot distribution of session-mean peak values for significant informative neurons.
+        Each data point is the mean for a session/cell type.
+        """
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        fig, axes = plt.subplots(1, 2, figsize=(3, 1.6), dpi=300)
+        plt.subplots_adjust(wspace=0.1, left=0.2, top=2)
+        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+
+        celltypes = list(self.celltypecolors.keys())
+        # celltypes = [celltype.upper() for celltype in self.celltypecolors.keys()]
+        bin_edges_bits = np.arange(0.06, .2, .01)
+
+        # Collect session means for each cell type
+        session_means = {celltype: {'peak_values': [], 'peak_frames': []} for celltype in celltypes}
+
+        for celltype, color in self.celltypecolors.items():
+            means_peaks = []
+            means_locs = []
+            for dataset in significant_neurons_data:
+                peaks = np.array(significant_neurons_data[dataset][celltype]['peak_values'])
+                peaks_locs = np.array(significant_neurons_data[dataset][celltype]['peak_frames'])
+                if len(peaks) > 0:
+                    means_peaks.append(np.mean(peaks))
+                if len(peaks_locs) > 0:
+                    means_locs.append(np.mean(peaks_locs))
+            session_means[celltype]['peak_values'] = means_peaks
+            session_means[celltype]['peak_frames'] = means_locs
+
+            # Plotting (same as original, but with session means)
+            if figure_type == 'violin':
+                sns.violinplot(
+                    x=[celltype] * len(means_peaks),
+                    y=means_peaks,
+                    ax=axes[0],
+                    color=color,
+                    inner='box',
+                    linewidth=1,
+                    edgecolor=color,
+                )
+                axes[0].set_ylabel("Mean Peak Info. (bits)")
+                axes[0].set_xticklabels([ct.upper() for ct in celltypes], rotation=45)
+                axes[0].set_ylim(0, 0.2)
+            if figure_type == 'cdf':
+                x1 = np.linspace(0.05, .15, 100)
+                n1, _ = np.histogram(means_peaks, bins=x1)
+                p1 = n1 / np.sum(n1) if np.sum(n1) > 0 else n1
+                cdf = np.cumsum(p1)
+                axes[0].plot(x1[:-1], cdf, linewidth=1, color=color)
+                axes[0].set_ylabel("Cumulative Fraction")
+            elif figure_type == 'histogram':
+                weights = np.ones_like(means_peaks) / len(means_peaks) if len(means_peaks) > 0 else None
+                axes[0].hist(means_peaks, alpha=1.0, color=color, label=celltype,
+                            histtype='step', linewidth=1, density=False, bins=bin_edges_bits, weights=weights)
+                axes[0].set_ylabel("Fraction")
+
+            # Plot for mean peak locations
+            x1 = np.linspace(1, 169-14, 169-14)
+            n1, _ = np.histogram(means_locs, bins=x1)
+            p1 = n1 / np.sum(n1) if np.sum(n1) > 0 else n1
+            cdf = np.cumsum(p1)
+            axes[1].hist(means_locs, alpha=0.7, color=color, bins=np.arange(0, 169, 15), label=celltype,
+                        density=False, weights=np.ones_like(means_locs) / len(means_locs) if len(means_locs) > 0 else None,
+                        histtype='step', linewidth=1)
+
+        axes[1].set_ylabel("Fraction")
+        axes[1].set_xlabel('Peak Info. (bits)')
+        axes[1].spines['top'].set_visible(False)
+        axes[1].spines['right'].set_visible(False)
+        axes[0].spines['top'].set_visible(False)
+        axes[0].spines['right'].set_visible(False)
+        axes[1].spines['top'].set_visible(False)
+        axes[1].spines['right'].set_visible(False)
+
+        if event_frames is not None:
+            xlim = axes[1].get_xlim()
+            for frame in event_frames:
+                if frame < xlim[1]:
+                    axes[1].axvline(x=frame, color='k', linestyle=(0, (5, 5)), alpha=0.3)
+            axes[1].set_xticks(event_frames)
+            axes[1].set_xticklabels(self.event_labels)
+            plt.xticks(rotation=45)
+        plt.tight_layout()
+
+        # Statistical tests (on session means)
+        celltype_keys = list(self.celltypecolors.keys())
+        all_p_values = []
+        comparisons = []
+        comparisons_names = []
+        p_values = []
+        test_stats = []
+        all_stats_dict = {}
+
+        for i, celltype in enumerate(celltype_keys):
+            for j in range(i + 1, len(celltype_keys)):
+                other_celltype = celltype_keys[j]
+                comparisons.append((i, j))
+                data_i = np.array(session_means[celltype]['peak_values'])
+                data_j = np.array(session_means[other_celltype]['peak_values'])
+                if len(data_i) == 0 or len(data_j) == 0:
+                    print(f"No session means found for {celltype} or {other_celltype}. Skipping permutation test.")
+                    continue
+                p_value, stat = self.stats.perform_permutation_test(data_i, data_j, paired=False, n_permutations=10000)
+                all_p_values.append(p_value)
+                comparisons_names.append((f"{celltype}_peak_vals", f"{other_celltype}_peak_vals"))
+                test_stats.append(stat)
+                p_values.append(p_value)
+                label1 = f"{celltype}_peakvals"
+                label2 = f"{other_celltype}_peakvals"
+                all_stats_dict[label1] = self.stats.get_basic_stats(data_i)
+                all_stats_dict[label2] = self.stats.get_basic_stats(data_j)
+                print(f"Permutation test p-value for {celltype} vs {other_celltype}: {p_value:.4f}")
+
+        _, significance_stars = self.stats.calculate_bonferroni_significance(all_p_values, alpha=0.05)
+
+        ylims = axes[0].get_ylim()
+        count = 0
+        for (i, j), star in zip(comparisons, significance_stars):
+            if star != 'ns':
+                star_y = ylims[1] - .05 + count
+                self.add_significance_line(axes[0], x1=i, x2=j, y=star_y, significance=star, color='black', star_height_percentage=star_height_percentage, fontsize=8)
+                count += .05
+
+        for i, celltype in enumerate(celltype_keys):
+            for j in range(i + 1, len(celltype_keys)):
+                other_celltype = celltype_keys[j]
+                comparisons.append((i, j))
+                data_i = np.array(session_means[celltype]['peak_frames'])
+                data_j = np.array(session_means[other_celltype]['peak_frames'])
+                if len(data_i) == 0 or len(data_j) == 0:
+                    print(f"No session means found for {celltype} or {other_celltype}. Skipping permutation test.")
+                    continue
+                p_value, stat = self.stats.perform_permutation_test(data_i, data_j, paired=False, n_permutations=10000)
+                all_p_values.append(p_value)
+                comparisons_names.append((f"{celltype}_peak_locs", f"{other_celltype}_peak_locs"))
+                test_stats.append(stat)
+                p_values.append(p_value)
+                label1 = f"{celltype}_peaklocs"
+                label2 = f"{other_celltype}_peaklocs"
+                all_stats_dict[label1] = self.stats.get_basic_stats(data_i)
+                all_stats_dict[label2] = self.stats.get_basic_stats(data_j)
+                print(f"Permutation test locs p-value for {celltype} vs {other_celltype}: {p_value:.4f}")
+
+        if save_path and '/' in save_path:
+            save_path_updated = save_path[:save_path.rfind('/')]
+        if save_path:
+            plt.savefig(save_path, dpi=300)
+            df_tests = self.stats.to_table(comparisons_names, test_stats, p_values, save_path=f'{save_path_updated}/stat_tests_info_neurons_peaks_sessionmeans.csv', type='permutation')
+            df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_info_neurons_peaks_sessionmeans.csv')
+        else:
+            df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, type='permutation')
+        plt.show()
     def plot_significant_neurons_distribution(self,significant_neurons_data, event_frames=None, save_path=None, figure_type='cdf',star_height_percentage=0.05): 
         """Plot distribution of significant informative neurons."""
         fig, axes = plt.subplots(1, 2, figsize=(3, 1.6), dpi=300) #, constrained_layout=True
