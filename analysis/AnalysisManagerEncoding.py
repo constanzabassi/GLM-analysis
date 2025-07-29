@@ -138,7 +138,7 @@ class AnalysisManagerEncoding:
 
         return coupling_index
     
-    def plot_coupling_index_across_celltypes_cdf(self,results_list, model_types, threshold=0.05, comparisons=[('No Coupling', 'All')], significant_neurons=None, xlim_val = 1, recalculate_modulation=False):
+    def plot_coupling_index_across_celltypes_cdf(self,results_list, model_types, threshold=0.05, comparisons=[('No Coupling', 'All')], significant_neurons=None, xlim_val = 1, recalculate_modulation=False, figsize = (3*1.3,1.3*1.5)):
         """
         Plot the CDF of coupling index across datasets for multiple models, separated by cell type.
 
@@ -370,8 +370,8 @@ class AnalysisManagerEncoding:
 
             # Plot the CDF of coupling index for each cell type for the current comparison
             # Set global font size and family 
-            plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
-            plt.figure(figsize=(8, 2.67))
+            plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+            plt.figure(figsize=figsize )
 
             for i, (celltype, _) in enumerate(self.plotter.celltypecolors.items()):
                 ax = plt.subplot(1, 3, i+1)
@@ -389,11 +389,16 @@ class AnalysisManagerEncoding:
                     cdf = np.cumsum(p1)  # Cumulative sum to get CDF
                     
                     # Use color_map_dict to assign the specific color
-                    plt.plot(x1[:-1], cdf, label=f'{model_type}', color=self.plotter.color_map_dict[(celltype, model_type)], linewidth=2)
+                    plt.plot(x1[:-1], cdf, label=f'{model_type}', color=self.plotter.color_map_dict[(celltype, model_type)], linewidth=1)
 
                     legend_elements.append(Line2D([0], [0], color=self.plotter.color_map_dict[(celltype, model_type)], lw=2, label=model_type))
 
-                plt.title(f'{label1} vs {label2}') #{celltype} - 
+                # Set the title and labels for the plot
+                if comparison[0] == 'No Coupling':
+                    label_str = list({celltype})[0].upper()  # → 'PYR'
+                    plt.title(label_str )
+                else:
+                    plt.title(f'{label1} vs {label2}') #{celltype} -
                 plt.xlabel('Coupling Index')
                 if i == 0:
                     plt.ylabel('Cumulative Fraction')
@@ -403,6 +408,8 @@ class AnalysisManagerEncoding:
 
                 # Set the format for both x and y axis ticks to show one decimal place
                 plt.gca().xaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+                plt.xticks(rotation=45)  # Rotates labels 45 degrees
+
                 plt.gca().yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
                 # Ensure ticks are from 0 to 1 with consistent intervals
                 plt.xticks(np.arange(0, 1.2, 0.2))
@@ -438,13 +445,13 @@ class AnalysisManagerEncoding:
             plt.tight_layout()
             if significant_neurons is not None:
                 save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_sigcells.png'
-                save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_sigcells.svg'
+                save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_sigcells.pdf'
                 # save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_sigcells.pdf'
             else:
                 save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_{model_types}.png'
-                save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_{model_types}.svg'
+                save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_{model_types}.pdf'
                 # save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype.pdf'
-            plt.savefig(os.path.join(self.plotter.save_results, save_string))
+            plt.savefig(os.path.join(self.plotter.save_results, save_string),bbox_inches='tight', dpi=300, transparent=True)
             plt.show()
 
         # Save statistical test results to table

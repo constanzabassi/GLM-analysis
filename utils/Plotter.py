@@ -427,11 +427,11 @@ class Plotter:
     # mean_neuron_feature_unique,unique_feature_names,mean_weights = plot_weights_heatmap(animalID= animalID, date= date, model_type= model_type,
     #                      model_output=model_output_all, coupling_indices = coupling_predictors_indices, save_results=save_results, no_abs=0)
 
-    def unique_features_heatmap_celltypes(self,mean_neuron_feature_unique,behav_features_unique,neuron_groups, minmax=(-.2,.2),model_type = None,no_abs=1):
+    def unique_features_heatmap_celltypes(self,mean_neuron_feature_unique,behav_features_unique,neuron_groups, minmax=(-.2,.2),model_type = None,no_abs=1,figsize = (20,8)):
         """
         Create a heatmap to show average across unique features for all neurons
         """
-        fig, ax = plt.subplots(1,3, figsize = (20,8))
+        fig, ax = plt.subplots(1,3, figsize = figsize)
 
         #get color palette
         palette = sns.color_palette("vlag", as_cmap=True)#sns.cubehelix_palette(start=.9, rot=-.95, as_cmap=True)#'viridis'#sns.color_palette("Blues", as_cmap=True)#sns.cubehelix_palette(start=.5, rot=-.75, as_cmap=True)
@@ -475,14 +475,14 @@ class Plotter:
         # # Clean up the appearance
         plt.tight_layout()
         os.chdir(self.save_results)
-        plt.savefig(f'heatmap_avg{no_abs}_uniquebeta_celltypes_{model_type}.png')  
+        plt.savefig(f'heatmap_avg{no_abs}_uniquebeta_celltypes_{model_type}.pdf', bbox_inches='tight')
         plt.show()
 
     # unique_features_heatmap_celltypes(mean_neuron_feature_unique,unique_feature_names,neuron_groups,save_results)
 
 
 
-    def scatter_plot_weights_overlay(self,neuron_groups, mean_neuron_feature_unique, updated_feature_names, model_type,animalID = None, date = None,no_abs=1,minmax=(-.1,.8)):
+    def scatter_plot_weights_overlay(self,neuron_groups, mean_neuron_feature_unique, updated_feature_names, model_type,animalID = None, date = None,no_abs=1,minmax=(-.1,.8), figsize = (3,3)):
         """
         Create a scatter plot to show weights of unique features, overlaying for three cell types.
         
@@ -501,7 +501,7 @@ class Plotter:
         plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
 
         # Initialize the plot
-        plt.figure(figsize=(3,3))
+        plt.figure(figsize=figsize)
 
         # Loop through each cell type group and plot the corresponding weights
         for group, cell_indices in neuron_groups.items():
@@ -520,8 +520,8 @@ class Plotter:
 
             # Plot the weights as a scatter plot with error bars
             plt.errorbar(np.arange(mean_group_weights.shape[0]), mean_group_weights, yerr=sem_group_weights,
-                        fmt='o', color='white', ecolor=self.celltypecolors[group], capsize=5, 
-                        label=group, alpha=1, markersize=10, markeredgewidth=2, markeredgecolor=self.celltypecolors[group])
+                        fmt='o', color='white', ecolor=self.celltypecolors[group], capsize=2, 
+                        label=group, alpha=1, markersize=10, markeredgewidth=1, markeredgecolor=self.celltypecolors[group])
             
             # # Plot the weights as a scatter plot
             # plt.scatter(np.arange(mean_group_weights.shape[0]), mean_group_weights,color='white', 
@@ -540,19 +540,20 @@ class Plotter:
         ax.spines['right'].set_visible(False)
         ax.set_ylim(minmax[0],minmax[1])
         ax.set_box_aspect(1)
+        plt.xticks(fontsize = 6)
         # ax.set_aspect('equal', adjustable='box')
         # plt.axis('scaled')
         
         # Save the figure
         if animalID is not None:
-            plt.savefig(f'{self.save_results}/scatter_overlay_weights_avg{no_abs}_{animalID}_{date}_{model_type}.pdf')
+            plt.savefig(f'{self.save_results}/scatter_overlay_weights_avg{no_abs}_{animalID}_{date}_{model_type}.pdf', bbox_inches='tight')
         else:
-            plt.savefig(f'{self.save_results}/scatter_overlay_weights_avg{no_abs}_{animalID}_{date}_{model_type}.pdf')
+            plt.savefig(f'{self.save_results}/scatter_overlay_weights_avg{no_abs}_{animalID}_{date}_{model_type}.pdf', bbox_inches='tight')
         plt.show()
 
 
 
-    def scatter_plot_weights_overlay_noerror(self,neuron_groups, mean_neuron_feature_unique, updated_feature_names, model_type,animalID = None, date = None,no_abs=1,minmax=(-.1,.8),save_string = None):
+    def scatter_plot_weights_overlay_noerror(self,neuron_groups, mean_neuron_feature_unique, updated_feature_names, model_type,animalID = None, date = None,no_abs=1,minmax=(-.1,.8),save_string = None, figsize = (3,3)):
         """
         Create a scatter plot to show weights of unique features, overlaying for three cell types.
         
@@ -571,7 +572,7 @@ class Plotter:
         plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
 
         # Initialize the plot
-        plt.figure(figsize=(3,3))
+        plt.figure(figsize= figsize)
 
         # Loop through each cell type group and plot the corresponding weights
         for group, cell_indices in neuron_groups.items():
@@ -592,7 +593,7 @@ class Plotter:
             # Plot the weights as a scatter plot (hollow circles)
             plt.scatter(np.arange(mean_group_weights.shape[0]), mean_group_weights, 
                         edgecolor=self.celltypecolors[group], facecolors='none', 
-                        label=group, alpha=1, s=70, linewidths= 2)
+                        label=group, alpha=1, s=20, linewidths= 1)
             
             # # Plot the weights as a scatter plot
             # plt.scatter(np.arange(mean_group_weights.shape[0]), mean_group_weights,color='white', 
@@ -610,6 +611,7 @@ class Plotter:
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.set_ylim(minmax[0],minmax[1])
+        plt.xticks(fontsize = 6)
         ax.set_box_aspect(1)
         # ax.set_aspect('equal', adjustable='box')
         # plt.axis('scaled')
@@ -624,15 +626,15 @@ class Plotter:
         if animalID is not None:
             if save_string is not None:
                 plt.ylabel(fr'{save_string} |$\beta$ Weights|')
-                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{animalID}_{date}_{model_type}_{save_string}.pdf')
+                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{animalID}_{date}_{model_type}_{save_string}.pdf', bbox_inches='tight')
             else:
-                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{animalID}_{date}_{model_type}.pdf')
+                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{animalID}_{date}_{model_type}.pdf', bbox_inches='tight')
         else:
             if save_string is not None:
                 plt.ylabel(fr'{save_string} |$\beta$ Weights|')
-                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{model_type}_{save_string}.pdf')
+                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{model_type}_{save_string}.pdf', bbox_inches='tight')
             else:
-                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{model_type}.pdf')
+                plt.savefig(f'{self.save_results}/scatter_overlay_updatedweights_avg{no_abs}_{model_type}.pdf', bbox_inches='tight')
         plt.show()
 
     # # Example usage
@@ -787,14 +789,14 @@ class Plotter:
         plt.show()  
 
 
-    def box_plot(self, data, neuron_groups, colors, measure_string, save_path = None): #plotting function for box plots to compare fraction deviance across celltypes
+    def box_plot(self, data, neuron_groups, colors, measure_string, save_path = None, figsize = (3,3)): #plotting function for box plots to compare fraction deviance across celltypes
         """
         Create a box-and-whisker plot with significance bars.
         """
         # Set global font size and family 
         plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
 
-        fig, ax = plt.subplots(1,1, figsize = (3,3))
+        fig, ax = plt.subplots(1,1, figsize = figsize)
         #ax = plt.axes()
 
         #Calculate positions for each cell type group along the x-axis
@@ -1719,7 +1721,7 @@ class Plotter:
 
         plt.show()
 
-    def plot_significant_neuron_percentages_by_celltype_total(self, significance_struc, neuron_groups, save_path=None):
+    def plot_significant_neuron_percentages_by_celltype_total(self, significance_struc, neuron_groups, save_path=None, figsize = (3,3)):
         """
         Plot the percentage of significantly modulated neurons per dataset for each cell type and all neurons combined.
         This function calculates the percentage of significant neurons for each cell type across all neurons.
@@ -1777,7 +1779,7 @@ class Plotter:
                 for ct in percentages_by_celltype}
 
         # Plot bar chart
-        fig, ax = plt.subplots(figsize=(3,3))
+        fig, ax = plt.subplots(figsize=figsize)
         x_positions = np.arange(len(self.celltypecolors) + 1)  # One bar per cell type + "All"
         colors = [self.celltypecolors[ct] for ct in self.celltypecolors.keys()] + ["black"] #[(0, 0, 0)]#
 
@@ -2021,7 +2023,7 @@ class Plotter:
 
         #plt.show()
         return ax, x, y_limits
-    def simple_bar_plot(self,labels, means, sems,colors = ['blue','red'], title='Bar Plot', ylabel='Value', save_dir=None):
+    def simple_bar_plot(self,labels, means, sems,colors = ['blue','red'], title='Bar Plot', ylabel='Value', save_dir=None, figsize = (3,3)):
         """
         Create a simple bar plot with error bars.
         
@@ -2037,7 +2039,7 @@ class Plotter:
         x = np.arange(len(labels))  # the label locations
         width = 0.35  # the width of the bars
 
-        fig, ax = plt.subplots(figsize=(3,3))
+        fig, ax = plt.subplots(figsize=figsize)
         # Set global font size and family 
         plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
         bars = ax.bar(x, means, width, yerr=sems, capsize=4, edgecolor= colors, facecolor='white', linewidth=2) #,ecolor=colors
