@@ -80,7 +80,7 @@ class Plotter:
         self.cell_type_labels = celltypecolors if celltypecolors is not None else self.default_cell_type_labels
         self.stats = GeneralStats()  # Instantiate GeneralStats
 
-    def add_significance_line(self,ax, x1, x2=None, y=None, significance='', color='black', star_height_percentage = 0.02, fontsize=8):
+    def add_significance_line(self,ax, x1, x2=None, y=None, significance='', color='black', star_height_percentage = 0.02, fontsize=7):
         """
         Add significance line between two bars in the plot.
         If only x1 is provided, draw only the significance star without a line.
@@ -439,7 +439,7 @@ class Plotter:
         for i, (group, cel_indices) in enumerate(neuron_groups.items()):
             
             sns.heatmap(np.squeeze(mean_neuron_feature_unique[:,cel_indices]),vmin= minmax[0], vmax = minmax[1], cmap = palette , ax=ax[i], cbar=False) #model_output_all[0]['B_weights']
-            ax[i].set_xlabel(group, fontsize=8)
+            ax[i].set_xlabel(group, fontsize=7)
             if i ==1 or i ==2: # delete y axis of middle and right graphs
                 ax[i].set_yticks([])
 
@@ -498,7 +498,7 @@ class Plotter:
         """
 
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
         # Initialize the plot
         plt.figure(figsize=figsize)
@@ -569,7 +569,7 @@ class Plotter:
         """
 
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
         # Initialize the plot
         plt.figure(figsize= figsize)
@@ -656,11 +656,11 @@ class Plotter:
         sns.heatmap(np.squeeze(mean_neuron_feature_unique[specified_features,:]),vmin= minmax[0], vmax= minmax[1], cmap = colors) #model_output_all[0]['B_weights']
 
         # Graph title
-        ax.set_title('Average Weights Across Features', fontsize=8)
+        ax.set_title('Average Weights Across Features', fontsize=7)
             
         # Label x and y-axis
-        ax.set_ylabel('Behavioral Features', fontsize=8)
-        ax.set_xlabel('Neurons', fontsize=8)
+        ax.set_ylabel('Behavioral Features', fontsize=7)
+        ax.set_xlabel('Neurons', fontsize=7)
 
         #set y labels
         # unique_feature_indices = {str(unique_f): idx for idx, unique_f in enumerate(behav_features_unique)}
@@ -672,7 +672,7 @@ class Plotter:
         ax.tick_params(axis ='y', labelrotation =0)
 
         # Label x-axis ticks
-        # ax.set_xticklabels(neuron_groups.keys(), fontsize=8)
+        # ax.set_xticklabels(neuron_groups.keys(), fontsize=7)
 
         # Hide x-axis major ticks
         ax.tick_params(axis='x', which='major', length=0)
@@ -701,7 +701,7 @@ class Plotter:
             None
         """
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
         fig, ax = plt.subplots(1, 1, figsize=(3, 3))
         
         # Get unique cell types from cell_ids
@@ -735,9 +735,9 @@ class Plotter:
 
         
         # Set labels and title
-        plt.xlabel(f'{measure_string}', fontsize=8)
-        plt.ylabel(f'{measure_string2}', fontsize=8)
-        plt.title(f'{measure_string} vs {measure_string2}', fontsize=8)
+        plt.xlabel(f'{measure_string}', fontsize=7)
+        plt.ylabel(f'{measure_string2}', fontsize=7)
+        plt.title(f'{measure_string} vs {measure_string2}', fontsize=7)
 
         # Set equal limits for x and y axes
         if colors is None:
@@ -794,7 +794,7 @@ class Plotter:
         Create a box-and-whisker plot with significance bars.
         """
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
         fig, ax = plt.subplots(1,1, figsize = figsize)
         #ax = plt.axes()
@@ -839,15 +839,15 @@ class Plotter:
         #     patch.set_facecolor(colors[group])
         
         # Graph title
-        ax.set_title(f'{measure_string} Across Cell types', fontsize=8)
+        ax.set_title(f'{measure_string} Across Cell types', fontsize=7)
             
         # Label x and y-axis
-        ax.set_ylabel(f'{measure_string}', fontsize=8)
-        ax.set_xlabel('Cell type', fontsize=8)
+        ax.set_ylabel(f'{measure_string}', fontsize=7)
+        ax.set_xlabel('Cell type', fontsize=7)
 
         # Label x-axis ticks
         ax.set_xticks(positions)
-        ax.set_xticklabels(self.cell_type_labels.values(), fontsize=8) #neuron_groups.keys()
+        ax.set_xticklabels(self.cell_type_labels.values(), fontsize=7) #neuron_groups.keys()
 
         # Hide x-axis major ticks
         ax.tick_params(axis='x', which='major', length=0)
@@ -881,7 +881,7 @@ class Plotter:
         save_path : str, optional
             Path to save the plot
         """
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
         fig, ax = plt.subplots(1, 1, figsize=(3, 3))
         
         # Prepare data for violin plot
@@ -941,7 +941,7 @@ class Plotter:
             The width of the bars in the plot.
         """
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
         fig, ax = plt.subplots(1, 1, figsize=(2, 2))
         # Calculate positions for each cell type group along the x-axis
@@ -979,11 +979,11 @@ class Plotter:
                 error_kw={'ecolor': colors[group]})
     
         # Set labels and title
-        ax.set_title(f'{measure_string} Across Cell types', fontsize=8)
-        ax.set_ylabel(f'{measure_string}', fontsize=8)
-        ax.set_xlabel('Cell type', fontsize=8)
+        ax.set_title(f'{measure_string} Across Cell types', fontsize=7)
+        ax.set_ylabel(f'{measure_string}', fontsize=7)
+        ax.set_xlabel('Cell type', fontsize=7)
         ax.set_xticks(positions)
-        ax.set_xticklabels(self.cell_type_labels.values(), fontsize=8) #neuron_groups.keys()
+        ax.set_xticklabels(self.cell_type_labels.values(), fontsize=7) #neuron_groups.keys()
         ax.tick_params(axis='x', which='major', length=0)
 
         if ylims:
@@ -1016,7 +1016,7 @@ class Plotter:
             None
         """
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
         # Get unique cell types from cell_ids
         cell_types = np.unique(cell_ids)
@@ -1066,8 +1066,8 @@ class Plotter:
 
             ax.axvline(x = 0, linestyle = 'dashed', color = 'k', alpha = 1)
             #ax.set_title(f'Cell Type: {cell_type}')
-            ax.set_xlabel('Difference in Deviance Explained', fontsize=8)
-            ax.set_ylabel('Frequency', fontsize=8)
+            ax.set_xlabel('Difference in Deviance Explained', fontsize=7)
+            ax.set_ylabel('Frequency', fontsize=7)
             # # Clean up the appearance
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
@@ -1103,7 +1103,7 @@ class Plotter:
         #set colors
         colors = self.celltypecolors
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
         # Create a figure with 3 subplots (one for each cell type)
         fig, axs = plt.subplots(1, 3, figsize=(12, 4), sharey=True)
@@ -1133,7 +1133,7 @@ class Plotter:
                         facecolor='white', linewidth=2, width=bar_width, ecolor=colors[cell_type])
 
             # Set labels and title for each subplot
-            ax.set_title(f'{cell_type}', fontsize=8)
+            ax.set_title(f'{cell_type}', fontsize=7)
             ax.set_xticks(positions)
             ax.set_xticklabels(data.keys(), rotation=45, ha='right', fontsize=10)
             ax.tick_params(axis='x', which='major', length=0)
@@ -1142,7 +1142,7 @@ class Plotter:
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
             if i == 0:
-                ax.set_ylabel(f'{measure_string}', fontsize=8)
+                ax.set_ylabel(f'{measure_string}', fontsize=7)
 
             ax.set_ylim(minmax[0],minmax[1])
         
@@ -1176,7 +1176,7 @@ class Plotter:
         #convert to numpy array!!
         cell_ids = np.array(cell_ids)
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
         plt.figure(figsize=(3, 3))
 
@@ -1299,7 +1299,7 @@ class Plotter:
             save_dir (str): Directory to save plots (optional)
         """
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
         
         # Metrics to plot
         metrics = [
@@ -1734,7 +1734,7 @@ class Plotter:
         save_path : str, optional
             Path to save the plot
         """
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
         percentages_by_celltype = {ct: [] for ct in self.celltypecolors.keys()}
         percentages_by_celltype["All"] = []
         
@@ -1820,8 +1820,8 @@ class Plotter:
         # Aesthetics
         ax.set_xticks(x_positions)
         ax.set_xticklabels(list(self.cell_type_labels.values())+ ["All"], fontsize=12) #list(self.celltypecolors.keys()) + ["All"], fontsize=12)
-        ax.set_ylabel("% Modulated Neurons", fontsize=8)
-        #ax.set_title("Significantly Modulated Neurons Across Cell Types", fontsize=8)
+        ax.set_ylabel("% Modulated Neurons", fontsize=7)
+        #ax.set_title("Significantly Modulated Neurons Across Cell Types", fontsize=7)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
@@ -1850,7 +1850,7 @@ class Plotter:
         save_path : str, optional
             Path to save the plot
         """
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
         percentages_by_celltype = {ct: [] for ct in self.celltypecolors.keys()}
         
         # Track totals across all datasets
@@ -1993,7 +1993,7 @@ class Plotter:
 
         fig, ax = plt.subplots(figsize=(3, 3))
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
         
         # Plot scatter points with error bars
         for i in range(len(labels)):
@@ -2041,7 +2041,7 @@ class Plotter:
 
         fig, ax = plt.subplots(figsize=figsize)
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
         bars = ax.bar(x, means, width, yerr=sems, capsize=4, edgecolor= colors, facecolor='white', linewidth=2) #,ecolor=colors
 
         # Add some text for labels, title and custom x-axis tick labels, etc.
@@ -2347,7 +2347,8 @@ class Plotter:
         event_frames=None,
         save_path=None,
         figure_type='cdf',
-        star_height_percentage=0.05
+        star_height_percentage=0.05,
+        fig_size=(3, 1.6),
     ):
         """
         Plot distribution of session-mean peak values for significant informative neurons.
@@ -2357,9 +2358,9 @@ class Plotter:
         import matplotlib.pyplot as plt
         import seaborn as sns
 
-        fig, axes = plt.subplots(1, 2, figsize=(3, 1.6), dpi=300)
+        fig, axes = plt.subplots(1, 2, figsize=fig_size, dpi=300)
         plt.subplots_adjust(wspace=0.1, left=0.2, top=2)
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
         celltypes = list(self.celltypecolors.keys())
         # celltypes = [celltype.upper() for celltype in self.celltypecolors.keys()]
@@ -2472,7 +2473,7 @@ class Plotter:
         for (i, j), star in zip(comparisons, significance_stars):
             if star != 'ns':
                 star_y = ylims[1] - .05 + count
-                self.add_significance_line(axes[0], x1=i, x2=j, y=star_y, significance=star, color='black', star_height_percentage=star_height_percentage, fontsize=8)
+                self.add_significance_line(axes[0], x1=i, x2=j, y=star_y, significance=star, color='black', star_height_percentage=star_height_percentage, fontsize=7)
                 count += .05
 
         for i, celltype in enumerate(celltype_keys):
@@ -2504,11 +2505,11 @@ class Plotter:
         else:
             df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, type='permutation')
         plt.show()
-    def plot_significant_neurons_distribution(self,significant_neurons_data, event_frames=None, save_path=None, figure_type='cdf',star_height_percentage=0.05): 
+    def plot_significant_neurons_distribution(self,significant_neurons_data, event_frames=None, save_path=None, figure_type='cdf',star_height_percentage=0.05, figsize=(3, 1.6)): 
         """Plot distribution of significant informative neurons."""
-        fig, axes = plt.subplots(1, 2, figsize=(3, 1.6), dpi=300) #, constrained_layout=True
+        fig, axes = plt.subplots(1, 2, figsize=figsize, dpi=300) #, constrained_layout=True
         plt.subplots_adjust(wspace=0.1,left=0.2, top=2)    # Adjust for more space between plots
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})  # Updated font size for clarity
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})  # Updated font size for clarity
 
         celltypes = list(['PYR', 'SOM', 'PV'])  # Define cell types to plot
         # Adjusted bin edges and color palette
@@ -2655,9 +2656,9 @@ class Plotter:
         count = 0
         for (i, j), star in zip(comparisons, significance_stars):
             if star != 'ns':  # Only add significance line if there is a star
-                star_y = ylims[1]-.05+count# base_height + (step_height * count) #
-                self.add_significance_line(axes[0], x1=i, x2=j, y=star_y,significance=star, color='black',star_height_percentage = star_height_percentage, fontsize=8)
-                count += .05
+                star_y = ylims[1]-.03+count# base_height + (step_height * count) #
+                self.add_significance_line(axes[0], x1=i, x2=j, y=star_y,significance=star, color='black',star_height_percentage = star_height_percentage, fontsize=7)
+                count += .03
 
 
         for i, celltype in enumerate(celltype_keys):
@@ -2711,7 +2712,7 @@ class Plotter:
         Each point/bar represents the mean peak value for a cell type in a single dataset.
         """
 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
         celltypes = list(self.celltypecolors.keys())
         dataset_names = list(significant_neurons_data.keys())
 
