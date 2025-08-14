@@ -27,7 +27,9 @@ class GeneralStats:
         significance_stars = []
 
         for corrected_p in corrected_p_values:
-            if corrected_p < 0.001:
+            if corrected_p < 0.0001:
+                significance_stars.append('****')
+            elif corrected_p < 0.001:
                 significance_stars.append('***')
             elif corrected_p < 0.01:
                 significance_stars.append('**')
