@@ -365,7 +365,7 @@ class CellVisualizer:
                                   save_path: Optional[str] = None) -> Tuple[plt.Figure, plt.Axes]:
 
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
         condition_labels = [label for (_, _, label) in all_conditions]
         group_labels = self.split_condition_labels(condition_labels, subplot_split)
@@ -428,7 +428,7 @@ class CellVisualizer:
             #                 (f" | Peak info: {peak_info:.2f}" if peak_info else ""),
             #                 fontsize=10)
             # ax.set_title((f"Info: {peak_info:.2f}" if peak_info else ""), fontsize=10)
-            ax.set_ylabel("Act.\n(a.u.)", fontsize=8)
+            ax.set_ylabel("Act.\n(a.u.)", fontsize=7)
 
             #make sure  y-limits are the same for all subplots
             if len(axs) > 1:  
@@ -450,7 +450,7 @@ class CellVisualizer:
         _info_peak_value = np.max(neuron_data)
         ax_info.axhline(y=_info_peak_value, color='m', linestyle='--', label=f'Peak Info: {_info_peak_value:.2f} bits')
         # ax_info.set_xlabel("Time (s)", fontsize=10)
-        ax_info.set_ylabel("Info\n(bits)", fontsize=8)
+        ax_info.set_ylabel("Info\n(bits)", fontsize=7)
 
         # # Add event lines
         # for frame, event_label in zip(event_frames, event_labels):

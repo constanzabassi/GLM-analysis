@@ -370,7 +370,7 @@ class AnalysisManagerEncoding:
 
             # Plot the CDF of coupling index for each cell type for the current comparison
             # Set global font size and family 
-            plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+            plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
             plt.figure(figsize=figsize )
 
             for i, (celltype, _) in enumerate(self.plotter.celltypecolors.items()):
@@ -487,7 +487,7 @@ class AnalysisManagerEncoding:
         all_p_values = []
 
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
         # Create a figure with subplots, one for each comparison
         fig, axs = plt.subplots(1, len(comparisons), figsize=figsize , sharey=True)
@@ -639,7 +639,7 @@ class AnalysisManagerEncoding:
         # Save plot if save_path is provided
         if save_path: 
             os.chdir(save_path)
-            plt.savefig(f'bar_diff_{model_pairs[0][0]}-{model_pairs[0][1]}_coupling_celltypesv1.svg', bbox_inches='tight')
+            plt.savefig(f'bar_diff_{model_pairs[0][0]}-{model_pairs[0][1]}_coupling_celltypesv1.pdf', bbox_inches='tight')
 
 
     def bar_plot_separated_celltype_diff(self,coupling_index_by_celltype, cell_types, model_pairs, colors, measure_string, bar_width=0.3, save_path=None, minmax=(0, 0.1),comparisons=[('No Coupling', 'All')],xaxislabel = None):
@@ -777,11 +777,11 @@ class AnalysisManagerEncoding:
         # Save plot if save_path is provided
         if save_path: 
             os.chdir(save_path)
-            plt.savefig(f'bar_diff_{model_pairs[0][0]}-{model_pairs[0][1]}_coupling_celltypeseparated.svg', bbox_inches='tight')
+            plt.savefig(f'bar_diff_{model_pairs[0][0]}-{model_pairs[0][1]}_coupling_celltypeseparated.pdf', bbox_inches='tight')
 
         plt.show()
 
-    def scatter_plot_separated_celltype_mean(self,coupling_index_by_celltype, model_pairs, measure_string, minmax=(0, 0.1),markerstyles = "o",version = 1,comparisons=None, figisize = (1.5,1.5)):
+    def scatter_plot_separated_celltype_mean(self,coupling_index_by_celltype, model_pairs, measure_string, minmax=(0, 0.1),markerstyles = "o",version = 1,comparisons=None, figsize = (1.5,1.5)):
         """
         Create a scatter plot comparing mean coupling indices between two models for each cell type.
 
@@ -809,7 +809,7 @@ class AnalysisManagerEncoding:
 
         """
         # Set global font size and family 
-        plt.rcParams.update({'font.size': 8, 'font.family': 'arial'})
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
         # Use all comparisons if none are provided
         if comparisons is None:

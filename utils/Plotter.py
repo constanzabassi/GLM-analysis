@@ -2472,9 +2472,9 @@ class Plotter:
         count = 0
         for (i, j), star in zip(comparisons, significance_stars):
             if star != 'ns':
-                star_y = ylims[1] - .05 + count
+                star_y = ylims[1] - .03 + count
                 self.add_significance_line(axes[0], x1=i, x2=j, y=star_y, significance=star, color='black', star_height_percentage=star_height_percentage, fontsize=7)
-                count += .05
+                count += .03
 
         for i, celltype in enumerate(celltype_keys):
             for j in range(i + 1, len(celltype_keys)):
@@ -2549,8 +2549,12 @@ class Plotter:
                     # bw=0.3  # Adjust bandwidth for smoother distributions
                 )
                 axes[0].set_ylabel("Peak Info. (bits)")
-                axes[0].set_xticklabels(celltypes, rotation=45,)
-                axes[0].set_ylim(0, 0.25)  # Setting y-axis limits to match example
+                axes[0].set_xticklabels(celltypes, rotation=45)
+                ylims =  plt.gca().get_ylim()
+                if ylims[1] < 0.25:  # Check if y-axis limit is greater than 0.25
+                    axes[0].set_ylim(0, 0.25)  # Setting y-axis limits to match example
+                else:
+                    axes[0].set_ylim(0, ylims[1]+.03)  # Adjust y-axis limit to be slightly above max value
             if figure_type == 'cdf':
                 # Calculate CDF
                 x1 = np.linspace(0.05, .15, 100)  # Define range of x values
