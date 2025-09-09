@@ -18,9 +18,11 @@ from matplotlib.lines import Line2D
 import seaborn as sns
 from matplotlib.ticker import FormatStrFormatter
 from scipy.stats import wilcoxon
+import matplotlib.patches as patches
 
 #import stats class
 from utils.general_stats import GeneralStats
+from utils.GLMDataUtils import GLMDataUtils
 
 class Plotter:
     def __init__(self, data, celltypecolors=None, save_results=None, color_map_dict = None, event_frames=None, event_labels=None):
@@ -79,6 +81,7 @@ class Plotter:
         # Use custom colors if provided, otherwise use defaults
         self.cell_type_labels = celltypecolors if celltypecolors is not None else self.default_cell_type_labels
         self.stats = GeneralStats()  # Instantiate GeneralStats
+        self.glm_data_utils = GLMDataUtils() # Instantiate GLMDataUtils
 
     def add_significance_line(self,ax, x1, x2=None, y=None, significance='', color='black', star_height_percentage = 0.02, fontsize=7):
         """
@@ -2842,6 +2845,256 @@ class Plotter:
         if save_path:
             plt.savefig(save_path, bbox_inches='tight')
         plt.show()
+
+    # def plot_scale_bar(scalebar_length, scalebar_start, ax, scalebar_color='black', scalebar_linewidth=1, frame_rate = 30):
+#     """
+#     Plots a scale bar on the given axis.
+
+#     Parameters:
+#     scalebar_length: length of the scale bar in frames
+#     scalebar_start: starting x position of the scale bar
+#     ax: matplotlib axis to plot on
+#     scalebar_color: color of the scale bar
+#     """
+#     scalebar_end = scalebar_start + scalebar_length
+    
+#     ylims = ax.get_ylim()
+#     y_range = ylims[1] - ylims[0]
+    
+#     # place scalebar just below traces (5% of axis range)
+#     y_pos = ylims[0] - 0.05 * y_range  
+    
+#     ax.plot([scalebar_start, scalebar_end],
+#             [y_pos, y_pos],
+#             color=scalebar_color,
+#             linewidth=scalebar_linewidth)
+
+#     # optional label under scalebar
+#     ax.text((scalebar_start + scalebar_end) / 2,
+#             y_pos - 0.02 * y_range,
+#             f"{scalebar_length/frame_rate:.0f} sec",
+#             ha='center', va='top', fontsize=6)
+    def plot_scale_bar(self,scalebar_length, scalebar_start, ax, 
+                    scalebar_color='black', scalebar_linewidth=1, frame_rate=30, xticks=None):
+        """
+        Plots a scale bar on the given axis without changing y-limits.
+        Draws in axis coordinates so it sits below the data.
+        """
+        # transform scalebar x from data, y from axes
+        trans = ax.get_xaxis_transform()  # x in data coords, y in axes coords
+        
+        # x positions in data coords
+        scalebar_end = scalebar_start + scalebar_length
+
+        # y position in axes coords (e.g., -0.08 below the x-axis)
+        if xticks is not None:
+            y_pos = -0.1  
+            ypos_mins = 0.03
+        else:
+            y_pos = +0.01  
+            ypos_mins = 0.02
+
+        # plot scalebar
+        ax.plot([scalebar_start, scalebar_end],
+                [y_pos, y_pos],
+                transform=trans,
+                color=scalebar_color,
+                linewidth=scalebar_linewidth,
+                clip_on=False)  # so it's visible outside axes
+
+        # label
+        ax.text((scalebar_start + scalebar_end) / 2,
+                y_pos - ypos_mins,   # further down a bit
+                f"{scalebar_length/frame_rate:.0f} sec",
+                ha='center', va='top', fontsize=6,
+                transform=trans,
+                clip_on=False)
+
+    def plot_glm_predictors_and_decoder(self,variables, sorted_idx, results_pre, do_highlight_trial=None, save_path=None, figsize = (6, 10 * 0.3), number_subplots = 4, norm_y_pred = False, subplot_4_type = 'traces'):
+        frames = variables['frames']
+        behav_matrix = variables['behav_matrix']
+        behav_matrix_ids_raw = variables['behav_matrix_ids_raw']
+        behav_big_matrix = variables['behav_big_matrix']
+        behav_big_matrix_ids = variables['behav_big_matrix_ids']
+        info_data = variables['info_data']
+        decoder_singlecell = variables['decoder_singlecell']
+        testing_trials_used = variables['testing_trials_used']
+        condition_array_trials = variables['condition_array_trials']
+        combined_frames_included = variables['combined_frames_included']
+        example_dataset = variables['example_dataset']
+        fold_number = variables['fold_number']
+        model_output_behav = results_pre[example_dataset[0]]['model_output_behav']
+        y_pred_model = model_output_behav[fold_number]['y_pred'][frames, :] #frames x Neurons
+
+        # Clean and deduplicate variable names
+        flat_ids = [str(var[0]) if isinstance(var, np.ndarray) else str(var) for var in behav_matrix_ids_raw]
+        clean_ids = [v.replace('upcoming ', '') for v in flat_ids]
+        unique_names = {}
+        for idx, name in enumerate(clean_ids):
+            if name not in unique_names:
+                unique_names[name] = idx
+        deduped_names = list(unique_names.keys())
+        deduped_indices = list(unique_names.values())
+
+        # Normalize original behavioral matrix
+        normalized_matrix = np.zeros_like(behav_matrix, dtype=float)
+        for i in range(behav_matrix.shape[0]):
+            row = behav_matrix[i]
+            min_val = np.min(row)
+            max_val = np.max(row)
+            normalized_matrix[i] = (row - min_val) / (max_val - min_val) if max_val - min_val != 0 else 0
+
+        # Determine trials included from condition array and frames
+        
+        _, trials_included, relative_trial_starts = self.glm_data_utils.get_testing_trial_frames(combined_frames_included, frames, condition_array_trials)
+
+        # Determine trials to highlight
+        highlight_indices, _ = self.glm_data_utils.get_highlight_trial_indices(trials_included, testing_trials_used)
+
+        # Plotting
+        fig, axs = plt.subplots(1, number_subplots, figsize=figsize, sharex=False,gridspec_kw={'width_ratios': [1,1,1,1],'height_ratios': [1],'wspace': .6}) #(6, len(deduped_names) * 0.3)
+        offset = 1.3
+
+        # (1) Predictors
+        for i, idx in enumerate(deduped_indices):
+            axs[0].plot(np.array(frames), normalized_matrix[idx, frames] + i * offset, color='black', linewidth=0.5)
+        axs[0].set_yticks(np.arange(len(deduped_names)) * offset)
+        axs[0].set_yticklabels(deduped_names, fontsize=7)
+        axs[0].set_title("(1) Predictors")
+        axs[0].spines['top'].set_visible(False)
+        axs[0].spines['right'].set_visible(False)
+        axs[0].spines['bottom'].set_visible(False)
+        axs[0].spines['left'].set_visible(False)
+        axs[0].set_xticks([])
+        axs[0].set_xticklabels([])
+
+        # (2) Convolved Predictors
+        for i, name in enumerate(deduped_names):
+            matches = [j for j, bigname in enumerate(behav_big_matrix_ids) if name in str(bigname[0])]
+            for k, idx in enumerate(matches[:]): #matches[:5] to plot 5 convolutions
+                axs[1].plot(np.array(frames), behav_big_matrix[idx, frames] + i * offset, alpha=1, linewidth=0.3)
+        axs[1].set_yticks(np.arange(len(deduped_names)) * offset)
+        axs[1].set_yticklabels([])
+        axs[1].set_title("(2) Convolved Predictors")
+        axs[1].spines['top'].set_visible(False)
+        axs[1].spines['right'].set_visible(False)
+        axs[1].spines['bottom'].set_visible(False)
+        axs[1].spines['left'].set_visible(False)
+        axs[1].set_xticks([])
+        axs[1].set_yticks([])
+        axs[1].set_xticklabels([])
+
+        # (3) Example predicted weights for multiple neurons (dummy example)
+        offset_trace = 0.25 # vertical spacing between neurons
+        if norm_y_pred:
+            offset_trace = 1.5 # vertical spacing between neurons
+        n_neurons = 10
+        for i in range(n_neurons):
+            trace = y_pred_model[:, sorted_idx[i]]
+            if norm_y_pred:
+                trace = (trace - np.min(trace)) / (np.max(trace) - np.min(trace))  # Normalize to [0, 1]
+            axs[2].plot(np.array(frames), trace + i * offset_trace, linewidth=0.5, color='black')
+
+        axs[2].set_title("(3) Predicted Activity")
+        axs[2].set_xticks([])
+        axs[2].set_yticks(np.arange(n_neurons) * offset_trace)
+        axs[2].set_yticklabels([str(i + 1) for i in range(n_neurons)], fontsize=6)
+        axs[2].set_ylabel("Neuron ID", fontsize=7, rotation=90, labelpad=2)
+        axs[2].set_xticklabels([])
+        axs[2].spines['top'].set_visible(False)
+        axs[2].spines['right'].set_visible(False)
+        axs[2].spines['bottom'].set_visible(False)
+        axs[2].spines['left'].set_visible(False)
+
+        #add optional rectangle to highlight trial
+        highlight_trial = highlight_indices # set to None if no highlight desired
+
+        for ax in axs[:do_highlight_trial]:
+            if highlight_trial.size > 0:
+                # trial indices are 1-based in your description
+                trial_idx = highlight_trial[0] - 1  
+                x_start = relative_trial_starts[trial_idx] + frames[0]  # adjust for actual frame indices
+                if trial_idx < len(relative_trial_starts) - 1:
+                    x_end = relative_trial_starts[trial_idx + 1] - 1 + frames[0]  # adjust for actual frame indices
+                else:
+                    x_end = frames[-1]  # until end of data
+
+                ylims = ax.get_ylim()#axs[2].get_ylim()
+                # rectangle spans full y-limits
+                rect = patches.Rectangle((x_start, ylims[0]),
+                                            x_end - x_start,
+                                            ylims[1] - ylims[0],
+                                            linewidth=0,
+                                            facecolor="gray",
+                                            alpha=0.1,
+                                            zorder=-1)  # send behind traces
+                ax.add_patch(rect)
+
+        ref_pos = axs[0].get_position()
+        #add scale bars
+        scalebar_length = 30 *5  # in frames(5 seconds at 30 fps)
+        scalebar_linewidth = 1.5
+        scalebar_start = frames[0] + 10  # small offset from left edge
+        for ax in axs[:3]:  # add to first three subplots
+            self.plot_scale_bar(scalebar_length, scalebar_start, ax, scalebar_color='black', scalebar_linewidth=scalebar_linewidth , frame_rate = 30)
+        
+        # (4) Decoder
+        offset_decoder = 1.5
+        trial_id = np.where(np.isin(testing_trials_used,trials_included))[0]  # Example, adjust as needed
+        if trial_id.size > 0 and number_subplots == 4:
+            if subplot_4_type == 'traces':
+                for i in range(n_neurons):
+                    axs[3].plot(np.arange(decoder_singlecell.shape[0]),decoder_singlecell[:, trial_id, sorted_idx[i]] + i * offset_decoder, linewidth=0.5, color='black')
+
+                event_frames = [6, 38, 70, 131, 145]
+                event_labels = ['S1', 'S2', 'S3', 'T', 'R']
+                for frame, event_label in zip(event_frames, event_labels):
+                    axs[3].axvline(x=frame, color='gray', linestyle=(0, (10, 5)), alpha=0.7, linewidth=0.3)
+
+                axs[3].set_title('(4) Bayesian Decoder\n(Example Trial)')
+                neuron_start_id = 1  # since you’re plotting i+200
+                axs[3].set_yticks(np.arange(n_neurons) * offset_decoder ) #*1.15
+                axs[3].set_yticklabels([str(i + neuron_start_id) for i in range(n_neurons)], fontsize=6)
+                axs[3].set_ylabel("Neuron ID", fontsize=7, rotation=90, labelpad=2)  # <-- adds the extra label
+                axs[3].set_xticklabels([])
+                axs[3].spines['top'].set_visible(False)
+                axs[3].spines['right'].set_visible(False)
+                axs[3].spines['bottom'].set_visible(False)
+                axs[3].spines['left'].set_visible(False)
+                axs[3].set_xticks(event_frames)
+                axs[3].set_xticklabels(event_labels, fontsize=6)
+                # # Get reference box from subplot 0 (or any other)
+                axs[3].set_xlim([0,decoder_singlecell.shape[0]])
+                
+                pos3 = axs[3].get_position()
+                # axs[3].set_position([pos3.x0, ref_pos.y0+0.05, ref_pos.width, ref_pos.height-.05])
+                axs[3].set_position([pos3.x0, ref_pos.y0+0.05, ref_pos.width, ref_pos.height-0.05])
+                # axs[3].set_position(axs[2].get_position())  # match position of subplot 2
+                scalebar_length = 30  # in frames(5 seconds at 30 fps)
+                scalebar_linewidth = 1.5
+                scalebar_start = 1  # small offset from left edge
+                self.plot_scale_bar(scalebar_length, scalebar_start, axs[3], scalebar_color='black', scalebar_linewidth=scalebar_linewidth , frame_rate = 30, xticks=event_frames)
+        
+            elif subplot_4_type == 'heatmap':
+                # Plot heatmap of decoder activity for all trials
+                decoded_per_trial = []
+                neuron_start_id = 1
+                for i in range(n_neurons):
+                    trial_data = decoder_singlecell[:, trial_id, sorted_idx[i]]  # shape: (frames, trials, neurons)
+                    trial_value = (trial_data.mean(axis=0) > 0.5).astype(int)
+                    decoded_per_trial.append(trial_value)
+                im = axs[3].imshow(decoded_per_trial, aspect='auto', cmap='binary', interpolation='nearest')
+                axs[3].set_title('(4) Bayesian Decoder\n(Example Trial)')
+                axs[3].set_yticks(np.arange(n_neurons)) 
+                axs[3].set_yticklabels([str(i + neuron_start_id) for i in range(n_neurons)], fontsize=6)
+                axs[3].set_xticklabels([])
+                axs[3].set_xticks([])
+                axs[3].set_ylabel("Neuron ID", fontsize=7, rotation=90, labelpad=2)  # <-- adds the extra label
+
+        # Save or show
+        if save_path:
+            plt.savefig(save_path, bbox_inches='tight')
+        # plt.show()
 
 
 
