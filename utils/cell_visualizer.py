@@ -362,6 +362,8 @@ class CellVisualizer:
                                   orientation: str = "horizontal",  # NEW: "horizontal" or "vertical"
                                   smoothing: Optional[float] = None,
                                   shading: Optional[bool] = False,
+                                  plot_information: bool = True,  # NEW: whether to plot peak info line
+                                  combine_groups: bool = False, # NEW: whether to combine all conditions into one plot
                                   save_path: Optional[str] = None) -> Tuple[plt.Figure, plt.Axes]:
 
         # Set global font size and family 
@@ -372,104 +374,195 @@ class CellVisualizer:
         # print(f"Group labels: {group_labels}")
 
         n_groups = len(group_labels)
-        if orientation == "vertical":
-            fig, axs = plt.subplots(1+ n_groups,1, figsize=figsize or (10 * n_groups, 12), squeeze=False)  # 2 subplots (traces + info)
-            plt.subplots_adjust(hspace=0.1)
-        else:  # horizontal
-            fig, axs = plt.subplots(1,1+ n_groups, figsize=figsize or (12 * n_groups, 10), squeeze=False)  # 2 subplots (traces + info)
-            plt.subplots_adjust(wspace=0.1)
-        axs = axs.flatten()
-    
+        if combine_groups:
+            # Single axis for all groups
+            if orientation == "vertical":
+                fig, axs = plt.subplots(2, 1, figsize=figsize or (12, 10), squeeze=False)  # 1 for combined traces + 1 for info
+                plt.subplots_adjust(hspace=0.1)
+            else:
+                fig, axs = plt.subplots(1, 2, figsize=figsize or (12, 10), squeeze=False)  # 1 for combined traces + 1 for info
+                plt.subplots_adjust(wspace=0.1)
+            axs = axs.flatten()
+            trace_ax = axs[0]
+            info_ax = axs[1]
+        else:
+            # Original: one axis per group
+            if orientation == "vertical":
+                fig, axs = plt.subplots(1 + n_groups, 1, figsize=figsize or (10 * n_groups, 12), squeeze=False)
+                plt.subplots_adjust(hspace=0.1)
+            else:
+                fig, axs = plt.subplots(1, 1 + n_groups, figsize=figsize or (12 * n_groups, 10), squeeze=False)
+                plt.subplots_adjust(wspace=0.1)
+            axs = axs.flatten()
+            trace_ax = None  # Not used in non-combined mode
+            info_ax = axs[-1]  # Last axis for info
 
-        for ax, (group_name, group_condition_labels) in zip(axs[:n_groups], group_labels.items()):
-            # Subplot 1: Traces for all conditions
+        # Plotting
+        if combine_groups:
             for (trials, _, label), color in zip(all_conditions, condition_colors):
-                if label not in group_condition_labels:
-                    continue
-
                 cell_data = aligned_imaging[trials, cell_id, :]
                 if frames is not None:
                     start_frame, end_frame = frames
                     cell_data = cell_data[:, start_frame:end_frame]
-                else:
-                    start_frame = 0
-
                 mean_trace = np.mean(cell_data, axis=0)
                 sem_trace = np.std(cell_data, axis=0) / np.sqrt(len(trials))
 
-                # Optional smoothing
                 if smoothing is not None and smoothing > 0:
                     mean_trace = gaussian_filter1d(mean_trace, sigma=smoothing)
                     sem_trace = gaussian_filter1d(sem_trace, sigma=smoothing)
 
-                ax.plot(mean_trace, color=color, linewidth=.8, label=label)
-
-                # Uncomment the following line to add SEM shading
+                trace_ax.plot(mean_trace, color=color, linewidth=.8, label=label)
                 if shading:
-                    ax.fill_between(np.arange(len(mean_trace)),
-                                    mean_trace - sem_trace,
-                                    mean_trace + sem_trace,
-                                    alpha=0.3,
-                                    color=color)
+                    trace_ax.fill_between(np.arange(len(mean_trace)),
+                                        mean_trace - sem_trace,
+                                        mean_trace + sem_trace,
+                                        alpha=0.3, color=color)
+
+            if self.event_frames is not None:
+                for frame in self.event_frames:
+                    trace_ax.axvline(x=frame, color='k', linestyle=(0, (2, 2)), alpha=0.5)
+            trace_ax.set_xticks(self.event_frames)
+            trace_ax.set_xticklabels([])
+            trace_ax.spines['top'].set_visible(False)
+            trace_ax.spines['right'].set_visible(False)
+            trace_ax.set_ylabel("Act.\n(a.u.)", fontsize=7)
+            #Plot the chopping point!
+            trace_ax.axvline(x= 100, color='w', linestyle='-')
+
+        else:
+            for ax, (group_name, group_condition_labels) in zip(axs[:n_groups], group_labels.items()):
+                for (trials, _, label), color in zip(all_conditions, condition_colors):
+                    if label not in group_condition_labels:
+                        continue
+                    cell_data = aligned_imaging[trials, cell_id, :]
+                    if frames is not None:
+                        start_frame, end_frame = frames
+                        cell_data = cell_data[:, start_frame:end_frame]
+                    mean_trace = np.mean(cell_data, axis=0)
+                    sem_trace = np.std(cell_data, axis=0) / np.sqrt(len(trials))
+
+                    if smoothing is not None and smoothing > 0:
+                        mean_trace = gaussian_filter1d(mean_trace, sigma=smoothing)
+                        sem_trace = gaussian_filter1d(sem_trace, sigma=smoothing)
+
+                    ax.plot(mean_trace, color=color, linewidth=.8, label=label)
+                    if shading:
+                        ax.fill_between(np.arange(len(mean_trace)),
+                                        mean_trace - sem_trace,
+                                        mean_trace + sem_trace,
+                                        alpha=0.3, color=color)
+                if self.event_frames is not None:
+                    for frame in self.event_frames:
+                        ax.axvline(x=frame, color='k', linestyle=(0, (2, 2)), alpha=0.5)
+                ax.set_xticks(self.event_frames)
+                ax.set_xticklabels([])
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                ax.set_ylabel("Act.\n(a.u.)", fontsize=7)
+                #Plot the chopping point!
+                ax.axvline(x= 100, color='w', linestyle='-')
+        # if orientation == "vertical":
+        #     fig, axs = plt.subplots(1+ n_groups,1, figsize=figsize or (10 * n_groups, 12), squeeze=False)  # 2 subplots (traces + info)
+        #     plt.subplots_adjust(hspace=0.1)
+        # else:  # horizontal
+        #     fig, axs = plt.subplots(1,1+ n_groups, figsize=figsize or (12 * n_groups, 10), squeeze=False)  # 2 subplots (traces + info)
+        #     plt.subplots_adjust(wspace=0.1)
+        # axs = axs.flatten()
+    
+
+        # for ax, (group_name, group_condition_labels) in zip(axs[:n_groups], group_labels.items()):
+        #     # Subplot 1: Traces for all conditions
+        #     for (trials, _, label), color in zip(all_conditions, condition_colors):
+        #         if label not in group_condition_labels:
+        #             continue
+
+        #         cell_data = aligned_imaging[trials, cell_id, :]
+        #         if frames is not None:
+        #             start_frame, end_frame = frames
+        #             cell_data = cell_data[:, start_frame:end_frame]
+        #         else:
+        #             start_frame = 0
+
+        #         mean_trace = np.mean(cell_data, axis=0)
+        #         sem_trace = np.std(cell_data, axis=0) / np.sqrt(len(trials))
+
+        #         # Optional smoothing
+        #         if smoothing is not None and smoothing > 0:
+        #             mean_trace = gaussian_filter1d(mean_trace, sigma=smoothing)
+        #             sem_trace = gaussian_filter1d(sem_trace, sigma=smoothing)
+
+        #         ax.plot(mean_trace, color=color, linewidth=.8, label=label)
+
+        #         # Uncomment the following line to add SEM shading
+        #         if shading:
+        #             ax.fill_between(np.arange(len(mean_trace)),
+        #                             mean_trace - sem_trace,
+        #                             mean_trace + sem_trace,
+        #                             alpha=0.3,
+        #                             color=color)
+
+        #     # Add event lines
+        #     if self.event_frames is not None:
+        #         for frame in self.event_frames:
+        #             ax.axvline(x=frame , color='k', linestyle=(0, (2, 2)), alpha=0.5) 
+        #     ax.set_xticks(self.event_frames)
+        #     ax.set_xticklabels([])
+
+        #     # clean up appearance
+        #     ax.spines['top'].set_visible(False)
+        #     ax.spines['right'].set_visible(False)
+
+        #     # Title
+        #     # ax.set_title(f"{title_base or 'Cell'} {cell_id}\n{group_name}" +
+        #     #                 (f" | Peak info: {peak_info:.2f}" if peak_info else ""),
+        #     #                 fontsize=10)
+        #     # ax.set_title((f"Info: {peak_info:.2f}" if peak_info else ""), fontsize=10)
+        #     ax.set_ylabel("Act.\n(a.u.)", fontsize=7)
+
+        #     #make sure  y-limits are the same for all subplots
+        #     if len(axs) > 1:  
+        #         all_y = np.concatenate([ax.get_lines()[0].get_ydata() for ax in axs[:n_groups] if ax.get_lines()])
+        #         y_min, y_max = np.min(all_y), np.max(all_y)
+        #         y_range = y_max - y_min
+        #         for ax in axs[:n_groups]:
+        #             ax.set_ylim(y_min - .1 * y_range, y_max + 0.1 * y_range)
+            
+        #     # Plot the chopping point!
+        #     ax.axvline(x= 100, color='w', linestyle='-')
+
+        if  plot_information:
+            # Subplot 2: Information in bits (for the selected neuron)
+            ax_info = info_ax #axs[n_groups]  # Now this is a specific subplot
+
+            # Extracting the data for the neuron using the given information
+            neuron_data = results[decoded_variable]['sc_instantaneous_information_mean'][:, cell_id]
+
+            ax_info.plot(neuron_data, color='k', linewidth=.8)  # Single trace for the neuron data
+            #find peak value and plot yline at that value
+            _info_peak_value = np.max(neuron_data)
+            ax_info.axvline(x= 100, color='w', linestyle='-')
+            ax_info.axhline(y=_info_peak_value, color='m', linestyle='--', label=f'Peak Info: {_info_peak_value:.2f} bits')
+            # ax_info.set_xlabel("Time (s)", fontsize=10)
+            ax_info.set_ylabel("Info\n(bits)", fontsize=7)
+
+            # # Add event lines
+            # for frame, event_label in zip(event_frames, event_labels):
+            #     if frames is not None and not (start_frame <= frame < end_frame):
+            #         continue
+            #     ax_info.axvline(x=frame - start_frame, color='k', linestyle='--', alpha=0.5)
 
             # Add event lines
             if self.event_frames is not None:
                 for frame in self.event_frames:
-                    ax.axvline(x=frame , color='k', linestyle=(0, (2, 2)), alpha=0.5) 
-            ax.set_xticks(self.event_frames)
-            ax.set_xticklabels([])
+                    ax_info.axvline(x=frame , color='k', linestyle=(0, (2, 2)), alpha=0.5) 
+            ax_info.set_xticks(self.event_frames)
+            ax_info.set_xticklabels(self.event_labels)
+            plt.xticks(rotation=45)   
 
-            # clean up appearance
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-
-            # Title
-            # ax.set_title(f"{title_base or 'Cell'} {cell_id}\n{group_name}" +
-            #                 (f" | Peak info: {peak_info:.2f}" if peak_info else ""),
-            #                 fontsize=10)
-            # ax.set_title((f"Info: {peak_info:.2f}" if peak_info else ""), fontsize=10)
-            ax.set_ylabel("Act.\n(a.u.)", fontsize=7)
-
-            #make sure  y-limits are the same for all subplots
-            if len(axs) > 1:  
-                all_y = np.concatenate([ax.get_lines()[0].get_ydata() for ax in axs[:n_groups] if ax.get_lines()])
-                y_min, y_max = np.min(all_y), np.max(all_y)
-                y_range = y_max - y_min
-                for ax in axs[:n_groups]:
-                    ax.set_ylim(y_min - .1 * y_range, y_max + 0.1 * y_range)
-            
-
-        # Subplot 2: Information in bits (for the selected neuron)
-        ax_info = axs[n_groups]  # Now this is a specific subplot
-
-        # Extracting the data for the neuron using the given information
-        neuron_data = results[decoded_variable]['sc_instantaneous_information_mean'][:, cell_id]
-
-        ax_info.plot(neuron_data, color='k', linewidth=.8)  # Single trace for the neuron data
-        #find peak value and plot yline at that value
-        _info_peak_value = np.max(neuron_data)
-        ax_info.axhline(y=_info_peak_value, color='m', linestyle='--', label=f'Peak Info: {_info_peak_value:.2f} bits')
-        # ax_info.set_xlabel("Time (s)", fontsize=10)
-        ax_info.set_ylabel("Info\n(bits)", fontsize=7)
-
-        # # Add event lines
-        # for frame, event_label in zip(event_frames, event_labels):
-        #     if frames is not None and not (start_frame <= frame < end_frame):
-        #         continue
-        #     ax_info.axvline(x=frame - start_frame, color='k', linestyle='--', alpha=0.5)
-
-        # Add event lines
-        if self.event_frames is not None:
-            for frame in self.event_frames:
-                ax_info.axvline(x=frame , color='k', linestyle=(0, (2, 2)), alpha=0.5) 
-        ax_info.set_xticks(self.event_frames)
-        ax_info.set_xticklabels(self.event_labels)
-        plt.xticks(rotation=45)   
-
-        # Removing the ticks for the second subplot
-        # ax_info.tick_params(left=False, labelleft=False)
-        ax_info.spines['top'].set_visible(False)
-        ax_info.spines['right'].set_visible(False)
+            # Removing the ticks for the second subplot
+            # ax_info.tick_params(left=False, labelleft=False)
+            ax_info.spines['top'].set_visible(False)
+            ax_info.spines['right'].set_visible(False)
 
         plt.tight_layout()
 

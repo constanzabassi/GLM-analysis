@@ -1944,7 +1944,7 @@ class Plotter:
                 test_stats.append(stat)
                 comparisons_names.append((f"{celltype}_%_sig_info", f"{other_celltype}_%_sig_info"))
 
-                print(f"Permutation test p-value for {celltype} vs {other_celltype}: {p_value:.4f}")   
+                print(f"Unpaired permutation test p-value for {celltype} vs {other_celltype}: {p_value:.4f}")   
                 # Save stats for each group
                 label1 = f"{celltype}_%_sig_info"
                 label2 = f"{other_celltype}_%_sig_info"
