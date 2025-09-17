@@ -577,7 +577,7 @@ class DecoderAnalyzer:
         return mat_dict
     
     def find_special_neurons(self, dataset, sig_neurons, mod_values, peaks_by_celltype,
-                         mod_threshold=0.1, info_threshold=0.06):
+                         mod_threshold=0.1, info_threshold=0.06,cell_type_filter=None):
         """Find neurons in different categories based on modulation and information."""
 
         special_neurons = {
@@ -590,6 +590,8 @@ class DecoderAnalyzer:
         # Build info dictionary
         info_dict = {}
         for cell_type in self.cell_types:
+            if cell_type_filter is not None and cell_type != cell_type_filter:
+                continue
             if cell_type in peaks_by_celltype.get(dataset, {}):
                 sc_data = peaks_by_celltype[dataset][cell_type]['sc']['sc_instantaneous_information_mean']
                 global_indices = sc_data['global_indices']
@@ -597,13 +599,13 @@ class DecoderAnalyzer:
                 for idx, neuron_id in enumerate(global_indices):
                     info_dict[neuron_id] = {'info': peak_values[idx], 'cell_type': cell_type}
 
-        # Handle sig_neurons
+        # Filter sig_neurons
         if sig_neurons is None:
             sig_neurons = np.array(list(info_dict.keys())) if info_dict else np.array([])
         else:
-            sig_neurons = np.array(sig_neurons)
+            sig_neurons = np.array([n for n in sig_neurons if n in info_dict])
 
-        # Handle modulation values
+        # Modulation values
         if mod_values is not None and len(mod_values) == len(sig_neurons):
             all_mod_values = np.abs(mod_values)
             has_modulation = True
@@ -618,32 +620,24 @@ class DecoderAnalyzer:
             special_neurons['most_modulated'].update({
                 'neuron_id': max_mod_neuron,
                 'mod_val': all_mod_values[max_mod_idx],
-                'info_val': info_dict.get(max_mod_neuron, {'info': 0})['info'],
-                'cell_type': info_dict.get(max_mod_neuron, {'cell_type': 'unknown'})['cell_type']
+                'info_val': info_dict[max_mod_neuron]['info'],
+                'cell_type': info_dict[max_mod_neuron]['cell_type']
             })
 
         # Most informative neuron
-        max_info = 0
-        max_info_neuron = None
-        max_info_cell_type = None
         for neuron_id, info in info_dict.items():
-            if info['info'] > max_info:
-                max_info = info['info']
-                max_info_neuron = neuron_id
-                max_info_cell_type = info['cell_type']
-
-        if max_info_neuron is not None:
-            mod_val = 0
-            if has_modulation and max_info_neuron in sig_neurons:
-                mod_idx = np.where(sig_neurons == max_info_neuron)[0]
-                if len(mod_idx) > 0:
-                    mod_val = all_mod_values[mod_idx[0]]
-            special_neurons['most_informative'].update({
-                'neuron_id': max_info_neuron,
-                'mod_val': mod_val,
-                'info_val': max_info,
-                'cell_type': max_info_cell_type
-            })
+            if info['info'] > special_neurons['most_informative']['info_val']:
+                mod_val = 0
+                if has_modulation and neuron_id in sig_neurons:
+                    mod_idx = np.where(sig_neurons == neuron_id)[0]
+                    if len(mod_idx) > 0:
+                        mod_val = all_mod_values[mod_idx[0]]
+                special_neurons['most_informative'].update({
+                    'neuron_id': neuron_id,
+                    'mod_val': mod_val,
+                    'info_val': info['info'],
+                    'cell_type': info['cell_type']
+                })
 
         # Modulated but not informative
         if has_modulation:
@@ -656,12 +650,12 @@ class DecoderAnalyzer:
                             'neuron_id': neuron_id,
                             'mod_val': mod_val,
                             'info_val': info_val,
-                            'cell_type': info_dict.get(neuron_id, {'cell_type': 'unknown'})['cell_type']
+                            'cell_type': info_dict[neuron_id]['cell_type']
                         })
 
         # Informative but not modulated
         for neuron_id, info in info_dict.items():
-            if sig_neurons.size == 0 or neuron_id not in sig_neurons:
+            if neuron_id not in sig_neurons:
                 continue
             mod_val = 0
             if has_modulation:
