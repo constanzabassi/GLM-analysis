@@ -1939,7 +1939,7 @@ class Plotter:
                     continue
                 
                 # Perform permutation test
-                p_value, stat = self.stats.perform_permutation_test(data_i, data_j, paired=False, n_permutations=10000)
+                p_value, stat = self.stats.perform_permutation_test(data_i, data_j, paired=True, n_permutations=10000)
                 all_p_values.append(p_value)
                 test_stats.append(stat)
                 comparisons_names.append((f"{celltype}_%_sig_info", f"{other_celltype}_%_sig_info"))
@@ -1966,7 +1966,7 @@ class Plotter:
 
         if save_path:
             plt.savefig(save_path, bbox_inches="tight")
-            df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, save_path=f'{save_path_updated}/stat_tests_info_sig_percent.csv',type='permutation')
+            df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, save_path=f'{save_path_updated}/stat_tests_info_sig_percent.csv',type='permutation paired')
             df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_info_sig_percent.csv')
 
         plt.tight_layout()
