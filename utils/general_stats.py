@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 from scipy.stats import permutation_test, bootstrap
+import os
 
 class GeneralStats:
     def __init__(self):
@@ -158,6 +159,7 @@ class GeneralStats:
             'p_value': p_values
             if type is None else [p if p is not None else 'N/A' for p in p_values]
         })
+        
         if save_path:
             df.to_csv(save_path, index=False)
         return df
@@ -185,6 +187,7 @@ class GeneralStats:
             row.update({k: v for k, v in stats.items() if k not in ['bootstat']})  # Exclude bootstat for table
             rows.append(row)
         df = pd.DataFrame(rows)
+        
         if save_path:
             if save_path.endswith('.csv'):
                 df.to_csv(save_path, index=False)

@@ -83,7 +83,7 @@ class Plotter:
         self.stats = GeneralStats()  # Instantiate GeneralStats
         self.glm_data_utils = GLMDataUtils() # Instantiate GLMDataUtils
 
-    def add_significance_line(self,ax, x1, x2=None, y=None, significance='', color='black', star_height_percentage = 0.02, fontsize=7):
+    def add_significance_line(self,ax, x1, x2=None, y=None, significance='', color='black', star_height_percentage = 0.01, fontsize=7,lw=.5):
         """
         Add significance line between two bars in the plot.
         If only x1 is provided, draw only the significance star without a line.
@@ -110,13 +110,13 @@ class Plotter:
 
         if x2 is not None:  # Draw line if both x1 and x2 are provided
             # Calculate line height as small percentage of y-axis range
-            line_height = (ylims[1] - ylims[0]) * star_height_percentage
+            line_height = y * star_height_percentage#(ylims[1] - ylims[0]) * star_height_percentage
             line_y = y 
             text_y = y + line_height
 
             # Draw the line
             ax.plot([x1, x1, x2, x2], [y, line_y, line_y, y], 
-                    lw=1, color=color)
+                    lw=lw, color=color)
             
             # Add text
             ax.text((x1 + x2) * 0.5, text_y, significance, 
@@ -1485,7 +1485,7 @@ class Plotter:
             xlim = axes.get_xlim()
             for frame in self.event_frames:
                 if frame < xlim[1]:
-                    axes.axvline(x=frame, color='w', linestyle=(0, (5, 5)), alpha=0.3)
+                    axes.axvline(x=frame, color='w', linestyle=(0, (10.5,6.8)), alpha=1,lw=0.7)
             axes.set_xticks(self.event_frames)
             axes.set_xticklabels(self.event_labels)
             plt.xticks(rotation=45)
@@ -1717,7 +1717,7 @@ class Plotter:
         event_onset = self.get_event_frame_for_decoder(decoder_type)
         print(event_onset)
         xticks_in, xticks_lab = self.x_axis_sec_aligned(event_onset- start_frame, end_frame - start_frame, interval=10, frame_rate=30)
-        ax.axvline(x=event_onset, color='k', linestyle=(0, (5, 5)), alpha=0.5)
+        ax.axvline(x=event_onset, color='k', linestyle=(0, (10.5,6.8)), alpha=1,lw=0.7)
 
         plt.xticks(ticks=xticks_in, labels=xticks_lab)
         plt.xlabel('Time (s)')
@@ -1890,24 +1890,43 @@ class Plotter:
         for i, (ct, color) in enumerate(zip(self.celltypecolors, colors)):
             mean = means[ct]
             sem = sems[ct]
+            # ax.bar(
+            #     x_positions[i],
+            #     mean,
+            #     facecolor='white',
+            #     edgecolor=color,
+            #     alpha=1,
+            #     width=0.6,
+            #     linewidth=1
+            # )
+            # ax.errorbar(
+            #     x_positions[i],
+            #     mean,
+            #     yerr=sem,
+            #     fmt='none',
+            #     ecolor=color,
+            #     elinewidth=1,
+            #     capsize=2,
+            #     capthick=1
+            # )
             ax.bar(
                 x_positions[i],
                 mean,
-                facecolor='white',
-                edgecolor=color,
+                facecolor=color,
+                edgecolor='white',
                 alpha=1,
                 width=0.6,
-                linewidth=1
+                linewidth=0.1
             )
             ax.errorbar(
                 x_positions[i],
                 mean,
                 yerr=sem,
                 fmt='none',
-                ecolor=color,
-                elinewidth=1,
+                ecolor='black',
+                elinewidth=.5,
                 capsize=2,
-                capthick=1
+                capthick=.5
             )
 
         # Aesthetics
@@ -1933,7 +1952,7 @@ class Plotter:
                 comparisons.append((i, j))
                 # Get data for the two cell types
                 data_i = np.array(percentages_by_celltype[celltype])
-                data_j = np.array(percentages_by_celltype[celltype])
+                data_j = np.array(percentages_by_celltype[other_celltype])
                 if len(data_i) == 0 or len(data_j) == 0:
                     print(f"No significant peaks found for {celltype} or {other_celltype}. Skipping permutation test.")
                     continue
@@ -1957,8 +1976,8 @@ class Plotter:
         count = 0
         for (i, j), star in zip(comparisons, significance_stars):
             if star != 'ns':  # Only add significance line if there is a star
-                self.add_significance_line(ax, x1=i, x2=j, y=ylims[1]-.05+count,significance=star, color='black')
-                count += .05
+                self.add_significance_line(ax, x1=i, x2=j, y=ylims[1]+count,significance=star, color='black',star_height_percentage =0.005)
+                count += 5
 
         # get actual save_path by getting the string in front of the last /
         if save_path and '/' in save_path:
@@ -2183,7 +2202,7 @@ class Plotter:
             # Add event markers
             for frame in event_frames:
                 if frame < len(mean_trace):
-                    plt.axvline(x=(frame - start_frame) / 30.0, color='k', linestyle=(0, (5, 5)), alpha=0.5)
+                    plt.axvline(x=(frame - start_frame) / 30.0, color='k', linestyle=(0, (10.5,6.8)), alpha=1,lw=0.7)
             
             # x = np.arange(len(mean_trace))
             
@@ -2434,7 +2453,7 @@ class Plotter:
             xlim = axes[1].get_xlim()
             for frame in event_frames:
                 if frame < xlim[1]:
-                    axes[1].axvline(x=frame, color='k', linestyle=(0, (5, 5)), alpha=0.3)
+                    axes[1].axvline(x=frame, color='k', linestyle=(0, (10.5,6.8)), alpha=1,lw=0.7)
             axes[1].set_xticks(event_frames)
             axes[1].set_xticklabels(self.event_labels)
             plt.xticks(rotation=45)
@@ -2508,7 +2527,7 @@ class Plotter:
         else:
             df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, type='permutation')
         plt.show()
-    def plot_significant_neurons_distribution(self,significant_neurons_data, event_frames=None, save_path=None, figure_type='cdf',star_height_percentage=0.05, figsize=(3, 1.6)): 
+    def plot_significant_neurons_distribution(self,significant_neurons_data, event_frames=None, save_path=None, figure_type='cdf',star_height_percentage=0.05, figsize=(3, 1.6), bin_size=3): 
         """Plot distribution of significant informative neurons."""
         fig, axes = plt.subplots(1, 2, figsize=figsize, dpi=300) #, constrained_layout=True
         plt.subplots_adjust(wspace=0.1,left=0.2, top=2)    # Adjust for more space between plots
@@ -2553,11 +2572,11 @@ class Plotter:
                 )
                 axes[0].set_ylabel("Peak Info. (bits)")
                 axes[0].set_xticklabels(celltypes, rotation=45)
-                ylims =  plt.gca().get_ylim()
-                if ylims[1] < 0.25:  # Check if y-axis limit is greater than 0.25
+                ylims1 =  plt.gca().get_ylim()
+                if ylims1[1] < 0.25:  # Check if y-axis limit is greater than 0.25
                     axes[0].set_ylim(0, 0.25)  # Setting y-axis limits to match example
                 else:
-                    axes[0].set_ylim(0, ylims[1]+.03)  # Adjust y-axis limit to be slightly above max value
+                    axes[0].set_ylim(0, ylims1[1]+.03)  # Adjust y-axis limit to be slightly above max value
             if figure_type == 'cdf':
                 # Calculate CDF
                 x1 = np.linspace(0.05, .15, 100)  # Define range of x values
@@ -2587,7 +2606,7 @@ class Plotter:
             
             # axes[1].plot(x1[:-1], cdf, linewidth= 1, color=color)  # x1[:-1] because histogram bins include right edge
             # axes[1].set_ylabel("cdf")
-            axes[1].hist(all_peaks_locs, alpha=0.7, color=color, bins=np.arange(0, 169, 15), label=celltype, density=False, weights=np.ones_like(all_peaks_locs) / len(all_peaks_locs), histtype='step', linewidth=1)   
+            axes[1].hist(all_peaks_locs, alpha=0.7, color=color, bins=np.arange(0, 169, bin_size), label=celltype, density=False, weights=np.ones_like(all_peaks_locs) / len(all_peaks_locs), histtype='step', linewidth=1)   
             
         axes[1].set_ylabel("Fraction")
         axes[1].set_xlabel('Peak Info. (bits)')
@@ -2597,6 +2616,12 @@ class Plotter:
         #clean up plots
         axes[0].spines['top'].set_visible(False)
         axes[0].spines['right'].set_visible(False)
+        #had to redo ylims for violin theya re changing based on the histogram...
+        if figure_type == 'violin':
+            if ylims1[1] < 0.25:  # Check if y-axis limit is greater than 0.25
+                axes[0].set_ylim(0, 0.25)  # Setting y-axis limits to match example
+            else:
+                axes[0].set_ylim(0, ylims1[1]+.03)  # Adjust y-axis limit to be slightly above max value
         # plt.gcf().subplots_adjust(top=0.85)  # Increase space at top for stars
         axes[1].spines['top'].set_visible(False)
         axes[1].spines['right'].set_visible(False)
@@ -2607,7 +2632,7 @@ class Plotter:
             xlim = axes[1].get_xlim()
             for frame in event_frames:
                 if frame < xlim[1]:
-                    axes[1].axvline(x=frame, color='k', linestyle=(0, (5, 5)), alpha=0.3)
+                    axes[1].axvline(x=frame, color='k', linestyle=(0, (10.5,6.8)), alpha=1,lw=0.7)
             axes[1].set_xticks(event_frames)
             axes[1].set_xticklabels(self.event_labels)
             plt.xticks(rotation=45)
@@ -2704,6 +2729,8 @@ class Plotter:
             df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_info_neurons_peaks.csv')
         else:
             df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values,type='permutation')
+
+        
         plt.show()
 
     def plot_significant_neurons_dataset_means(
@@ -3049,7 +3076,7 @@ class Plotter:
                 event_frames = [6, 38, 70, 131, 145]
                 event_labels = ['S1', 'S2', 'S3', 'T', 'R']
                 for frame, event_label in zip(event_frames, event_labels):
-                    axs[3].axvline(x=frame, color='gray', linestyle=(0, (10, 5)), alpha=0.7, linewidth=0.3)
+                    axs[3].axvline(x=frame, color='gray', linestyle=(0, (10.5,6.8)), alpha=1,lw=0.7)
 
                 axs[3].set_title('(4) Bayesian Decoder\n(Example Trial)')
                 neuron_start_id = 1  # since you’re plotting i+200
