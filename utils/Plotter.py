@@ -106,7 +106,7 @@ class Plotter:
         
         # If y is not provided, set it to 95% of the y-axis range
         if y is None:
-            y = ylims[1] * 0.95
+            y = ylims[1] *1.1
 
         if x2 is not None:  # Draw line if both x1 and x2 are provided
             # Calculate line height as small percentage of y-axis range
@@ -1840,7 +1840,7 @@ class Plotter:
             print(f"{celltype}: {means[celltype]:.2f} ± {sems[celltype]:.2f}%")
 
 
-    def plot_significant_neuron_percentages_by_celltype(self, significance_struc, neuron_groups, save_path=None):
+    def plot_significant_neuron_percentages_by_celltype(self, significance_struc, neuron_groups, save_path=None, star_height_percentage=0.1):
         """
         Plot the percentage of significantly modulated neurons per dataset for each cell type (% within each cell type).
         
@@ -1963,7 +1963,7 @@ class Plotter:
                 test_stats.append(stat)
                 comparisons_names.append((f"{celltype}_%_sig_info", f"{other_celltype}_%_sig_info"))
 
-                print(f"Unpaired permutation test p-value for {celltype} vs {other_celltype}: {p_value:.4f}")   
+                print(f"paired permutation test p-value for {celltype} vs {other_celltype}: {p_value:.4f}")   
                 # Save stats for each group
                 label1 = f"{celltype}_%_sig_info"
                 label2 = f"{other_celltype}_%_sig_info"
@@ -1976,8 +1976,8 @@ class Plotter:
         count = 0
         for (i, j), star in zip(comparisons, significance_stars):
             if star != 'ns':  # Only add significance line if there is a star
-                self.add_significance_line(ax, x1=i, x2=j, y=ylims[1]+count,significance=star, color='black',star_height_percentage =0.005)
-                count += 5
+                self.add_significance_line(ax, x1=i, x2=j, y=ylims[1]+count,significance=star, color='black',star_height_percentage =star_height_percentage)
+                count += ylims[1]*.2
 
         # get actual save_path by getting the string in front of the last /
         if save_path and '/' in save_path:
@@ -2527,7 +2527,7 @@ class Plotter:
         else:
             df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, type='permutation')
         plt.show()
-    def plot_significant_neurons_distribution(self,significant_neurons_data, event_frames=None, save_path=None, figure_type='cdf',star_height_percentage=0.05, figsize=(3, 1.6), bin_size=3): 
+    def plot_significant_neurons_distribution(self,significant_neurons_data, event_frames=None, save_path=None, figure_type='cdf',star_height_percentage=0.05, figsize=(3, 1.6), bin_size=3, ylim_axis0 = None): 
         """Plot distribution of significant informative neurons."""
         fig, axes = plt.subplots(1, 2, figsize=figsize, dpi=300) #, constrained_layout=True
         plt.subplots_adjust(wspace=0.1,left=0.2, top=2)    # Adjust for more space between plots
@@ -2564,10 +2564,10 @@ class Plotter:
                     x=[celltype] * len(all_peaks),
                     y=all_peaks,
                     ax=axes[0],
-                    color=color,
+                    color=color, #color
                     inner='box',
-                    linewidth=1,
-                    edgecolor=color,  # Add edge color for better visibility
+                    linewidth=.5,
+                    edgecolor=color  # Add edge color for better visibility
                     # bw=0.3  # Adjust bandwidth for smoother distributions
                 )
                 axes[0].set_ylabel("Peak Info. (bits)")
@@ -2720,17 +2720,26 @@ class Plotter:
 
                 print(f"Permutation test locs p-value for {celltype} vs {other_celltype}: {p_value:.4f}")
 
+        #redo y limits for axes[0]
+        if ylim_axis0 is not None:
+            axes[0].set_ylim(ylim_axis0)
+        else:   
+            max_y = max([max(collected_peaks[ct]['peak_values'] or [0]) for ct in celltype_keys])
+            axes[0].set_ylim(0, max(0.25, max_y + 0.03))  # Adjust y-axis limit to be slightly above max value
+
+        #include bin_size in the name of the saved file
+        if bin_size is None:
+            bin_size = 3
         # get actual save_path by getting the string in front of the last /
         if save_path and '/' in save_path:
             save_path_updated = save_path[:save_path.rfind('/')]
         if save_path:
             plt.savefig(save_path,  dpi=300) #bbox_inches='tight',
-            df_tests = self.stats.to_table(comparisons_names, test_stats, p_values, save_path=f'{save_path_updated}/stat_tests_info_neurons_peaks.csv',type='permutation')
-            df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_info_neurons_peaks.csv')
+            df_tests = self.stats.to_table(comparisons_names, test_stats, p_values, save_path=f'{save_path_updated}/stat_tests_info_neurons_peaks_bin{bin_size}.csv',type='permutation')
+            df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_info_neurons_peaks_bin{bin_size}.csv')
         else:
             df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values,type='permutation')
-
-        
+   
         plt.show()
 
     def plot_significant_neurons_dataset_means(
