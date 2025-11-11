@@ -3,6 +3,7 @@ import os
 import pickle
 import scipy
 import random
+import pandas as pd
 
 import numpy as np
 from sklearn.svm import SVC
@@ -1938,6 +1939,19 @@ class Plotter:
         ax.spines["right"].set_visible(False)
         ylims =  plt.gca().get_ylim()
 
+        #kruskal wallis test across all cell types
+        group1 = np.array(percentages_by_celltype['pyr'])
+        group2 = np.array(percentages_by_celltype['som'])
+        group3 = np.array(percentages_by_celltype['pv'])
+
+        # Optional: remove NaNs
+        group1 = group1[~np.isnan(group1)]
+        group2 = group2[~np.isnan(group2)]
+        group3 = group3[~np.isnan(group3)]
+        # Run Kruskal–Wallis test
+        # call your method
+        kw_table = self.stats.kruskal_wallis_to_pd('percentages_by_celltype', group1, group2, group3)
+
         # perform permutation test for each cell type
         celltype_keys = list(self.celltypecolors.keys())
         all_p_values = []
@@ -1970,6 +1984,7 @@ class Plotter:
                 all_stats_dict[label1] = self.stats.get_basic_stats(data_i)
                 all_stats_dict[label2] = self.stats.get_basic_stats(data_j) 
 
+
         _, significance_stars = self.stats.calculate_bonferroni_significance(all_p_values, alpha=0.05)
 
         # Add significance stars to the plot
@@ -1986,6 +2001,8 @@ class Plotter:
         if save_path:
             plt.savefig(save_path, bbox_inches="tight")
             df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, save_path=f'{save_path_updated}/stat_tests_info_sig_percent.csv',type='permutation paired')
+            df_tests = pd.concat([df_tests, kw_table], ignore_index=True)
+            df_tests.to_csv(f'{save_path_updated}/stat_tests_info_sig_percent.csv', index=False)
             df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_info_sig_percent.csv')
 
         plt.tight_layout()
@@ -2638,6 +2655,34 @@ class Plotter:
             plt.xticks(rotation=45)
         plt.tight_layout()
 
+        #kruskal wallis test across all cell types for values and locs
+        kw_table_all = [] 
+        # Loop over the two types of data in collected_peaks
+        for key in ['peak_values', 'peak_frames']:
+            if key == 'peak_frames':
+                group1 = group1 / 30
+                group2 = group2 / 30
+                group3 = group3 / 30
+
+            # Select data for each cell type
+            group1 = np.array(collected_peaks['pyr'][key])
+            group2 = np.array(collected_peaks['som'][key])
+            group3 = np.array(collected_peaks['pv'][key])
+
+            # Optional: remove NaNs
+            group1 = group1[~np.isnan(group1)]
+            group2 = group2[~np.isnan(group2)]
+            group3 = group3[~np.isnan(group3)]
+
+            # call your method
+            kw_row = self.stats.kruskal_wallis_to_pd(key, group1, group2, group3)
+
+            # append the returned DataFrame row to a list
+            kw_table_all.append(kw_row)
+
+        # concatenate all rows into a single DataFrame
+        df_kw = pd.concat(kw_table_all, ignore_index=True)
+
         # perform permutation test for each cell type
         # Perform pairwise comparisons
         celltype_keys = list(self.celltypecolors.keys())
@@ -2698,8 +2743,8 @@ class Plotter:
                 other_celltype = celltype_keys[j]
                 comparisons.append((i, j))
                 # Get data for the two cell types
-                data_i = np.array(collected_peaks[celltype]['peak_frames'])
-                data_j = np.array(collected_peaks[other_celltype]['peak_frames'])
+                data_i = np.array(collected_peaks[celltype]['peak_frames'])/ 30  # convert frames to seconds
+                data_j = np.array(collected_peaks[other_celltype]['peak_frames'])/ 30  # convert frames to seconds
                 if len(data_i) == 0 or len(data_j) == 0:
                     print(f"No significant peaks found for {celltype} or {other_celltype}. Skipping permutation test.")
                     continue
@@ -2736,6 +2781,8 @@ class Plotter:
         if save_path:
             plt.savefig(save_path,  dpi=300) #bbox_inches='tight',
             df_tests = self.stats.to_table(comparisons_names, test_stats, p_values, save_path=f'{save_path_updated}/stat_tests_info_neurons_peaks_bin{bin_size}.csv',type='permutation')
+            df_tests = pd.concat([df_tests, df_kw], ignore_index=True)
+            df_tests.to_csv(f'{save_path_updated}/stat_tests_info_neurons_peaks_bin{bin_size}.csv', index=False)
             df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_info_neurons_peaks_bin{bin_size}.csv')
         else:
             df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values,type='permutation')

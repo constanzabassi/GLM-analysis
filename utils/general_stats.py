@@ -11,6 +11,7 @@ import pandas as pd
 from scipy import stats
 from scipy.stats import permutation_test, bootstrap
 import os
+from scipy.stats import kruskal
 
 class GeneralStats:
     def __init__(self):
@@ -109,7 +110,21 @@ class GeneralStats:
     def ks_test(self, data1, data2):
         ks, p = stats.ks_2samp(data1, data2)
         return {'statistic': ks, 'p_value': p}
-
+    
+    
+    def kruskal_wallis_to_pd(self,key, data1, data2,data3=None):
+        if data3 is not None:
+            kw_stat, kw_p_value = kruskal(data1, data2, data3)
+        else:
+            kw_stat, kw_p_value = kruskal(data1, data2)
+        kw_row = pd.DataFrame({
+        'Group1': [key],
+        'Group2': [key],
+        'statistic': [kw_stat],
+        'p_value': [kw_p_value]
+        # 'test_type': ['kruskal-wallis']
+        })
+        return kw_row
 
     def get_basic_stats(self, data1, n_bootstrap=1000, ci_level=0.95, random_state=None):
         """
@@ -121,9 +136,16 @@ class GeneralStats:
         sd = np.nanstd(data1)
         n = len(data1)
         n_nonan = np.sum(~np.isnan(data1))
+
+        if n_nonan > 1:
+            sem = sd / np.sqrt(n_nonan)
+        else:
+            sem = np.nan
+
         stats_dict = {
             'mean': mean,
             'sd': sd,
+            'sem': sem,
             'n': n,
             'n_nonan': n_nonan,
             'ci': np.nan,
