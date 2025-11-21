@@ -1951,6 +1951,7 @@ class Plotter:
         # Run Kruskal–Wallis test
         # call your method
         kw_table = self.stats.kruskal_wallis_to_pd('percentages_by_celltype', group1, group2, group3)
+        kw_significant = (kw_table["p_value"] < 0.05).any()
 
         # perform permutation test for each cell type
         celltype_keys = list(self.celltypecolors.keys())
@@ -1988,11 +1989,12 @@ class Plotter:
         _, significance_stars = self.stats.calculate_bonferroni_significance(all_p_values, alpha=0.05)
 
         # Add significance stars to the plot
-        count = 0
-        for (i, j), star in zip(comparisons, significance_stars):
-            if star != 'ns':  # Only add significance line if there is a star
-                self.add_significance_line(ax, x1=i, x2=j, y=ylims[1]+count,significance=star, color='black',star_height_percentage =star_height_percentage)
-                count += ylims[1]*.2
+        if kw_significant:
+            count = 0
+            for (i, j), star in zip(comparisons, significance_stars):
+                if star != 'ns':  # Only add significance line if there is a star
+                    self.add_significance_line(ax, x1=i, x2=j, y=ylims[1]+count,significance=star, color='black',star_height_percentage =star_height_percentage)
+                    count += ylims[1]*.2
 
         # get actual save_path by getting the string in front of the last /
         if save_path and '/' in save_path:
@@ -2393,9 +2395,6 @@ class Plotter:
         Plot distribution of session-mean peak values for significant informative neurons.
         Each data point is the mean for a session/cell type.
         """
-        import numpy as np
-        import matplotlib.pyplot as plt
-        import seaborn as sns
 
         fig, axes = plt.subplots(1, 2, figsize=fig_size, dpi=300)
         plt.subplots_adjust(wspace=0.1, left=0.2, top=2)
@@ -2544,9 +2543,14 @@ class Plotter:
         else:
             df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, type='permutation')
         plt.show()
-    def plot_significant_neurons_distribution(self,significant_neurons_data, event_frames=None, save_path=None, figure_type='cdf',star_height_percentage=0.05, figsize=(3, 1.6), bin_size=3, ylim_axis0 = None): 
+    def plot_significant_neurons_distribution(self,significant_neurons_data, event_frames=None, save_path=None, figure_type='cdf',star_height_percentage=0.05, figsize=(3, 1.6), bin_size=3, ylim_axis0 = None, plot_peak_locs = True): 
         """Plot distribution of significant informative neurons."""
-        fig, axes = plt.subplots(1, 2, figsize=figsize, dpi=300) #, constrained_layout=True
+        
+        if plot_peak_locs == False:
+            fig, axes = plt.subplots(1, 1, figsize=(figsize[0]/2, figsize[1]), dpi=300) #, constrained_layout=True
+            axes = [axes]  # Make axes a list for consistent indexing
+        else:
+            fig, axes = plt.subplots(1, 2, figsize=figsize, dpi=300) #, constrained_layout=True
         plt.subplots_adjust(wspace=0.1,left=0.2, top=2)    # Adjust for more space between plots
         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})  # Updated font size for clarity
 
@@ -2623,12 +2627,23 @@ class Plotter:
             
             # axes[1].plot(x1[:-1], cdf, linewidth= 1, color=color)  # x1[:-1] because histogram bins include right edge
             # axes[1].set_ylabel("cdf")
-            axes[1].hist(all_peaks_locs, alpha=0.7, color=color, bins=np.arange(0, 169, bin_size), label=celltype, density=False, weights=np.ones_like(all_peaks_locs) / len(all_peaks_locs), histtype='step', linewidth=1)   
-            
-        axes[1].set_ylabel("Fraction")
-        axes[1].set_xlabel('Peak Info. (bits)')
-        axes[1].spines['top'].set_visible(False)
-        axes[1].spines['right'].set_visible(False)
+            if plot_peak_locs == True:
+                axes[1].hist(all_peaks_locs, alpha=0.7, color=color, bins=np.arange(0, 169, bin_size), label=celltype, density=False, weights=np.ones_like(all_peaks_locs) / len(all_peaks_locs), histtype='step', linewidth=1)   
+        if plot_peak_locs == True:
+            axes[1].set_ylabel("Fraction")
+            axes[1].set_xlabel('Peak Info. (bits)')
+            axes[1].spines['top'].set_visible(False)
+            axes[1].spines['right'].set_visible(False)
+            # Adding labels for event frames if provided
+            if event_frames is not None:
+                
+                xlim = axes[1].get_xlim()
+                for frame in event_frames:
+                    if frame < xlim[1]:
+                        axes[1].axvline(x=frame, color='k', linestyle=(0, (10.5,6.8)), alpha=1,lw=0.7)
+                axes[1].set_xticks(event_frames)
+                axes[1].set_xticklabels(self.event_labels)
+                plt.xticks(rotation=45)
 
         #clean up plots
         axes[0].spines['top'].set_visible(False)
@@ -2640,19 +2655,8 @@ class Plotter:
             else:
                 axes[0].set_ylim(0, ylims1[1]+.03)  # Adjust y-axis limit to be slightly above max value
         # plt.gcf().subplots_adjust(top=0.85)  # Increase space at top for stars
-        axes[1].spines['top'].set_visible(False)
-        axes[1].spines['right'].set_visible(False)
 
-        # Adding labels for event frames if provided
-        if event_frames is not None:
-            
-            xlim = axes[1].get_xlim()
-            for frame in event_frames:
-                if frame < xlim[1]:
-                    axes[1].axvline(x=frame, color='k', linestyle=(0, (10.5,6.8)), alpha=1,lw=0.7)
-            axes[1].set_xticks(event_frames)
-            axes[1].set_xticklabels(self.event_labels)
-            plt.xticks(rotation=45)
+        
         plt.tight_layout()
 
         #kruskal wallis test across all cell types for values and locs
@@ -2682,6 +2686,11 @@ class Plotter:
 
         # concatenate all rows into a single DataFrame
         df_kw = pd.concat(kw_table_all, ignore_index=True)
+        # Determine if either Kruskal–Wallis test is significant
+        # kw_significant = (df_kw["p_value"] < 0.05).any()
+        kw_significant = (
+            df_kw.loc[df_kw["Group1"] == "peak_values", "p_value"].iloc[0] < 0.05
+        )
 
         # perform permutation test for each cell type
         # Perform pairwise comparisons
@@ -2729,13 +2738,14 @@ class Plotter:
         step_height = y_range * star_height_percentage  # Use parameter to control spacing
 
 
-        # Add significance stars to the plot
-        count = 0
-        for (i, j), star in zip(comparisons, significance_stars):
-            if star != 'ns':  # Only add significance line if there is a star
-                star_y = ylims[1]-.03+count# base_height + (step_height * count) #
-                self.add_significance_line(axes[0], x1=i, x2=j, y=star_y,significance=star, color='black',star_height_percentage = star_height_percentage, fontsize=7)
-                count += .03
+        if kw_significant:
+            # Add significance stars to the plot
+            count = 0
+            for (i, j), star in zip(comparisons, significance_stars):
+                if star != 'ns':  # Only add significance line if there is a star
+                    star_y = ylims[1]-.03+count# base_height + (step_height * count) #
+                    self.add_significance_line(axes[0], x1=i, x2=j, y=star_y,significance=star, color='black',star_height_percentage = star_height_percentage, fontsize=7)
+                    count += .03
 
 
         for i, celltype in enumerate(celltype_keys):

@@ -187,7 +187,7 @@ class DataHandlerDecoding:
                         # If file doesn't exist and we're in pre, try regular directory
                         fallback_dir = f'{decoding_dir}{splits+1}/'
                         os.chdir(fallback_dir)
-                        print(f'File not found, trying fallback directory: {fallback_dir}')
+                        print(f'Shuffled file not found, trying fallback directory: {fallback_dir}')
                 else:
                     mat_path = Path(f'decoder_results_regular_{variable}.mat')
                     # variable = variable.split('_')[0]
@@ -195,8 +195,30 @@ class DataHandlerDecoding:
                 
                 print(mat_path)
                 variable = variable  # Change to 'sound_category', 'photostim', etc.
-                temp_results = self.load_cat_results(mat_path, variable)
-                temp_results = temp_results[0]  # to get rid of the first dimension
+                # temp_results = self.load_cat_results(mat_path, variable)
+                # temp_results = temp_results[0]  # to get rid of the first dimension
+                # ## skip this variable if file doesn’t exist
+                # if not mat_path.exists():
+                #     print(f"[WARN] Missing {variable} for split {splits} → skipping")
+                #     continue
+
+                # If file is missing → insert EMPTY fields
+                # if not mat_path.exists():
+                #     print(f"[WARN] Missing {mat_path}, inserting empty structure")
+                #     for key in variables_to_load:
+                #         if key == 'event_frame':
+                #             cat_results[variable][splits][key] = np.array([])
+                #         else:
+                #             cat_results[variable][splits][key] = np.array([])
+                #     continue  # move on to next variable
+
+                # Load .mat file
+                temp_results = self.load_cat_results(mat_path, variable)[0]
+                # try:
+                #     temp_results = self.load_cat_results(mat_path, variable)[0]
+                # except Exception as e:
+                #     print(f"[ERROR] Failed loading {mat_path}: {e} → skipping variable")
+                #     continue
                 
                 # Initialize the dictionary for the variable
                 if variable not in cat_results:
