@@ -855,6 +855,57 @@ class DecoderAnalyzer:
 
         return synergy_all
     
+    def get_informative_mask(self,peak_info_struc, ds, feature, threshold):
+        vals = []
+        for ct in peak_info_struc[ds]:
+            if feature in peak_info_struc[ds][ct]:
+                vals.append(peak_info_struc[ds][ct][feature]["peak_values"])
+        if len(vals)==0:
+            return np.array([])
+        return np.concatenate(vals) > threshold
+
+
+    def compute_dataset_fractions(self,peak_info_struc, f1, f2, threshold=0.06):
+        """
+        Returns per-dataset fractions:
+            informative%, f1_only%, f2_only%, both%
+        Only informative neurons included in venn fractions.
+        """
+        info_fracs = []
+        venn_f1 = []
+        venn_f2 = []
+        venn_both = []
+
+        for ds in peak_info_struc:
+            m1 = self.get_informative_mask(peak_info_struc, ds, f1, threshold)
+            m2 = self.get_informative_mask(peak_info_struc, ds, f2, threshold)
+
+            if len(m1)==0 or len(m2)==0:
+                continue
+
+            # Total neurons for informative %
+            total = len(m1)
+            info_fracs.append(100 * np.sum(m1 | m2) / total)
+
+            # Only informative neurons included in venn:
+            informative_idx = np.where(m1 | m2)[0]
+            m1i = m1[informative_idx]
+            m2i = m2[informative_idx]
+
+            f1_only = np.sum(m1i & ~m2i)
+            f2_only = np.sum(~m1i & m2i)
+            both    = np.sum(m1i & m2i)
+
+            tot_inf = f1_only + f2_only + both
+            venn_f1.append(100 * f1_only / tot_inf)
+            venn_f2.append(100 * f2_only / tot_inf)
+            venn_both.append(100 * both / tot_inf)
+
+        return (np.array(info_fracs),
+                np.array(venn_f1),
+                np.array(venn_f2),
+                np.array(venn_both))
+    
     
     # def analyze_significant_neurons_by_threshold(self, results_dict, decoder_type, start_frame, end_frame, metric='sc_instantaneous_information_mean', threshold=0.5):
     #     """Analyze significant neurons that exceed a given threshold value for plotting."""

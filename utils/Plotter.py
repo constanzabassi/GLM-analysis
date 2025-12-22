@@ -21,6 +21,8 @@ import seaborn as sns
 from matplotlib.ticker import FormatStrFormatter
 from scipy.stats import wilcoxon
 import matplotlib.patches as patches
+import matplotlib.cm as cm
+from matplotlib_venn import venn2
 
 #import stats class
 from utils.general_stats import GeneralStats
@@ -3201,7 +3203,451 @@ class Plotter:
             plt.savefig(save_path, bbox_inches='tight')
         # plt.show()
 
+    def plot_scatter_all_datasets_by_celltype(self,
+            peak_info_struc,
+            celltypes=("Pyr","SOM","PV"),
+            stim_feature="sound_category",
+            choice_feature="choice",
+            threshold=0.06,
+            figsize=(9,3),
+            colors=None,
+            lims=(0, 0.3),
+            subplots = False, save_path = None, uniformative_colors = None):
 
+        """
+        Plot scatter plot of peak information for all datasets, by cell type.
+        """
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+        datasets = list(peak_info_struc.keys())
+
+        # dataset colors (if none passed)
+        if colors is None:
+            
+            cmap = cm.get_cmap('tab10', len(datasets))
+            colors = {ds: cmap(i) for i, ds in enumerate(datasets)}
+
+        # =====================================================================
+        # CASE 1: multiple cell types → separate subplots
+        # =====================================================================
+        if subplots:
+            fig, axes = plt.subplots(1, len(celltypes), figsize=figsize)
+
+            for i, ct in enumerate(celltypes):
+                ax = axes[i]
+                for ds in datasets:
+                    if ct not in peak_info_struc[ds]:
+                        continue
+
+                    stim_vals   = peak_info_struc[ds][ct][stim_feature]["peak_values"]
+                    choice_vals = peak_info_struc[ds][ct][choice_feature]["peak_values"]
+
+                    mask = (stim_vals < threshold) & (choice_vals < threshold)
+                    mask_informative = (stim_vals >= threshold) | (choice_vals >= threshold)
+
+
+                    # uniformative neurons
+                    if uniformative_colors is not None:
+                        ax.scatter(
+                            stim_vals[mask], choice_vals[mask],
+                            alpha=0.6, s=2, #s=5
+                            edgecolors=uniformative_colors,
+                            facecolors='none',
+                            linewidths=0.5
+                        )
+
+                        ax.scatter(
+                            stim_vals[mask_informative], choice_vals[mask_informative],
+                            alpha=0.6, s=2, #s=5
+                            edgecolors=self.default_colors[ct.lower()],
+                            facecolors='none',
+                            linewidths=0.5,
+                            label=ct if ds == datasets[0] else None
+                        )
+
+                    else:
+                        ax.scatter(
+                        stim_vals, choice_vals,
+                        alpha=0.7, s=2, 
+                        edgecolors=self.default_colors[ct.lower()],
+                        facecolors='none',
+                        linewidths=0.5,
+                        label=ct if ds == datasets[0] else None
+                    )
+
+                ax.axvline(threshold, ls="--", color="black", lw=0.75)
+                ax.axhline(threshold, ls="--", color="black", lw=0.75)
+
+                ax.set_title(ct)
+                ax.set_xlim(lims)
+                ax.set_ylim(lims)
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+
+                if i == 0:
+                    ax.set_ylabel(f"Peak {choice_feature} info (bits)")
+
+            fig.tight_layout()
+            fig.supxlabel(f"Peak {stim_feature} info (bits)", y=0.0)
+            if save_path:
+                plt.savefig(save_path,  dpi=300) #bbox_inches='tight',
+            plt.show()
+
+        # =====================================================================
+        # CASE 2: single cell type input → plot ALL cell types on one axis
+        # =====================================================================
+
+        else:
+            # Determine all available cell types
+            # all_celltypes = sorted({
+            #     ct for ds in datasets for ct in peak_info_struc[ds].keys()
+            #     if isinstance(peak_info_struc[ds][ct], dict)
+            # })
+            
+
+            fig, ax = plt.subplots(figsize=figsize)
+
+            for ct in celltypes:
+                for ds in datasets:
+                    if ct not in peak_info_struc[ds]:
+                        continue
+
+                    stim_vals   = peak_info_struc[ds][ct][stim_feature]["peak_values"]
+                    choice_vals = peak_info_struc[ds][ct][choice_feature]["peak_values"]
+
+                    mask = (stim_vals < threshold) & (choice_vals < threshold)
+                    mask_informative = (stim_vals >= threshold) | (choice_vals >= threshold)
+
+
+                    # uniformative neurons
+                    if uniformative_colors is not None:
+                        ax.scatter(
+                            stim_vals[mask], choice_vals[mask],
+                            alpha=0.6, s=2, #s=5
+                            edgecolors=uniformative_colors,
+                            facecolors='none',
+                            linewidths=0.5
+                        )
+
+                        ax.scatter(
+                            stim_vals[mask_informative], choice_vals[mask_informative],
+                            alpha=0.6, s=2, #s=5
+                            edgecolors=self.default_colors[ct.lower()],
+                            facecolors='none',
+                            linewidths=0.5,
+                            label=ct if ds == datasets[0] else None
+                        )
+
+                    else:
+                        ax.scatter(
+                        stim_vals, choice_vals,
+                        alpha=0.7, s=2, 
+                        edgecolors=self.default_colors[ct.lower()],
+                        facecolors='none',
+                        linewidths=0.5,
+                        label=ct if ds == datasets[0] else None
+                    )
+
+            ax.axvline(threshold, ls="--", color="black", lw=0.75)
+            ax.axhline(threshold, ls="--", color="black", lw=0.75)
+
+            ax.set_xlim(lims)
+            ax.set_ylim(lims)
+            ax.set_xlabel(f"Peak {stim_feature.replace('_', ' ')}\ninfo (bits)") #set_labels = (f1.replace("_", " ").title(), f2.replace("_", " ").title()), 
+            ax.set_ylabel(f"Peak {choice_feature.replace('_', ' ')}\ninfo (bits)")
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+
+            # legend sorted by input ordering
+            handles, labels = ax.get_legend_handles_labels()
+            ordered = [ct for ct in celltypes if ct in labels]
+
+            ax.legend(
+                [handles[labels.index(ct)] for ct in ordered],
+                ordered,
+                frameon=False,
+                fontsize=6,
+                handletextpad=0.2,
+                loc="upper right"
+            )
+
+            plt.tight_layout()
+            if save_path:
+                plt.savefig(save_path,  dpi=300) #bbox_inches='tight',
+
+            plt.show()
+
+    def plot_informative_pie(self,info_fracs, f1,f2,figsize = (1.5,1.5), colors = ["black", "lightgray"],save_path = None):
+        '        Plot a pie chart showing the fraction of informative neurons per feature.'
+        
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+        mean_val = np.mean(info_fracs)
+        sd_val   = np.std(info_fracs)
+
+        f1_label = f1.replace("_", " ").title()
+        f2_label = f2.replace("_", " ").title()
+
+        plt.figure(figsize=figsize)
+        plt.pie([mean_val, 100-mean_val],
+                colors=colors,
+                startangle=90,
+                
+                wedgeprops={'edgecolor':'none'})
+        plt.title(f"Informative Neurons\n{mean_val:.0f}% ± {sd_val:.0f}%", fontsize = 7) #{f1_label} ∩ {f2_label}\n
+
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path,  dpi=300) #bbox_inches='tight',
+        plt.show()
+
+    def plot_overlap_pie(self,
+        venn_f1,
+        venn_f2,
+        venn_both,
+        f1,
+        f2,
+        figsize=(1.6, 1.6),
+        colors=None,
+        save_path=None,
+        radius = 1.15
+    ):
+        """
+        Pie chart showing partition of informative neurons.
+
+        Categories:
+        - f1 only
+        - f2 only
+        - both
+        """
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+        # Mean ± SD
+        m1, s1 = np.mean(venn_f1), np.std(venn_f1)
+        m2, s2 = np.mean(venn_f2), np.std(venn_f2)
+        mb, sb = np.mean(venn_both), np.std(venn_both)
+
+        # Default muted colors (can be overridden)
+        if colors is None:
+            c1 = "#4B3F92"   # muted purple
+            c2 = "#F2B134"   # muted yellow
+            cb = "#6EC5FF"   # soft blue
+        else:
+            c1, c2, cb = colors
+
+        fig, ax = plt.subplots(figsize=figsize)
+
+        vals = [m1, mb, m2]
+
+        wedges, _ = ax.pie(
+            vals,
+            colors=[c1, cb, c2],
+            startangle=90,
+            counterclock=False,
+            wedgeprops=dict(edgecolor='white', linewidth=0.6)
+        )
+
+        # Percentage labels ONLY (outside)
+        pct_labels = [
+            f"{m1:.0f} ± {s1:.0f}%",
+            f"{mb:.0f} ± {sb:.0f}%",
+            f"{m2:.0f} ± {s2:.0f}%"
+        ]
+
+        for w, label in zip(wedges, pct_labels):
+            ang = (w.theta2 + w.theta1) / 2
+            x = radius * np.cos(np.deg2rad(ang))
+            y = radius * np.sin(np.deg2rad(ang))
+            ax.text(x, y, label, ha='center', va='center', fontsize=6)
+
+        # Legend (clean, journal style)
+        legend_labels = [
+            f"{f1.replace('_', ' ').title()} only",
+            "Both",
+            f"{f2.replace('_', ' ').title()} only"
+        ]
+
+        ax.legend(
+            wedges,
+            legend_labels,
+            frameon=False,
+            fontsize=6,
+            loc="lower center",
+            bbox_to_anchor=(0.5, -.1),
+            bbox_transform=fig.transFigure,
+            ncol=1
+        )
+
+        ax.set_title(
+            "Proportion of\ninformative neurons",
+            fontsize=7,
+            pad=6
+        )
+
+        ax.axis("equal")
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, format="pdf")
+
+        plt.show()
+
+    def plot_overlap(self, venn_f1, venn_f2, venn_both, f1, f2, mode="venn", figsize = (1.5,1.5),colors = None, save_path = None):
+        """
+        venn_f1, venn_f2, venn_both : arrays (per dataset)
+        f1, f2 : feature names
+        mode : "pie" or "venn"
+        """
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+        # Mean ± SD
+        m1, s1 = np.mean(venn_f1), np.std(venn_f1)
+        m2, s2 = np.mean(venn_f2), np.std(venn_f2)
+        mb, sb = np.mean(venn_both), np.std(venn_both)
+
+        # Colors
+        if colors is None:
+            c1 = "#87A96B"   # soft green
+            c2 = "#7FA6D6"   # soft blue
+            cb = "#C58882"   # muted red
+        else:
+            c1 = colors[0]
+            c2 = colors[1]
+            cb = (0.5,0.5,0.5)
+
+        if mode == "pie":
+            # --- PIE VERSION (fast + simple) ---
+            plt.figure(figsize=figsize)
+            vals = [m1, m2, mb]
+            labels = [
+                f"{f1} only\n{m1:.0f}% ± {s1:.0f}",
+                f"{f2} only\n{m2:.0f}% ± {s2:.0f}",
+                f"Both\n{mb:.0f}% ± {sb:.0f}"
+            ]
+            plt.pie(vals, labels=labels, colors=[c1,c2,cb],
+                    startangle=90, wedgeprops={'edgecolor':'k'})
+            # plt.title(f"{f1} ∩ {f2}")
+            plt.tight_layout()
+            if save_path:
+                plt.savefig(save_path, dpi=300) #bbox_inches='tight',
+            plt.show()
+        else:
+        # --- VENN VERSION (overlapping circles) ---
+            plt.figure(figsize=figsize)
+            ax = plt.gca()
+
+            v = venn2(subsets = (m1, m2, mb),
+                set_labels = (f1.replace("_", " ").title(), f2.replace("_", " ").title()), 
+                set_colors = colors,
+                alpha=0.6)
+
+            # Override labels with formatted mean ± SD
+            if v.get_label_by_id('10'):   # feature 1 only
+                v.get_label_by_id('10').set_text(f"{m1:.0f}%\n± {s1:.0f}")
+
+            if v.get_label_by_id('01'):   # feature 2 only
+                v.get_label_by_id('01').set_text(f"{m2:.0f}%\n± {s2:.0f}")
+
+            if v.get_label_by_id('11'):   # overlap
+                v.get_label_by_id('11').set_text(f"{mb:.0f}%\n± {sb:.0f}")
+
+            for text in v.set_labels:
+                text.set_fontsize(7)
+
+            plt.tight_layout()
+            if save_path:
+                plt.savefig(save_path,  dpi=300) #bbox_inches='tight',
+            plt.show()
+
+    def plot_synergy_vs_peak_pooled(self,pooled_scatter,celltypes=("Pyr","SOM","PV"), figsize=(6,5), threshold = None, xlims=None, feature_names = None, colors = None, save_path = None):
+    
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+        fig, axes = plt.subplots(1, len(celltypes), figsize=figsize) #, sharex=True, sharey=True
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+
+        # default: use the keys from pooled_scatter for the first cell type
+        if feature_names is None:
+            # assume all feature keys except "synergy"
+            example_cell = celltypes[0]
+            feature_names = [k for k in pooled_scatter[example_cell].keys()
+                            if k != "synergy"]
+            
+        # set colors for features
+        color_cycle = ('red','blue') #plt.cm.tab10(np.linspace(0, 1, len(feature_names)))
+        if colors is not None:
+            color_cycle = colors
+            
+        # ensure axes is always iterable
+        if len(celltypes) == 1:
+            axes = np.array([axes])
+
+        for i, celltype in enumerate(celltypes):
+            ax = axes[i]
+
+            for f, color in zip(feature_names, color_cycle):
+                ax.scatter(
+                    pooled_scatter[celltype][f],
+                    pooled_scatter[celltype]["synergy"],
+                    alpha=0.6, s=5,
+                    label= f.replace("_", " ").title(),#f"{f}",
+                    facecolors='none',
+                    edgecolor=color,
+                )
+
+            if threshold is not None:
+                ax.axvline(threshold, linestyle="--", color="black", linewidth=0.75)
+            if xlims is not None:
+                ax.set_xlim(xlims)
+            # ax.set_xlabel("Peak information (bits)")
+            # ax.set_ylabel("Synergy index")
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            # ax.set_title(f"{celltype}")
+            ax.set_title(celltype.upper())
+            if feature_names is not None and i == len(celltypes) - 1:
+                ax.legend( fontsize=6, frameon=False, loc='upper right', bbox_to_anchor=(1.2, 1),handletextpad=0.2)
+
+            if i == 0:
+                ax.set_ylabel("Synergy index")
+            # ax.set_xlabel(f"Peak {stim_feature} info (bits)")
+            ax.set_yticks([0, 0.5, 1])
+
+        fig.tight_layout()
+        fig.supxlabel(f"Peak information (bits)", y=0.0, fontsize=7)
+        if save_path:
+            plt.savefig(save_path,  dpi=300) #bbox_inches='tight',
+        fig.show()
+
+    def plot_synergy_violin(self,synergy_all,
+                        celltypes=["Pyr","SOM","PV"],
+                        figsize=(6,5),
+                        colors=None, save_path = None, ylabel = "Synergy Index"):
+        """
+        Violin plots of index for each cell type
+        """
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+        fig ,axes = plt.subplots(figsize=figsize)
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+
+        data = []
+        labels = []
+
+        for ct in celltypes:
+            data.append(synergy_all[ct])
+            labels.append(ct)
+
+        if colors is None:
+            colors = sns.color_palette("Set2", len(celltypes))
+        sns.violinplot(data=data, inner="box", cut=0, palette=colors,linewidth=1) #inner='box',
+                        
+        plt.xticks(range(len(labels)), labels)
+        plt.ylabel(ylabel)
+        # plt.title("Synergy between Sound and Choice Information", fontsize=7)
+        # plt.axhline(0, linestyle="--", color="gray")
+        
+        axes.spines['top'].set_visible(False)
+        axes.spines['right'].set_visible(False)
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path,  dpi=300) #bbox_inches='tight',
+        plt.show()
 
     # def plot_selected_metric_with_sem(self, mean_results_all, mean_results_all_passive, decoder_type, metric, start_frame = None,end_frame = None, xlim=None, ylim=None, title=None, xlabel='Frames', ylabel=None, colors = ('blue','red'), save_dir=None):
     #     """
