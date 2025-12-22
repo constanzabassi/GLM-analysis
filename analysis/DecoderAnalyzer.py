@@ -673,6 +673,187 @@ class DecoderAnalyzer:
 
         return special_neurons
     
+    def compute_peak_info_by_celltype(self,results_dict,
+                                  celltype_assignments,
+                                  features,
+                                  metric,
+                                  frame_windows,
+                                  celltype_label_map=None):
+        """
+        Compute peak information per dataset, per cell type, per decoded feature,
+        using feature-specific frame windows.
+        Parameters
+        ----------
+        results_dict : dict
+            results_dict[dataset_id][feature][metric] = array (frames x neurons)
+        celltype_assignments : dict
+            celltype_assignments[dataset_id] = celltype code per neuron
+        features : list of str
+            Decoded variables to extract, e.g. ['sound_category','choice']
+        metric : str
+            e.g. 'sc_instantaneous_information_mean'
+        frame_windows : dict
+            frame_windows[feature] = (start_frame, end_frame)
+        celltype_label_map : dict
+            Numeric → string mapping, e.g. {0:'Pyr',1:'SOM',2:'PV'}
+        Returns
+        -------
+        peak_info_struc : nested dict:
+            [dataset][celltype][feature]['peak_values']
+        peak_info_all_celltypes : aggregated across datasets
+        """
+        peak_info_struc = {}
+        peak_info_all_celltypes = {}  # filled lazily
+        for dataset_id in results_dict:
+            peak_info_struc[dataset_id] = {}
+            # -- celltype array --
+            raw_ct = np.asarray(celltype_assignments[dataset_id])
+            if np.issubdtype(raw_ct.dtype, np.floating):
+                raw_ct = raw_ct.astype(int)
+            if celltype_label_map is not None:
+                ct_labels = np.vectorize(celltype_label_map.get)(raw_ct)
+            else:
+                ct_labels = raw_ct
+            dataset_unique_ct = np.unique(ct_labels)
+            for feature in features:
+                
+                if feature not in frame_windows:
+                    raise ValueError(f"Missing frame window for feature '{feature}'")
+                start_frame, end_frame = frame_windows[feature]
+                info = results_dict[dataset_id][feature][metric]  # frames × neurons
+                window = info[start_frame:end_frame, :]
+                peak_vals = np.max(window, axis=0)
+                peak_frames = np.argmax(window, axis=0) + start_frame
+                # Assign per cell type
+                for ct in dataset_unique_ct:
+                    ct_idx = np.where(ct_labels == ct)[0]
+                    if ct not in peak_info_struc[dataset_id]:
+                        peak_info_struc[dataset_id][ct] = {}
+                    peak_info_struc[dataset_id][ct][feature] = {
+                        "peak_values": peak_vals[ct_idx],
+                        "peak_frames": peak_frames[ct_idx],
+                        "neuron_indices": ct_idx,
+                    }
+                    # global init
+                    if ct not in peak_info_all_celltypes:
+                        peak_info_all_celltypes[ct] = {ft: [] for ft in features}
+                    # add to global list
+                    peak_info_all_celltypes[ct][feature].append(peak_vals[ct_idx])
+        # concatenate global arrays
+        for ct in peak_info_all_celltypes:
+            for ft in features:
+                arrs = peak_info_all_celltypes[ct][ft]
+                peak_info_all_celltypes[ct][ft] = (
+                    np.concatenate(arrs) if len(arrs) > 0 else np.array([])
+                )
+        return peak_info_struc, peak_info_all_celltypes
+    
+    def quadrant_counts_for_celltype(self,
+        peak_info_struc,
+        celltype="Pyr",
+        feature_names=None,
+        threshold=0.06):
+        """
+        Count how many neurons fall into each quadrant:
+        - feature1 only
+        - feature2 only
+        - both
+        - neither
+        
+        feature_names: optional tuple/list of two feature names.
+                    If None, uses stim_feature & choice_feature.
+        """
+
+        # --- determine which features to use ---
+        if feature_names is None:
+            f1, f2 = 'stim', 'choice'
+        else:
+            if len(feature_names) != 2:
+                raise ValueError("feature_names must contain exactly two features.")
+            f1, f2 = feature_names
+
+        # --- initialize counters ---
+        f1_only  = 0
+        f2_only  = 0
+        both     = 0
+        neither  = 0
+
+        # --- iterate over datasets ---
+        for ds in peak_info_struc:
+            if celltype not in peak_info_struc[ds]:
+                continue
+
+            vals1 = peak_info_struc[ds][celltype][f1]["peak_values"]
+            vals2 = peak_info_struc[ds][celltype][f2]["peak_values"]
+
+            sig1 = vals1 > threshold
+            sig2 = vals2 > threshold
+
+            f1_only  += np.sum(sig1 & ~sig2)
+            f2_only  += np.sum(~sig1 & sig2)
+            both     += np.sum(sig1 & sig2)
+            neither  += np.sum(~sig1 & ~sig2)
+
+        # --- return clean output dict ---
+        return {
+            f"{f1}_only": f1_only,
+            f"{f2}_only": f2_only,
+            "both": both,
+            "neither": neither
+        }
+    
+    def compute_synergy_by_celltype(self,peak_info_struc,
+                                celltypes=["Pyr","SOM","PV"],
+                                stim_feature="sound_category",
+                                choice_feature="choice",
+                                eps=1e-9):
+        """
+        Compute synergy indices for each cell type in each dataset.
+        Returns:
+            synergy_struc[dataset][celltype] = array of synergy indices
+        """
+
+        synergy_struc = {}
+
+        for ds in peak_info_struc:
+            synergy_struc[ds] = {}
+
+            for ct in celltypes:
+                if ct not in peak_info_struc[ds]:
+                    continue
+
+                stim_vals   = peak_info_struc[ds][ct][stim_feature]["peak_values"]
+                choice_vals = peak_info_struc[ds][ct][choice_feature]["peak_values"]
+
+                # denominator = strongest variable for each neuron
+                denom = np.maximum(stim_vals, choice_vals) + eps
+
+                synergy = (stim_vals + choice_vals) / denom - 1.0
+
+                synergy_struc[ds][ct] = synergy
+
+        return synergy_struc
+    
+    def aggregate_synergy_across_datasets(self,synergy_struc,
+                                      celltypes=["Pyr","SOM","PV"]):
+        """
+        Returns aggregated dictionary:
+            synergy_all[ct] = concatenated synergy values
+        """
+        synergy_all = {ct: [] for ct in celltypes}
+
+        for ds in synergy_struc:
+            for ct in celltypes:
+                if ct in synergy_struc[ds]:
+                    synergy_all[ct].append(synergy_struc[ds][ct])
+
+        for ct in celltypes:
+            if len(synergy_all[ct]) > 0:
+                synergy_all[ct] = np.concatenate(synergy_all[ct])
+            else:
+                synergy_all[ct] = np.array([])
+
+        return synergy_all
     
     
     # def analyze_significant_neurons_by_threshold(self, results_dict, decoder_type, start_frame, end_frame, metric='sc_instantaneous_information_mean', threshold=0.5):
