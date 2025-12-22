@@ -14,6 +14,7 @@ from sklearn.preprocessing import StandardScaler
 import itertools
 
 #IMPORT PLOTTING FUNCTIONS!
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import seaborn as sns
@@ -436,6 +437,7 @@ class Plotter:
         Create a heatmap to show average across unique features for all neurons
         """
         fig, ax = plt.subplots(1,3, figsize = figsize)
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
 
         #get color palette
         palette = sns.color_palette("vlag", as_cmap=True)#sns.cubehelix_palette(start=.9, rot=-.95, as_cmap=True)#'viridis'#sns.color_palette("Blues", as_cmap=True)#sns.cubehelix_palette(start=.5, rot=-.75, as_cmap=True)
@@ -506,6 +508,7 @@ class Plotter:
 
         # Initialize the plot
         plt.figure(figsize=figsize)
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
 
         # Loop through each cell type group and plot the corresponding weights
         for group, cell_indices in neuron_groups.items():
@@ -577,6 +580,7 @@ class Plotter:
 
         # Initialize the plot
         plt.figure(figsize= figsize)
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
 
         # Loop through each cell type group and plot the corresponding weights
         for group, cell_indices in neuron_groups.items():
@@ -656,6 +660,7 @@ class Plotter:
         Create a heatmap to show average across unique features for all neurons
         """
         fig, ax = plt.subplots(1,1, figsize = (12,8))
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
         colors = sns.color_palette("vlag", as_cmap=True)
         sns.heatmap(np.squeeze(mean_neuron_feature_unique[specified_features,:]),vmin= minmax[0], vmax= minmax[1], cmap = colors) #model_output_all[0]['B_weights']
 
@@ -707,6 +712,7 @@ class Plotter:
         # Set global font size and family 
         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
         fig, ax = plt.subplots(1, 1, figsize=(3, 3))
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
         
         # Get unique cell types from cell_ids
         cell_types = np.unique(cell_ids)
@@ -801,6 +807,7 @@ class Plotter:
         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
         fig, ax = plt.subplots(1,1, figsize = figsize)
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
         #ax = plt.axes()
 
         #Calculate positions for each cell type group along the x-axis
@@ -946,7 +953,7 @@ class Plotter:
         """
         # Set global font size and family 
         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
-
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
         fig, ax = plt.subplots(1, 1, figsize=(2, 2))
         # Calculate positions for each cell type group along the x-axis
         positions = np.arange(len(neuron_groups)) + 1
@@ -1021,7 +1028,7 @@ class Plotter:
         """
         # Set global font size and family 
         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
-
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
         # Get unique cell types from cell_ids
         cell_types = np.unique(cell_ids)
 
@@ -1108,6 +1115,7 @@ class Plotter:
         colors = self.celltypecolors
         # Set global font size and family 
         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
 
         # Create a figure with 3 subplots (one for each cell type)
         fig, axs = plt.subplots(1, 3, figsize=(12, 4), sharey=True)
@@ -1139,7 +1147,7 @@ class Plotter:
             # Set labels and title for each subplot
             ax.set_title(f'{cell_type}', fontsize=7)
             ax.set_xticks(positions)
-            ax.set_xticklabels(data.keys(), rotation=45, ha='right', fontsize=10)
+            ax.set_xticklabels(data.keys(), rotation=45, ha='right', fontsize=7)
             ax.tick_params(axis='x', which='major', length=0)
 
             # Clean up the appearance
@@ -1151,7 +1159,7 @@ class Plotter:
             ax.set_ylim(minmax[0],minmax[1])
         
         # Add a global title for the figure
-        fig.suptitle(f'{measure_string} Across Cell Types and Models', fontsize=16)
+        fig.suptitle(f'{measure_string} Across Cell Types and Models', fontsize=8)
         
         # Adjust layout
         plt.tight_layout(rect=[0, 0, 1, 0.95])
@@ -1739,6 +1747,7 @@ class Plotter:
             Path to save the plot
         """
         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
         percentages_by_celltype = {ct: [] for ct in self.celltypecolors.keys()}
         percentages_by_celltype["All"] = []
         
@@ -2399,7 +2408,7 @@ class Plotter:
         fig, axes = plt.subplots(1, 2, figsize=fig_size, dpi=300)
         plt.subplots_adjust(wspace=0.1, left=0.2, top=2)
         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
-
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
         celltypes = list(self.celltypecolors.keys())
         # celltypes = [celltype.upper() for celltype in self.celltypecolors.keys()]
         bin_edges_bits = np.arange(0.06, .2, .01)
@@ -2553,6 +2562,7 @@ class Plotter:
             fig, axes = plt.subplots(1, 2, figsize=figsize, dpi=300) #, constrained_layout=True
         plt.subplots_adjust(wspace=0.1,left=0.2, top=2)    # Adjust for more space between plots
         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})  # Updated font size for clarity
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
 
         celltypes = list(['PYR', 'SOM', 'PV'])  # Define cell types to plot
         # Adjusted bin edges and color palette
@@ -3004,6 +3014,8 @@ class Plotter:
                 clip_on=False)
 
     def plot_glm_predictors_and_decoder(self,variables, sorted_idx, results_pre, do_highlight_trial=None, save_path=None, figsize = (6, 10 * 0.3), number_subplots = 4, norm_y_pred = False, subplot_4_type = 'traces'):
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})  # Updated font size for clarity
         frames = variables['frames']
         behav_matrix = variables['behav_matrix']
         behav_matrix_ids_raw = variables['behav_matrix_ids_raw']
