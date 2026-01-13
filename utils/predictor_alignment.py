@@ -254,3 +254,118 @@ def plot_average_predictors_through_trial(
         )
     return figs
 
+
+def plot_trial_locked_average_with_event_markers(
+    behav_matrix: np.ndarray,
+    condition_array_trials: np.ndarray,
+    X_to_plot: Optional[np.ndarray] = None,
+    X_names: Optional[Sequence[str]] = None,
+    behav_cols: Mapping[str, int] = BEHAV_COLS_DEFAULT,
+    events: Sequence[str] = ("sound1", "sound2", "sound3", "turn", "reward"),
+    frame_rate_hz: Optional[float] = 30.0,
+    trial_start_col: int = 4,
+    max_trial_len: Optional[int] = None,
+    show_sem: bool = True,
+):
+    """
+    Make a *single* plot aligned to trial start (frame 0), and overlay markers for
+    multiple event onsets (sound1/2/3, turn, reward) simultaneously.
+
+    This is useful when you want to see predictors "throughout the trial" with all
+    events shown on one time axis (instead of separate event-aligned windows).
+
+    Notes:
+    - Trials are segmented using `condition_array_trials[:, trial_start_col]`.
+    - Each trial is truncated to a common length for averaging:
+        - If `max_trial_len` is provided, uses that (capped by each trial's length).
+        - Otherwise uses the minimum trial length across detected trials.
+    - Event markers are placed at the *median* event onset across trials.
+    """
+    import matplotlib.pyplot as plt
+
+    if X_to_plot is None:
+        X_to_plot = behav_matrix
+    if X_names is None:
+        X_names = BEHAV_NAMES_DEFAULT if X_to_plot is behav_matrix else [f"feat{i}" for i in range(X_to_plot.shape[0])]
+
+    trial_segments = trial_segments_from_condition_array(
+        condition_array_trials,
+        n_total_frames=behav_matrix.shape[1],
+        trial_start_col=trial_start_col,
+    )
+    if len(trial_segments) == 0:
+        raise ValueError("No trial segments found from condition_array_trials.")
+
+    # Determine common length for averaging
+    trial_lens = np.array([e - s + 1 for (s, e) in trial_segments], dtype=int)
+    common_len = int(np.min(trial_lens)) if max_trial_len is None else int(min(np.min(trial_lens), max_trial_len))
+    if common_len <= 1:
+        raise ValueError("Common trial length too small to plot.")
+
+    # Stack trial-locked data: (trials x features x time)
+    n_trials = len(trial_segments)
+    X = np.asarray(X_to_plot)
+    if X.ndim != 2:
+        raise ValueError(f"X_to_plot must be 2D (features x frames). Got {X.shape}")
+    trial_locked = np.full((n_trials, X.shape[0], common_len), np.nan, dtype=float)
+    for t, (s, e) in enumerate(trial_segments):
+        seg_len = e - s + 1
+        use_len = min(seg_len, common_len)
+        trial_locked[t, :, :use_len] = X[:, s : s + use_len]
+
+    # Compute event onsets from behav_matrix (relative within trial)
+    event_onsets = compute_event_onsets_from_behav_matrix(behav_matrix, trial_segments, behav_cols=behav_cols)
+
+    # Time axis
+    x = np.arange(common_len)
+    xlabel = "Frame (trial start = 0)"
+    if frame_rate_hz is not None and frame_rate_hz > 0:
+        x = x / float(frame_rate_hz)
+        xlabel = "Time (s, trial start = 0)"
+
+    mean = np.nanmean(trial_locked, axis=0)  # (features x time)
+    sem = nansem(trial_locked, axis=0) if show_sem else None
+
+    # Plot as stacked small multiples (one axis per feature) to keep it readable
+    n_feats = mean.shape[0]
+    ncols = 4
+    nrows = math.ceil(n_feats / ncols)
+    fig, axs = plt.subplots(nrows, ncols, figsize=(3.2 * ncols, 2.2 * nrows), sharex=True)
+    axs = np.array(axs).reshape(-1)
+
+    # Compute median onset time per event (only within common_len)
+    event_medians = {}
+    for ev in events:
+        if ev not in event_onsets:
+            continue
+        vals = event_onsets[ev]
+        vals = vals[~np.isnan(vals)]
+        vals = vals[vals < common_len]
+        if vals.size:
+            med = float(np.median(vals))
+            med_x = med / float(frame_rate_hz) if frame_rate_hz is not None and frame_rate_hz > 0 else med
+            event_medians[ev] = med_x
+
+    for i in range(n_feats):
+        ax = axs[i]
+        ax.plot(x, mean[i], color="black", linewidth=1)
+        if sem is not None:
+            ax.fill_between(x, mean[i] - sem[i], mean[i] + sem[i], color="black", alpha=0.2, linewidth=0)
+
+        # event markers
+        for ev, ev_x in event_medians.items():
+            ax.axvline(ev_x, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
+
+        ax.set_title(str(X_names[i]), fontsize=9)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    for j in range(n_feats, len(axs)):
+        axs[j].axis("off")
+
+    fig.suptitle("Trial-locked average with event markers (S1/S2/S3/Turn/Reward)")
+    for ax in axs[: min(n_feats, len(axs))]:
+        ax.set_xlabel(xlabel)
+    fig.tight_layout()
+    return fig, event_medians
+
