@@ -3615,7 +3615,7 @@ class Plotter:
             plt.savefig(save_path,  dpi=300) #bbox_inches='tight',
         fig.show()
 
-    def plot_synergy_violin(self,synergy_all,
+    def plot_scatter_plot_weights_overlay_noerrorn(self,synergy_all,
                         celltypes=["Pyr","SOM","PV"],
                         figsize=(6,5),
                         colors=None, save_path = None, ylabel = "Synergy Index"):
@@ -3648,6 +3648,240 @@ class Plotter:
         if save_path:
             plt.savefig(save_path,  dpi=300) #bbox_inches='tight',
         plt.show()
+
+    def plot_avg_predictors_by_condition(self,
+                                        avg_results: dict,
+                                        dataset_key: str,
+                                        title_prefix: str = '',
+                                        colors: list = None,
+                                        save_path: str = None,
+                                        ylims: tuple = None,
+                                        celltype=None,
+                                        figsize: tuple = (6,6)):
+        """
+        Plot average predictors per condition (mean ± SEM) for a given dataset.
+
+        celltype:
+            None                → plot all celltypes
+            'pyr'               → single celltype
+            ['pyr', 'som']      → multiple celltypes
+            {'pyr', 'pv'}       → multiple celltypes
+        """
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+        data = avg_results[dataset_key]
+        labels = data['labels']
+        mean_list = data['mean']
+        sem_list = data['sem']
+
+        # Mapping from celltype → factor indices
+        celltype_to_idx = {
+            'pyr': slice(0, 3),
+            'som': slice(3, 6),
+            'pv': slice(6, 9)
+        }
+
+        # ---------- Normalize celltype input ----------
+        if celltype is None:
+            celltypes = list(celltype_to_idx.keys())
+        elif isinstance(celltype, str):
+            celltypes = [celltype.lower()]
+        elif isinstance(celltype, (list, tuple, set)):
+            celltypes = [ct.lower() for ct in celltype]
+        else:
+            raise TypeError(
+                "celltype must be None, a string, or a list/tuple/set of strings"
+            )
+
+        invalid = [ct for ct in celltypes if ct not in celltype_to_idx]
+        if invalid:
+            raise ValueError(f"Invalid celltype(s): {invalid}")
+
+        # ---------- Build factor indices & labels ----------
+        factor_indices = []
+        factor_labels = []
+        for ct in celltypes:
+            sl = celltype_to_idx[ct]
+            idxs = list(range(sl.start, sl.stop))
+            factor_indices.extend(idxs)
+            factor_labels.extend([ct.upper()] * len(idxs))
+
+        time_axis = np.arange(mean_list[0].shape[1])
+        n_conditions = len(labels)
+
+        # Default colors
+        if colors is None:
+            colors = self.celltypecolors
+
+        plt.figure(figsize=(figsize(0) * n_conditions, figsize(1)))
+        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+
+        # ---------- Plot ----------
+        for i, (label, mean_vals, sem_vals) in enumerate(zip(labels, mean_list, sem_list)):
+            ax = plt.subplot(1, n_conditions, i + 1)
+
+            mean_vals = mean_vals[factor_indices, :]
+            sem_vals = sem_vals[factor_indices, :]
+
+            for f_idx in range(mean_vals.shape[0]):
+                ct_label = factor_labels[f_idx]
+                color = colors[f_idx % len(colors)]
+
+                plt.plot(
+                    time_axis,
+                    mean_vals[f_idx, :],
+                    label=f'{ct_label} {f_idx + 1}',
+                    color=color,
+                    linewidth=2
+                )
+
+                plt.fill_between(
+                    time_axis,
+                    mean_vals[f_idx, :] - sem_vals[f_idx, :],
+                    mean_vals[f_idx, :] + sem_vals[f_idx, :],
+                    alpha=0.2,
+                    color=color
+                )
+
+            plt.xlabel('Frames Relative to Alignment')
+            plt.ylabel('Avg Coupling Predictor')
+            plt.title(f"{title_prefix}{label}")
+            plt.legend(frameon=False)
+
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.set_box_aspect(1)
+
+            if ylims is not None:
+                ax.set_ylim(ylims)
+
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, bbox_inches='tight')
+        plt.show()
+
+
+    # def plot_avg_predictors_by_condition(self,avg_results: dict,
+    #                                     dataset_key: str,
+    #                                     title_prefix: str = '',
+    #                                     colors: list = None,
+    #                                     save_path: str = None,
+    #                                     ylims: tuple = None,
+    #                                     celltype: str = None):
+    #     """
+    #     Plot average predictors per condition (mean ± SEM) for a given dataset.
+
+    #     Parameters:
+    #     -----------
+    #     avg_results : dict
+    #         Output from `average_folds_by_condition`.
+    #     dataset_key : str
+    #         Dataset to plot (must exist in `avg_results`).
+    #     title_prefix : str
+    #         Optional title prefix for each subplot.
+    #     colors : list of str
+    #         List of hex colors (one per condition). Defaults to 3 preset colors.
+    #     save_path : str
+    #         Optional path to save the figure.
+    #     """
+    #     data = avg_results[dataset_key]
+    #     labels = data['labels']
+    #     mean_list = data['mean']
+    #     sem_list = data['sem']
+
+    #     # Mapping from celltype → factor indices
+    #     celltype_to_idx = {
+    #         'pyr': slice(0, 3),
+    #         'som': slice(3, 6),
+    #         'pv': slice(6, 9)
+    #     }
+
+    #     # Normalize celltype input
+    #     if celltype is None:
+    #         celltypes = list(celltype_to_idx.keys())
+    #         factor_slice = celltype_to_idx[celltypes]
+    #     elif isinstance(celltype, str):
+    #         celltypes = [celltype.lower()]
+    #         factor_slice = celltype_to_idx[celltypes]
+    #     elif isinstance(celltype, (list, tuple, set)):
+    #         celltypes = [ct.lower() for ct in celltype]
+    #         factor_slice = celltype_to_idx[celltypes]
+    #     else:
+    #         factor_slice = slice(None)
+
+    #     factor_indices = []
+    #     factor_labels = []
+    #     for ct in celltypes:
+    #         idx = celltype_to_idx[ct]
+    #         indices = list(range(idx.start, idx.stop))
+    #         factor_indices.extend(indices)
+    #         factor_labels.extend([ct.upper()] * len(indices))
+    #         # raise TypeError(
+    #         #     "celltype must be None, a string, or a list/tuple/set of strings"
+    #         # )
+
+    #     # # Select factors
+    #     # if celltype is not None:
+    #     #     celltype = celltype.lower()
+    #     #     if celltype not in celltype_to_idx:
+    #     #         raise ValueError(f"celltype must be one of {list(celltype_to_idx)}, got {celltype}")
+    #     #     factor_slice = celltype_to_idx[celltype]
+    #     # else:
+    #     #     factor_slice = slice(None)
+
+    #     n_conditions = len(labels)
+    #     n_factors = mean_list[0].shape[0]
+    #     time_axis = np.arange(mean_list[0].shape[1])
+
+    #     # Default colors
+    #     if colors is None:
+    #         colors = self.celltypecolors
+
+    #     plt.figure(figsize=(6 * n_conditions, 6))
+    #     plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+
+    #     for i, (label, mean_vals, sem_vals) in enumerate(zip(labels, mean_list, sem_list)):
+    #         ax = plt.subplot(1, n_conditions, i + 1)
+    #         # for factor_idx in range(n_factors):
+    #         mean_vals = mean_vals[factor_indices, :]#[factor_slice, :]
+    #         sem_vals = sem_vals[factor_indices, :]#[factor_slice, :]
+
+    #         for factor_idx in range(mean_vals.shape[0]):
+    #             color = colors[factor_idx % len(colors)]
+    #             plt.plot(time_axis,
+    #                  mean_vals[factor_idx, :],
+    #                  label=f'{celltype.upper() if celltype else "Factor"} {factor_idx + 1}',
+    #                  color=color,
+    #                  linewidth=2)
+    #             plt.fill_between(time_axis,
+    #                             mean_vals[factor_idx, :] - sem_vals[factor_idx, :],
+    #                             mean_vals[factor_idx, :] + sem_vals[factor_idx, :],
+    #                             alpha=0.2,
+    #                             color=color)
+    #             # plt.plot(time_axis, mean_vals[factor_idx, :], label=f'Factor {factor_idx+1}',
+    #             #         color=color, linewidth=2)
+    #             # plt.fill_between(time_axis,
+    #             #                 mean_vals[factor_idx, :] - sem_vals[factor_idx, :],
+    #             #                 mean_vals[factor_idx, :] + sem_vals[factor_idx, :],
+    #             #                 alpha=0.2, color=color)
+
+    #         plt.xlabel('Frames Relative to Alignment')
+    #         plt.ylabel('Avg Coupling Predictor')
+    #         plt.title(f"{title_prefix}{label}")
+    #         plt.legend(frameon=False)
+
+    #         # Clean up appearance
+    #         ax.spines['top'].set_visible(False)
+    #         ax.spines['right'].set_visible(False)
+    #         ax.set_box_aspect(1)
+    #         # ax.set_xlim(-window, window)
+    #         if ylims is not None:
+    #             ax.set_ylim(ylims)
+
+    #     plt.tight_layout()
+    #     if save_path:
+    #         plt.savefig(save_path, bbox_inches='tight')
+    #     plt.show()
+
 
     # def plot_selected_metric_with_sem(self, mean_results_all, mean_results_all_passive, decoder_type, metric, start_frame = None,end_frame = None, xlim=None, ylim=None, title=None, xlabel='Frames', ylabel=None, colors = ('blue','red'), save_dir=None):
     #     """

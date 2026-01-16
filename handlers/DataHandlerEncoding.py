@@ -55,6 +55,43 @@ class DataHandlerEncoding:
         # Raise an error if no matching file is found
         raise FileNotFoundError(f"No file with keyword '{keyword}' found in directory {directory}.")
         
+    def save_pkls(self, directory, data, keyword, overwrite=False):
+        """
+        Save data to a pickle file in a directory using a keyword in the filename.
+
+        Parameters:
+        directory (str): Directory to save the pickle file.
+        data (object): Python object to pickle.
+        keyword (str): Keyword to include in the filename (e.g., "iti", "pre", "pass").
+        overwrite (bool): Whether to overwrite an existing matching file.
+
+        Returns:
+        str: Path to the saved pickle file.
+        """
+        os.makedirs(directory, exist_ok=True)
+
+        # Check for existing files with same keyword
+        existing_files = [
+            f for f in os.listdir(directory)
+            if keyword in f and f.endswith(".pkl")
+        ]
+
+        if existing_files and not overwrite:
+            raise FileExistsError(
+                f"File(s) with keyword '{keyword}' already exist: {existing_files}"
+            )
+
+        # Optional timestamp to avoid accidental overwrites
+        
+        filename = f"results_{keyword}.pkl"
+        filepath = os.path.join(directory, filename)
+
+        with open(filepath, "wb") as f:
+            pickle.dump(data, f)
+
+        print(f"Saved file: {filename}")
+        return filepath
+
     #FUNCTIONS TO LOAD DATASETS!
     def load_GLM_results_cluster(self,save_directory, save_string):
         os.chdir(save_directory)
