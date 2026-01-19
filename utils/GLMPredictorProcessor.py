@@ -5,6 +5,7 @@ import numpy as np
 import scipy.io
 import h5py
 from scipy.stats import sem
+from scipy import stats
 
 class GLMPredictorProcessor:
     def __init__(self, neuron_groups):
@@ -89,6 +90,8 @@ class GLMPredictorProcessor:
 
             behav = scipy.io.loadmat(os.path.join(path, 'behav_big_matrix.mat'))
             behav_big_matrix = behav['behav_big_matrix']
+            behav_big_matrix = self.safe_zscore(behav_big_matrix.T)
+            behav_big_matrix = behav_big_matrix.T
             behav_big_ids = scipy.io.loadmat(os.path.join(path, 'behav_big_matrix_ids.mat'))
             behav_big_matrix_ids = behav_big_ids['behav_big_matrix_ids'][0]
 
@@ -106,6 +109,7 @@ class GLMPredictorProcessor:
                 # Get the data
                 cel_matrix = file['cells_big_matrix'][()] 
                 cel_matrix = cel_matrix.T
+                cel_matrix = self.safe_zscore(cel_matrix)
 
             # Now stack into a 2D array: shape = (n_trials, n_predictors)
             coupling_predictors = cel_matrix
@@ -121,52 +125,114 @@ class GLMPredictorProcessor:
             }
 
         return predictor_vars
+    
+    def load_general_coupling_predictors(self, coupling_predictors):
+        """
+        Load general coupling predictors for each cell type from first neurons of each type.
         
-    def load_general_coupling_predictors(self,coupling_predictors):
-        #transpose
-        coupling_predictors = coupling_predictors.T
-        # Assume each cell has 9 predictors: 3 pyr, 3 som, 3 pv
-        predictors_per_cell = 9
+        Parameters
+        ----------
+        coupling_predictors : np.ndarray
+            Array of shape (n_frames, n_total_predictors) or (n_total_predictors, n_frames),
+            where each neuron has 9 predictors: 3 pyr, 3 som, 3 pv.
         
-        # Define indices for each cell type within the predictors
-        pyr_indices = slice(0, 3)   # First 3 predictors are for pyr
-        som_indices = slice(3, 6)   # Next 3 predictors are for som
-        pv_indices = slice(6, 9)    # Last 3 predictors are for pv
+        Returns
+        -------
+        final_predictors : np.ndarray
+            Array of shape (n_total_predictors_to_plot, n_frames)
+        first_indices : dict
+            Dictionary with first neuron index for each cell type
+        """
 
-        # Initialize a dictionary to store the first index of each cell type
-        first_indices = {'pyr': None, 'som': None, 'pv': None}
+        # Ensure shape is (frames, predictors)
+        if coupling_predictors.shape[0] < coupling_predictors.shape[1]:
+            coupling_predictors = coupling_predictors.T
 
-        # Get the first index for each cell type from the neuron_groups dictionary
-        for cell_type in ['pyr', 'som', 'pv']:
+        predictors_per_cell = 9  # 3 pyr, 3 som, 3 pv
+        # Slices within a neuron
+        pyr_indices = slice(0, 3)
+        som_indices = slice(3, 6)
+        pv_indices  = slice(6, 9)
+
+        celltype_slices = {'pyr': pyr_indices, 'som': som_indices, 'pv': pv_indices}
+
+        # Find first neuron index for each cell type
+        first_indices = {}
+        for cell_type in ['pyr','som','pv']:
             if cell_type in self.neuron_groups and len(self.neuron_groups[cell_type]) > 0:
                 first_indices[cell_type] = self.neuron_groups[cell_type][0][0]
+            else:
+                first_indices[cell_type] = None
 
-        # Initialize a list to store the required general predictors
+        # Collect predictors
         general_predictors = []
 
-        # Load the predictors using the first occurrences
-        if first_indices['pv'] is not None:
-            pv_idx = first_indices['pv']
-            cell_predictors = coupling_predictors[:, pv_idx * predictors_per_cell:(pv_idx + 1) * predictors_per_cell]
-            general_predictors.append(cell_predictors[:, pyr_indices].reshape(-1, 3))  # Load pyr predictors
-            general_predictors.append(cell_predictors[:, som_indices].reshape(-1, 3))  # Load som predictors
+        for cell_type, first_idx in first_indices.items():
+            if first_idx is None:
+                continue  # skip if no neurons of this type
 
-        if first_indices['pyr'] is not None:
-            pyr_idx = first_indices['pyr']
-            cell_predictors = coupling_predictors[:, pyr_idx * predictors_per_cell:(pyr_idx + 1) * predictors_per_cell]
-            general_predictors.append(cell_predictors[:, som_indices].reshape(-1, 3))  # Load som predictors
-            general_predictors.append(cell_predictors[:, pv_indices].reshape(-1, 3))   # Load pv predictors
+            # Extract this neuron's full predictor block
+            start = first_idx * predictors_per_cell
+            end   = (first_idx + 1) * predictors_per_cell
+            neuron_block = coupling_predictors[:, start:end]  # shape: (frames, 9)
 
-        if first_indices['som'] is not None:
-            som_idx = first_indices['som']
-            cell_predictors = coupling_predictors[:, som_idx * predictors_per_cell:(som_idx + 1) * predictors_per_cell]
-            general_predictors.append(cell_predictors[:, pyr_indices].reshape(-1, 3))  # Load pyr predictors
-            general_predictors.append(cell_predictors[:, pv_indices].reshape(-1, 3))   # Load pv predictors
+            # Add predictors for other cell types only
+            for other_type, sl in celltype_slices.items():
+                if other_type != cell_type:
+                    general_predictors.append(neuron_block[:, sl])  # shape: (frames, 3)
 
-        # Stack all the selected predictors horizontally
+        # Stack horizontally: shape (frames, n_factors)
         final_predictors = np.hstack(general_predictors)
 
+        # Return in original format (predictors x frames)
         return final_predictors.T, first_indices
+
+        
+    # def load_general_coupling_predictors(self,coupling_predictors):
+    #     #transpose
+    #     coupling_predictors = coupling_predictors.T
+    #     # Assume each cell has 9 predictors: 3 pyr, 3 som, 3 pv
+    #     predictors_per_cell = 9
+        
+    #     # Define indices for each cell type within the predictors
+    #     pyr_indices = slice(0, 3)   # First 3 predictors are for pyr
+    #     som_indices = slice(3, 6)   # Next 3 predictors are for som
+    #     pv_indices = slice(6, 9)    # Last 3 predictors are for pv
+
+    #     # Initialize a dictionary to store the first index of each cell type
+    #     first_indices = {'pyr': None, 'som': None, 'pv': None}
+
+    #     # Get the first index for each cell type from the neuron_groups dictionary
+    #     for cell_type in ['pyr', 'som', 'pv']:
+    #         if cell_type in self.neuron_groups and len(self.neuron_groups[cell_type]) > 0:
+    #             first_indices[cell_type] = self.neuron_groups[cell_type][0][0]
+
+    #     # Initialize a list to store the required general predictors
+    #     general_predictors = []
+
+    #     # Load the predictors using the first occurrences
+    #     if first_indices['pv'] is not None:
+    #         pv_idx = first_indices['pv']
+    #         cell_predictors = coupling_predictors[:, pv_idx * predictors_per_cell:(pv_idx + 1) * predictors_per_cell]
+    #         general_predictors.append(cell_predictors[:, pyr_indices].reshape(-1, 3))  # Load pyr predictors
+    #         general_predictors.append(cell_predictors[:, som_indices].reshape(-1, 3))  # Load som predictors
+
+    #     if first_indices['pyr'] is not None:
+    #         pyr_idx = first_indices['pyr']
+    #         cell_predictors = coupling_predictors[:, pyr_idx * predictors_per_cell:(pyr_idx + 1) * predictors_per_cell]
+    #         general_predictors.append(cell_predictors[:, som_indices].reshape(-1, 3))  # Load som predictors
+    #         general_predictors.append(cell_predictors[:, pv_indices].reshape(-1, 3))   # Load pv predictors
+
+    #     if first_indices['som'] is not None:
+    #         som_idx = first_indices['som']
+    #         cell_predictors = coupling_predictors[:, som_idx * predictors_per_cell:(som_idx + 1) * predictors_per_cell]
+    #         general_predictors.append(cell_predictors[:, pyr_indices].reshape(-1, 3))  # Load pyr predictors
+    #         general_predictors.append(cell_predictors[:, pv_indices].reshape(-1, 3))   # Load pv predictors
+
+    #     # Stack all the selected predictors horizontally
+    #     final_predictors = np.hstack(general_predictors)
+
+    #     return final_predictors.T, first_indices
 
     def get_trial_frames_from_combined_frames(self,combined_frames_included):
         """
@@ -554,6 +620,22 @@ class GLMPredictorProcessor:
         condition_matrix : np.ndarray
             Array of shape (n_trials, len(fields_to_separate)) with binary condition values
         """
+        n_trials = condition_array_trials.shape[0]
+        # -----------------------------
+        # SPECIAL CASE: no separation
+        # -----------------------------
+        if fields_to_separate is None or len(fields_to_separate) == 0:
+
+            # Return a dummy condition matrix (n_trials × 1)
+            condition_matrix =  condition_array_trials[:,1:-1]
+
+            all_trials = np.arange(n_trials)
+
+            all_conditions = [
+                (all_trials, np.array([]), 'All trials')
+            ]
+
+            return all_conditions, condition_matrix
 
         field_to_col = {
             'correct': 1,
@@ -634,7 +716,7 @@ class GLMPredictorProcessor:
         
 
         result = {}
-
+        
         for dataset_key in aligned_predictors_dict:
             fold_data = aligned_predictors_dict[dataset_key]
             fold_conditions = condition_array_dict[dataset_key]
@@ -679,6 +761,132 @@ class GLMPredictorProcessor:
             }
 
         return result
+    
+    def average_folds_by_condition_intervals(self,
+                                aligned_predictors_dict,
+                                condition_array_dict,
+                                fields_to_separate,
+                                event_frames):
+        """
+        Averages aligned predictors across folds, split by specified trial conditions,
+        computing mean activity between consecutive events.
+        """
+
+        result = {}
+
+        for dataset_key in aligned_predictors_dict:
+            fold_data = aligned_predictors_dict[dataset_key]
+            fold_conditions = condition_array_dict[dataset_key]
+
+            condition_trials_by_label = {}
+
+            # Build event intervals using number of frames from first fold
+            example_fold = next(iter(fold_data.values()))
+            n_frames = example_fold.shape[2]
+            event_intervals = self.build_event_intervals(event_frames, n_frames,101)
+            n_events = len(event_intervals)
+
+            for fold_number in fold_data:
+                predictors = fold_data[fold_number]  # (n_trials, n_vars, n_frames)
+                condition_array = fold_conditions[fold_number]['condition_array_trials']
+
+                all_conditions, _ = self.get_trial_conditions_from_array(
+                    condition_array, fields_to_separate=fields_to_separate
+                )
+
+                for trial_indices, comb, label in all_conditions:
+                    if label not in condition_trials_by_label:
+                        condition_trials_by_label[label] = []
+
+                    if len(trial_indices) > 0:
+                        trials = predictors[trial_indices, :, :]  # (n_trials, n_vars, n_frames)
+                        condition_trials_by_label[label].append(trials)
+
+            mean_list = []
+            sem_list = []
+            label_list = []
+
+            for label, trials_list in condition_trials_by_label.items():
+                all_trials = np.concatenate(trials_list, axis=0)
+                # (total_trials, n_vars, n_frames)
+
+                # Allocate event-averaged arrays
+                mean_vals = np.full((all_trials.shape[1], n_events), np.nan)
+                sem_vals  = np.full((all_trials.shape[1], n_events), np.nan)
+
+                for ev, frames in enumerate(event_intervals):
+                    if len(frames) == 0:
+                        continue
+
+                    # Mean over trials AND frames in event
+                    frames = np.asarray(frames, dtype=int)
+                    event_data = all_trials[:, :, frames]  # (trials, vars, frames)
+
+                    mean_vals[:, ev] = np.nanmean(event_data, axis=(0, 2))
+                    # Average over frames per trial
+                    trial_means = np.nanmean(event_data, axis=2)  # shape: (n_trials, n_vars)
+                    sem_vals[:, ev]  = sem( trial_means, axis=0, nan_policy='omit')
+
+                mean_list.append(mean_vals)
+                sem_list.append(sem_vals)
+                label_list.append(label)
+
+            result[dataset_key] = {
+                'labels': label_list,
+                'mean': mean_list,  # (n_vars × n_events)
+                'sem': sem_list
+            }
+
+        return result
+    
+    def build_event_intervals(self,event_frames, n_frames, split_frame=None):
+        """
+        Build event frame intervals, excluding the event onset frame.
+        
+        Special case:
+        - Event index 2 (3rd event): ends at split_frame
+        - Event index 3 (4th event): starts at split_frame + 1
+        """
+        event_frames = np.asarray(event_frames)
+        intervals = []
+
+        n_events = len(event_frames) 
+
+        for ev in range(n_events):
+            if ev < n_events - 1:
+                start = event_frames[ev] + 1
+                end   = event_frames[ev + 1]
+            else:
+                start = event_frames[ev] + 1
+                end   = n_frames
+
+            # MATLAB: ev == 3  → Python: ev == 2
+            if ev == 2 and split_frame is not None:
+                end = split_frame
+
+            # MATLAB: ev == 4  → Python: ev == 3
+            elif ev == 3 and split_frame is not None:
+                start = split_frame + 1
+
+            # Safety
+            start = max(start, 0)
+            end   = min(end, n_frames)
+
+            if start < end:
+                intervals.append(np.arange(start, end))
+            else:
+                intervals.append(np.array([], dtype=int))
+
+        return intervals
+    
+    def safe_zscore(self, X):
+        z_scored = np.zeros_like(X)
+        stds = np.std(X, axis=0)
+        non_zero = stds != 0
+        z_scored[:, non_zero] = stats.zscore(X[:, non_zero], axis=0)
+        return z_scored
+
+
     
 
 # """

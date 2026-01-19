@@ -3712,8 +3712,8 @@ class Plotter:
         if colors is None:
             colors = self.celltypecolors
 
-        plt.figure(figsize=(figsize(0) * n_conditions, figsize(1)))
-        plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
+        plt.figure(figsize=(figsize[0] * n_conditions, figsize[1]))
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
         # ---------- Plot ----------
         for i, (label, mean_vals, sem_vals) in enumerate(zip(labels, mean_list, sem_list)):
@@ -3742,8 +3742,8 @@ class Plotter:
                     color=color
                 )
 
-            plt.xlabel('Frames Relative to Alignment')
-            plt.ylabel('Avg Coupling Predictor')
+            # plt.xlabel('Frames Relative to Alignment')
+            plt.ylabel('Avg. Coupling Predictor')
             plt.title(f"{title_prefix}{label}")
             plt.legend(frameon=False)
 
@@ -3754,10 +3754,121 @@ class Plotter:
             if ylims is not None:
                 ax.set_ylim(ylims)
 
+            #hide choice concatenation
+            choice_concat_frame, reward_concat_frame = 101,144
+            ax.axvline(x=choice_concat_frame-1, color='w', linestyle='-', alpha=1, linewidth = 2.5)
+            ax.axvline(x=choice_concat_frame, color='w', linestyle='-', alpha=1, linewidth = 2)
+            ax.axvline(x=reward_concat_frame, color='w', linestyle='-', alpha=1, linewidth = 2)
+
+            for frame, event_label in zip(self.event_frames, self.event_labels):
+                ax.axvline(x=frame, color='k', linestyle='--', alpha=0.5, ymin=0.05, ymax=0.95)#linestyle='--', alpha=0.5)
+
+            ax.set_xticks(self.event_frames)
+            ax.set_xticklabels(self.event_labels)
+
+            
         plt.tight_layout()
         if save_path:
             plt.savefig(save_path, bbox_inches='tight')
         plt.show()
+
+    def bar_plot_avg_predictor_intervals(self,
+                                     avg_results: dict,
+                                     dataset_key: str,
+                                     factors,
+                                     factor_labels=None,
+                                     colors=None,
+                                     bar_width=0.25,
+                                     ylims=None,
+                                     save_path=None,
+                                     figsize=(2, 2)):
+        """
+        Bar plot of average predictors per event (all events shown).
+
+        Parameters
+        ----------
+        avg_results : dict
+            Output of average_folds_by_condition
+        dataset_key : str
+            Dataset key inside avg_results
+        factors : list of int
+            Factor indices to plot (e.g. [0,1,2] or [0,9])
+        factor_labels : list of str, optional
+            Labels for each factor (same length as factors)
+        colors : list, optional
+            Colors for factors
+        bar_width : float
+            Width of individual bars
+        ylims : tuple, optional
+            Y-axis limits
+        save_path : str, optional
+            Save location
+        figsize : tuple
+            Figure size
+        """
+
+        mpl.rcParams['pdf.fonttype'] = 42
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+
+        data = avg_results[dataset_key]
+
+        # Expect shape: (n_vars, n_events)
+        mean_vals = data['mean'][0]
+        sem_vals  = data['sem'][0]
+
+
+        mean_vals = mean_vals[factors, :]
+        sem_vals = sem_vals[factors, :]
+
+        n_factors, n_events = mean_vals.shape
+
+        # Default factor labels
+        if factor_labels is None:
+            factor_labels = [f'Factor {f}' for f in factors]
+
+        # Default colors
+        if colors is None:
+            colors = self.celltypecolors
+        colors = colors[:n_factors]
+
+        fig, ax = plt.subplots(figsize=figsize)
+
+        x = np.arange(n_events)
+
+        # Center bars within each event
+        offsets = (np.arange(n_factors) - (n_factors - 1) / 2) * bar_width
+
+        for f_idx in range(n_factors):
+            ax.bar(
+                x + offsets[f_idx],
+                mean_vals[f_idx, :],
+                yerr=sem_vals[f_idx, :],
+                width=bar_width,
+                color=colors[f_idx],#'white',
+                edgecolor='white',#colors[f_idx],
+                linewidth=1.0,
+                capsize=1,
+                label=factor_labels[f_idx],
+                error_kw={'ecolor': 'black'} #colors[f_idx]
+            )
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(self.event_labels)
+        ax.set_ylabel('Avg. Coupling Predictor')
+
+        if ylims is not None:
+            ax.set_ylim(ylims)
+
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.legend(frameon=False)
+
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, bbox_inches='tight')
+        plt.show()
+
+
 
 
     # def plot_avg_predictors_by_condition(self,avg_results: dict,
