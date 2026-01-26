@@ -3731,7 +3731,7 @@ class Plotter:
                     mean_vals[f_idx, :],
                     label=f'{ct_label} {f_idx + 1}',
                     color=color,
-                    linewidth=2
+                    linewidth=1
                 )
 
                 plt.fill_between(
@@ -3743,9 +3743,25 @@ class Plotter:
                 )
 
             # plt.xlabel('Frames Relative to Alignment')
-            plt.ylabel('Avg. Coupling Predictor')
+            if i == 0:
+                plt.ylabel('Avg. Coupling Predictor')
             plt.title(f"{title_prefix}{label}")
-            plt.legend(frameon=False)
+            # plt.legend(frameon=False)
+
+            # Global legend (only once, for all lines) to the rightmost subplot
+
+            handles, labels_legend = ax.get_legend_handles_labels()
+            if i == n_conditions - 1:
+                fig = plt.gcf()
+                fig.legend(
+                    handles,
+                    labels_legend,
+                    loc='center left',
+                    bbox_to_anchor=(1.01, 0.5),  # position to the right of all subplots
+                    frameon=False
+                    )
+            
+
 
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
@@ -3756,9 +3772,12 @@ class Plotter:
 
             #hide choice concatenation
             choice_concat_frame, reward_concat_frame = 101,144
-            ax.axvline(x=choice_concat_frame-1, color='w', linestyle='-', alpha=1, linewidth = 2.5)
+            ax.axvline(x=choice_concat_frame-1, color='w', linestyle='-', alpha=1, linewidth = 3)
+            # ax.axvline(x=choice_concat_frame-1, color='w', linestyle='-', alpha=1, linewidth = 2)
             ax.axvline(x=choice_concat_frame, color='w', linestyle='-', alpha=1, linewidth = 2)
             ax.axvline(x=reward_concat_frame, color='w', linestyle='-', alpha=1, linewidth = 2)
+            ax.axvline(x=reward_concat_frame-1, color='w', linestyle='-', alpha=1, linewidth = 3)
+            #had to add some more bc they were not thick enough...
 
             for frame, event_label in zip(self.event_frames, self.event_labels):
                 ax.axvline(x=frame, color='k', linestyle='--', alpha=0.5, ymin=0.05, ymax=0.95)#linestyle='--', alpha=0.5)
@@ -3766,10 +3785,10 @@ class Plotter:
             ax.set_xticks(self.event_frames)
             ax.set_xticklabels(self.event_labels)
 
-            
+        # plt.figure(figsize=(figsize[0] * n_conditions + 1.5, figsize[1]))
         plt.tight_layout()
         if save_path:
-            plt.savefig(save_path, bbox_inches='tight')
+            plt.savefig(save_path,  dpi=300)
         plt.show()
 
     def bar_plot_avg_predictor_intervals(self,
@@ -3849,7 +3868,7 @@ class Plotter:
                 linewidth=1.0,
                 capsize=1,
                 label=factor_labels[f_idx],
-                error_kw={'ecolor': 'black'} #colors[f_idx]
+                error_kw={'ecolor': 'black','capthick': 1, 'elinewidth': 1} #colors[f_idx]
             )
 
         ax.set_xticks(x)
@@ -3861,12 +3880,263 @@ class Plotter:
 
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-        ax.legend(frameon=False)
+        # ax.legend(frameon=False)
+
+        # Global legend (only once, for all lines)
+        handles, labels_legend = ax.get_legend_handles_labels()
+        fig = plt.gcf()
+        fig.legend(
+            handles,
+            labels_legend,
+            loc='center left',
+            bbox_to_anchor=(1.01, 0.5),  # position to the right of all subplots
+            frameon=False
+            )
+        # plt.figure(figsize=(figsize[0] * 1 + 1.5, figsize[1]))
 
         plt.tight_layout()
         if save_path:
-            plt.savefig(save_path, bbox_inches='tight')
+            plt.savefig(save_path,  dpi=300)
         plt.show()
+
+    def bar_box_plot_avg_predictor_intervals(self,
+                                         avg_results: dict,
+                                         factors,
+                                         factor_labels=None,
+                                         colors=None,
+                                         bar_width=0.25,
+                                         ylims=None,
+                                         save_path=None,
+                                         figsize=(2, 2),
+                                         plot_type='bar'):
+        """
+        Plot average predictors per event, either as bar plot (mean ± SEM) or boxplot (per-dataset means).
+
+        Parameters
+        ----------
+        avg_results : dict
+            Output of match_and_aggregate_factors
+        factors : list of int
+            Indices of factors to plot
+        factor_labels : list of str, optional
+            Labels for each factor (must match length of `factors`)
+        colors : list, optional
+            Colors for each factor
+        bar_width : float
+            Width of individual bars
+        ylims : tuple, optional
+            Y-axis limits
+        save_path : str, optional
+            Path to save figure
+        figsize : tuple
+            Figure size
+        plot_type : str
+            'bar' or 'box'
+        """
+
+        mpl.rcParams['pdf.fonttype'] = 42
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+
+        # Default labels/colors
+        if factor_labels is None:
+            factor_labels = [f'Factor {f}' for f in factors]
+
+        if colors is None:
+            colors = self.celltypecolors
+        colors = colors[:len(factors)]
+
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # Prepare bar data
+        if plot_type == 'bar':
+            data = avg_results['all_datasets']
+            mean_vals = data['interval_mean'][0][factors, :]  # shape: (n_factors, n_events)
+            sem_vals  = data['interval_sem'][0][factors, :]
+
+            n_events = mean_vals.shape[1]
+            x = np.arange(n_events)
+            offsets = (np.arange(len(factors)) - (len(factors) - 1) / 2) * bar_width
+
+            for f_idx in range(len(factors)):
+                ax.bar(
+                    x + offsets[f_idx],
+                    mean_vals[f_idx, :],
+                    yerr=sem_vals[f_idx, :],
+                    width=bar_width,
+                    color=colors[f_idx],
+                    edgecolor='white',
+                    linewidth=1.0,
+                    capsize=1,
+                    label=factor_labels[f_idx],
+                    error_kw={'ecolor': 'black', 'capthick': 1, 'elinewidth': 1}
+                )
+
+        # Prepare boxplot data
+        elif plot_type == 'box':
+            dataset_keys = [k for k in avg_results if k != 'all_datasets']
+            n_events = avg_results[dataset_keys[0]]['interval_mean'][0].shape[1]
+            x = np.arange(n_events)
+            width = bar_width#0.8 / len(factors)
+            offsets = (np.arange(len(factors)) - (len(factors) - 1) / 2) * width
+
+            for f_idx, factor in enumerate(factors):
+                for ev_idx in range(n_events):
+                    data_points = []
+                    for dataset_key in dataset_keys:
+                        interval_mean = avg_results[dataset_key]['interval_mean'][0]  # (n_factors, n_events)
+                        data_points.append(interval_mean[factor, ev_idx])
+                    # Plot box for this factor × event
+                    ax.boxplot(
+                        data_points,
+                        positions=[x[ev_idx] + offsets[f_idx]],
+                        widths=width,
+                        patch_artist=True,
+                        boxprops=dict(facecolor=colors[f_idx], linewidth=1),
+                        medianprops=dict(color='black'),
+                        whiskerprops=dict(linewidth=1),
+                        capprops=dict(linewidth=1),
+                        flierprops=dict(marker='o', markersize=2, alpha=0.3)
+                    )
+
+        else:
+            raise ValueError("plot_type must be 'bar' or 'box'")
+
+        # Final touches
+        ax.set_xticks(x)
+        ax.set_xticklabels(self.event_labels)
+        ax.set_ylabel('Avg. Coupling Predictor')
+
+        if ylims is not None:
+            ax.set_ylim(ylims)
+
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        if plot_type == 'bar':
+            handles, labels_legend = ax.get_legend_handles_labels()
+            fig.legend(
+                handles,
+                labels_legend,
+                loc='center left',
+                bbox_to_anchor=(1.01, 0.5),
+                frameon=False
+            )
+
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.show()
+
+
+    # def bar_box_plot_avg_predictor_intervals(self,
+    #                                 avg_results: dict,
+    #                                 dataset_key: str,
+    #                                 factors,
+    #                                 factor_labels=None,
+    #                                 colors=None,
+    #                                 bar_width=0.25,
+    #                                 ylims=None,
+    #                                 save_path=None,
+    #                                 figsize=(2, 2),
+    #                                 plot_type='bar'):
+    #     """
+    #     Plot average predictors per event, either as bar plot (mean ± SEM) or boxplot.
+
+    #     Parameters
+    #     ----------
+    #     plot_type : str
+    #         'bar' for mean ± SEM bar plot (default), 'box' for boxplot using per-trial means.
+    #     """
+
+    #     mpl.rcParams['pdf.fonttype'] = 42
+    #     plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+
+    #     data = avg_results[dataset_key]
+
+    #     # Get plot data
+    #     if plot_type == 'bar':
+    #         mean_vals = data['interval_mean'][0][factors, :]  # shape: (n_factors, n_events)
+    #         sem_vals  = data['interval_sem'][0][factors, :]   # shape: same
+    #     elif plot_type == 'box':
+    #         if 'data' not in data or 'interval' not in data['data']:
+    #             raise ValueError("Raw interval data not found in avg_results. Expected in data['data']['interval'].")
+
+    #         raw_data = data['data']['interval']  # list of arrays, one per factor
+    #         # Extract per-trial means across folds
+    #         mean_vals = [raw_data[f][factors, :].T for f in range(len(raw_data))]  # list of (n_events, n_trials)
+    #         # Transpose shape to: list of (n_events × n_trials_per_factor)
+    #     else:
+    #         raise ValueError("plot_type must be 'bar' or 'box'")
+
+    #     # Setup
+    #     if factor_labels is None:
+    #         factor_labels = [f'Factor {f}' for f in factors]
+
+    #     if colors is None:
+    #         colors = self.celltypecolors
+    #     colors = colors[:len(factors)]
+
+    #     fig, ax = plt.subplots(figsize=figsize)
+    #     n_factors = len(factors)
+    #     n_events = mean_vals.shape[1] if plot_type == 'bar' else mean_vals[0].shape[0]
+    #     x = np.arange(n_events)
+    #     offsets = (np.arange(n_factors) - (n_factors - 1) / 2) * bar_width
+
+    #     if plot_type == 'bar':
+    #         for f_idx in range(n_factors):
+    #             ax.bar(
+    #                 x + offsets[f_idx],
+    #                 mean_vals[f_idx, :],
+    #                 yerr=sem_vals[f_idx, :],
+    #                 width=bar_width,
+    #                 color=colors[f_idx],
+    #                 edgecolor='white',
+    #                 linewidth=1.0,
+    #                 capsize=1,
+    #                 label=factor_labels[f_idx],
+    #                 error_kw={'ecolor': 'black', 'capthick': 1, 'elinewidth': 1}
+    #             )
+    #     elif plot_type == 'box':
+    #         width = 0.8 / n_factors
+    #         for f_idx in range(n_factors):
+    #             for ev_idx in range(n_events):
+    #                 box_data = mean_vals[0][ev_idx, f_idx]  # trials for this factor/event
+    #                 box = ax.boxplot(
+    #                     box_data,
+    #                     positions=[x[ev_idx] + offsets[f_idx]],
+    #                     widths=width,
+    #                     patch_artist=True,
+    #                     boxprops=dict(facecolor=colors[f_idx], linewidth=1),
+    #                     medianprops=dict(color='black'),
+    #                     whiskerprops=dict(linewidth=1),
+    #                     capprops=dict(linewidth=1),
+    #                     flierprops=dict(marker='o', markersize=2, alpha=0.3)
+    #                 )
+
+    #     ax.set_xticks(x)
+    #     ax.set_xticklabels(self.event_labels)
+    #     ax.set_ylabel('Avg. Coupling Predictor')
+
+    #     if ylims is not None:
+    #         ax.set_ylim(ylims)
+
+    #     ax.spines['top'].set_visible(False)
+    #     ax.spines['right'].set_visible(False)
+
+    #     handles, labels_legend = ax.get_legend_handles_labels()
+    #     fig.legend(
+    #         handles,
+    #         labels_legend,
+    #         loc='center left',
+    #         bbox_to_anchor=(1.01, 0.5),
+    #         frameon=False
+    #     )
+
+    #     plt.tight_layout()
+    #     if save_path:
+    #         plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    #     plt.show()
+
 
 
 

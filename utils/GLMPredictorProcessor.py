@@ -7,6 +7,10 @@ import h5py
 from scipy.stats import sem
 from scipy import stats
 
+from scipy.spatial.distance import cdist
+from scipy.optimize import linear_sum_assignment
+from scipy.stats import sem
+
 class GLMPredictorProcessor:
     def __init__(self, neuron_groups):
         self.neuron_groups = neuron_groups
@@ -29,6 +33,9 @@ class GLMPredictorProcessor:
             print(f'Processing dataset: {key}')
             predictor_var = self.load_glm_variables(animalID, date, server, model_type) #load varaibles
             
+            aligned_predictors_all[key] = {}
+            aligned_predictors_coupling[key] = {}
+
             for fold_number in range(10):
                 print(f'  Processing fold: {fold_number}')
                 relative_trial_starts = self.get_trial_frames_from_combined_frames(predictor_var[fold_number]['combined_frames_included'])
@@ -43,15 +50,20 @@ class GLMPredictorProcessor:
                                             no_reward_big_row= 182,  # e.g. behav_big_matrix[182,:] marks "no reward / pure"
                                         )
                 frames = self.alignment_frames( alignment_frames_global, left_padding, right_padding, alignment)
-                aligned_behav_this_fold = self.align_behav_predictors(frames, predictor_var[fold_number]['behav_matrix'])
-                aligned_coupling_this_fold = self.align_behav_predictors(frames, predictor_var[fold_number]['coupling_predictors'])
+                aligned_behav_this_fold, valid_trials = self.align_behav_predictors(frames, predictor_var[fold_number]['behav_matrix'])
+                aligned_coupling_this_fold, valid_trials_c = self.align_behav_predictors(frames, predictor_var[fold_number]['coupling_predictors'])
             
-            if key not in aligned_predictors_all:
-                aligned_predictors_all[key] = {}
-                aligned_predictors_coupling[key] = {}
+            # if key not in aligned_predictors_all:
+            #     aligned_predictors_all[key] = {}
+            #     aligned_predictors_coupling[key] = {}
 
-            aligned_predictors_all[key][fold_number] = aligned_behav_this_fold
-            aligned_predictors_coupling[key][fold_number] = aligned_coupling_this_fold
+            # FILTER condition_array_trials to match aligned trials
+                predictor_var[fold_number]['condition_array_trials'] = (
+                predictor_var[fold_number]['condition_array_trials'][valid_trials, :]
+)
+
+                aligned_predictors_all[key][fold_number] = aligned_behav_this_fold
+                aligned_predictors_coupling[key][fold_number] = aligned_coupling_this_fold
 
             all_predictor_var[key] = predictor_var
 
@@ -186,53 +198,20 @@ class GLMPredictorProcessor:
 
         # Return in original format (predictors x frames)
         return final_predictors.T, first_indices
+    
+    def match_coupling_factors(avg_A, avg_B):
 
+        # Similarity
+        similarity = 1 - cdist(avg_A, avg_B, metric='cosine')
         
-    # def load_general_coupling_predictors(self,coupling_predictors):
-    #     #transpose
-    #     coupling_predictors = coupling_predictors.T
-    #     # Assume each cell has 9 predictors: 3 pyr, 3 som, 3 pv
-    #     predictors_per_cell = 9
-        
-    #     # Define indices for each cell type within the predictors
-    #     pyr_indices = slice(0, 3)   # First 3 predictors are for pyr
-    #     som_indices = slice(3, 6)   # Next 3 predictors are for som
-    #     pv_indices = slice(6, 9)    # Last 3 predictors are for pv
+        # Match
+        row_ind, col_ind = linear_sum_assignment(-similarity)
 
-    #     # Initialize a dictionary to store the first index of each cell type
-    #     first_indices = {'pyr': None, 'som': None, 'pv': None}
+        # Return reordered B to match A
+        reordered_B = avg_B[col_ind, :]
 
-    #     # Get the first index for each cell type from the neuron_groups dictionary
-    #     for cell_type in ['pyr', 'som', 'pv']:
-    #         if cell_type in self.neuron_groups and len(self.neuron_groups[cell_type]) > 0:
-    #             first_indices[cell_type] = self.neuron_groups[cell_type][0][0]
+        return reordered_B, similarity, row_ind, col_ind
 
-    #     # Initialize a list to store the required general predictors
-    #     general_predictors = []
-
-    #     # Load the predictors using the first occurrences
-    #     if first_indices['pv'] is not None:
-    #         pv_idx = first_indices['pv']
-    #         cell_predictors = coupling_predictors[:, pv_idx * predictors_per_cell:(pv_idx + 1) * predictors_per_cell]
-    #         general_predictors.append(cell_predictors[:, pyr_indices].reshape(-1, 3))  # Load pyr predictors
-    #         general_predictors.append(cell_predictors[:, som_indices].reshape(-1, 3))  # Load som predictors
-
-    #     if first_indices['pyr'] is not None:
-    #         pyr_idx = first_indices['pyr']
-    #         cell_predictors = coupling_predictors[:, pyr_idx * predictors_per_cell:(pyr_idx + 1) * predictors_per_cell]
-    #         general_predictors.append(cell_predictors[:, som_indices].reshape(-1, 3))  # Load som predictors
-    #         general_predictors.append(cell_predictors[:, pv_indices].reshape(-1, 3))   # Load pv predictors
-
-    #     if first_indices['som'] is not None:
-    #         som_idx = first_indices['som']
-    #         cell_predictors = coupling_predictors[:, som_idx * predictors_per_cell:(som_idx + 1) * predictors_per_cell]
-    #         general_predictors.append(cell_predictors[:, pyr_indices].reshape(-1, 3))  # Load pyr predictors
-    #         general_predictors.append(cell_predictors[:, pv_indices].reshape(-1, 3))   # Load pv predictors
-
-    #     # Stack all the selected predictors horizontally
-    #     final_predictors = np.hstack(general_predictors)
-
-    #     return final_predictors.T, first_indices
 
     def get_trial_frames_from_combined_frames(self,combined_frames_included):
         """
@@ -338,10 +317,21 @@ class GLMPredictorProcessor:
             trial_start_frames = np.asarray(trial_start_frames).ravel()
     
         # Clean/sort/unique trial starts
+        # trial_start_frames = trial_start_frames[~np.isnan(trial_start_frames)].astype(int)
+        # trial_start_frames = np.unique(trial_start_frames)
+        # trial_start_frames = trial_start_frames[(trial_start_frames >= 0) & (trial_start_frames < behav_matrix.shape[1])]
+        # trial_start_frames.sort()
+
+        # keep order, remove NaNs only
         trial_start_frames = trial_start_frames[~np.isnan(trial_start_frames)].astype(int)
-        trial_start_frames = np.unique(trial_start_frames)
-        trial_start_frames = trial_start_frames[(trial_start_frames >= 0) & (trial_start_frames < behav_matrix.shape[1])]
-        trial_start_frames.sort()
+
+        # clip invalid starts instead of dropping trials
+        trial_start_frames = np.clip(
+            trial_start_frames,
+            0,
+            behav_matrix.shape[1] - 1
+        )
+
     
         # Build (start,end) global frame segments per trial
         trial_segments = []
@@ -379,6 +369,7 @@ class GLMPredictorProcessor:
                 big_seg = behav_big_matrix[no_reward_big_row, s : e + 1]
                 # treat any >0 as "on"/onset (works even if it's convolved)
                 r_on = first_onset(seg[behav_cols["no_reward"], :] > 0) #first_onset(big_seg > 0)
+                # r_on = first_onset(big_seg > 0)
     
             reward_or_pure_onsets.append(r_on)
     
@@ -500,9 +491,9 @@ class GLMPredictorProcessor:
             frames[i, :] = temp_frames
 
         # Remove zero frames (for passive trials)
-        if np.any(frames == 0):
-            zero_frame_indices = np.where(frames[0, :] == 0)[0]
-            frames = np.delete(frames, zero_frame_indices, axis=1)
+        # if np.any(frames == 0):
+        #     zero_frame_indices = np.where(frames[0, :] == 0)[0]
+        #     frames = np.delete(frames, zero_frame_indices, axis=1)
 
         # print('frames aligned:',frames)
         print('frames shape:',frames.shape , 'n trials x n frames')
@@ -535,69 +526,8 @@ class GLMPredictorProcessor:
         # for trial in range(n_trials):
         #     aligned_predictors[trial, :, :] = predictors_to_align[:, frames[trial,:]]
 
-        return aligned_predictors
+        return aligned_predictors, valid_trials
     
-    def concatenate_folds(self, aligned_predictors_dict):
-        """
-        Concatenate aligned predictors across folds within each dataset.
-        
-        Parameters:
-            aligned_predictors_dict: dict
-                Dictionary of shape {dataset_key: {fold_number: aligned_predictors}}
-                Each aligned_predictors is of shape (n_trials, n_vars, n_frames)
-
-        Returns:
-            dict: {dataset_key: concatenated_array}, shape (total_trials, n_vars, n_frames)
-        """
-        concatenated_predictors = {}
-
-        for dataset_key, folds in aligned_predictors_dict.items():
-            all_trials = []
-            for fold_number, predictors in folds.items():
-                all_trials.append(predictors)  # shape: (n_trials, n_vars, n_frames)
-
-            if len(all_trials) > 0:
-                concatenated_predictors[dataset_key] = np.concatenate(all_trials, axis=0)
-            else:
-                print(f'No predictors found for {dataset_key}')
-                concatenated_predictors[dataset_key] = None
-
-        return concatenated_predictors
-    
-    def average_folds(self, aligned_predictors_dict):
-        """
-        Average aligned predictors across folds (if trial structure is consistent).
-        Returns:
-            dict: {dataset_key: averaged_predictors}, shape (n_trials, n_vars, n_frames)
-        """
-        averaged_predictors = {} 
-        result = {}
-        for dataset_key, folds in aligned_predictors_dict.items():
-            fold_arrays = list(folds.values())
-            stacked = np.stack(fold_arrays, axis=0)  # shape: (n_folds, n_trials, n_vars, n_frames)
-            mean_predictors = np.mean(stacked, axis=0)
-            averaged_predictors[dataset_key] = mean_predictors
-
-            # Compute mean and SEM per label
-            mean_list = []
-            sem_list = []
-            label_list = ['All Trials']
-
-            mean_vals = mean_predictors
-            sem_vals = sem(stacked, axis=0, nan_policy='omit')  # (n_vars, n_frames)
-
-            mean_list.append(mean_vals)
-            sem_list.append(sem_vals)
-
-            result[dataset_key] = {
-                'labels': label_list,
-                'mean': mean_list,
-                'sem': sem_list
-            }
-
-        return averaged_predictors
-
-
     def get_trial_conditions_from_array(self, condition_array_trials,
                                     fields_to_separate=['correct']):
         """
@@ -686,6 +616,66 @@ class GLMPredictorProcessor:
                 all_conditions.append((matching_trials, comb, label))
 
         return all_conditions, condition_matrix
+    
+    def concatenate_folds(self, aligned_predictors_dict):
+        """
+        Concatenate aligned predictors across folds within each dataset.
+        
+        Parameters:
+            aligned_predictors_dict: dict
+                Dictionary of shape {dataset_key: {fold_number: aligned_predictors}}
+                Each aligned_predictors is of shape (n_trials, n_vars, n_frames)
+
+        Returns:
+            dict: {dataset_key: concatenated_array}, shape (total_trials, n_vars, n_frames)
+        """
+        concatenated_predictors = {}
+
+        for dataset_key, folds in aligned_predictors_dict.items():
+            all_trials = []
+            for fold_number, predictors in folds.items():
+                all_trials.append(predictors)  # shape: (n_trials, n_vars, n_frames)
+
+            if len(all_trials) > 0:
+                concatenated_predictors[dataset_key] = np.concatenate(all_trials, axis=0)
+            else:
+                print(f'No predictors found for {dataset_key}')
+                concatenated_predictors[dataset_key] = None
+
+        return concatenated_predictors
+    
+    def average_folds(self, aligned_predictors_dict):
+        """
+        Average aligned predictors across folds (if trial structure is consistent).
+        Returns:
+            dict: {dataset_key: averaged_predictors}, shape (n_trials, n_vars, n_frames)
+        """
+        averaged_predictors = {} 
+        result = {}
+        for dataset_key, folds in aligned_predictors_dict.items():
+            fold_arrays = list(folds.values())
+            stacked = np.stack(fold_arrays, axis=0)  # shape: (n_folds, n_trials, n_vars, n_frames)
+            mean_predictors = np.mean(stacked, axis=0)
+            averaged_predictors[dataset_key] = mean_predictors
+
+            # Compute mean and SEM per label
+            mean_list = []
+            sem_list = []
+            label_list = ['All Trials']
+
+            mean_vals = mean_predictors
+            sem_vals = sem(stacked, axis=0, nan_policy='omit')  # (n_vars, n_frames)
+
+            mean_list.append(mean_vals)
+            sem_list.append(sem_vals)
+
+            result[dataset_key] = {
+                'labels': label_list,
+                'mean': mean_list,
+                'sem': sem_list
+            }
+
+        return averaged_predictors
 
     def average_folds_by_condition(self, aligned_predictors_dict,
                                 condition_array_dict,
@@ -885,6 +875,206 @@ class GLMPredictorProcessor:
         non_zero = stds != 0
         z_scored[:, non_zero] = stats.zscore(X[:, non_zero], axis=0)
         return z_scored
+    
+    
+
+    def _match_factors(self,reference, target, is_data=False):
+        """
+        Matches factors in the target array to the reference using absolute correlation.
+        reference, target: (n_factors, n_frames)
+        returns reordered target matched to reference
+        """
+        if not is_data:
+            # Both inputs are (n_factors, n_frames)
+            corr = np.corrcoef(reference, target)[:reference.shape[0], reference.shape[0]:]
+            row_ind, col_ind = linear_sum_assignment(-np.abs(corr))
+            return target[col_ind, :]
+
+        else:
+            # target shape: (n_trials, n_factors, n_frames)
+            n_trials, n_factors, n_frames = target.shape
+
+            # Average across trials to get matching template
+            target_avg = np.nanmean(target, axis=0)  # (n_factors, n_frames)
+
+            corr = np.corrcoef(reference, target_avg)[:reference.shape[0], reference.shape[0]:]
+            row_ind, col_ind = linear_sum_assignment(-np.abs(corr))
+
+            # Reorder factors on axis=1
+            matched = target[:, col_ind, :]
+            return matched
+
+    def match_and_aggregate_factors(self,
+                                    aligned_predictors_dict,
+                                    condition_array_dict,
+                                    fields_to_separate,
+                                    event_frames=None):
+        """
+        Match and aggregate coupling factors across datasets, folds, and conditions.
+
+        Returns:
+        --------
+        results : dict
+            results[dataset_key]['labels']
+            results[dataset_key]['mean']   # list of (n_factors × n_frames)
+            results[dataset_key]['sem']
+            results[dataset_key]['data']   # list of (n_trials, n_factors, n_frames)
+            
+            results['all_datasets'] same structure
+            If event_frames provided:
+                results[key]['interval_mean']
+                results[key]['interval_sem']
+        """
+
+        results = {}
+        results_interval = {}
+        pooled_by_label = {}
+
+        # ---------- First pass: per-dataset, per-condition, fold-averaged ----------
+        for dataset_key in aligned_predictors_dict:
+            fold_data = aligned_predictors_dict[dataset_key]
+            fold_conditions = condition_array_dict[dataset_key]
+
+            condition_trials_by_label = {}
+
+            for fold in fold_data:
+                predictors = fold_data[fold]  # (trials, factors, frames)
+                condition_array = fold_conditions[fold]['condition_array_trials']
+
+
+                all_conditions, _ = self.get_trial_conditions_from_array(
+                    condition_array, fields_to_separate
+                )
+
+                for trial_inds, _, label in all_conditions:
+                    if len(trial_inds) == 0:
+                        continue
+
+                    trials = predictors[trial_inds, :, :]  # (trials, factors, frames)
+
+                    condition_trials_by_label.setdefault(label, []).append(trials)
+                    pooled_by_label.setdefault(label, []).append(trials)
+
+            labels, means, sems, raw_data = [], [], [], []
+
+            for label, trial_blocks in condition_trials_by_label.items():
+                all_trials = np.concatenate(trial_blocks, axis=0)
+                mean_val = np.nanmean(all_trials, axis=0)  # (factors × frames)
+                sem_val  = sem(all_trials, axis=0, nan_policy='omit')
+
+                labels.append(label)
+                means.append(mean_val)
+                sems.append(sem_val)
+                raw_data.append(all_trials)
+
+            results[dataset_key] = {
+                'labels': labels,
+                'mean': means,
+                'sem': sems,
+                'data': raw_data
+            }
+
+        # ---------- Factor matching across datasets ----------
+        ref_key = next(iter(results.keys()))
+        ref_means = results[ref_key]['mean']
+
+        for dataset_key in results:
+            if dataset_key == ref_key:
+                continue
+
+            matched_means, matched_sems, matched_data = [], [], []
+            for ref_mat, tgt_mat, tgt_sem, tgt_data in zip(
+                ref_means,
+                results[dataset_key]['mean'],
+                results[dataset_key]['sem'],
+                results[dataset_key]['data']
+            ):
+                matched_means.append(self._match_factors(ref_mat, tgt_mat))
+                matched_sems.append(self._match_factors(ref_mat, tgt_sem))
+                matched_data.append(self._match_factors(ref_mat, tgt_data, is_data=True))
+
+            results[dataset_key]['mean'] = matched_means
+            results[dataset_key]['sem'] = matched_sems
+            results[dataset_key]['data'] = matched_data
+            # for ref_mat, tgt_mat in zip(ref_means, results[dataset_key]['mean']):
+            #     matched_means.append(self._match_factors(ref_mat, tgt_mat))
+
+            # results[dataset_key]['mean'] = matched_means
+
+        # ---------- All-datasets aggregation ----------
+        all_labels, all_means, all_sems, all_data = [], [], [], []
+
+        for label, trial_blocks in pooled_by_label.items():
+            all_trials = np.concatenate(trial_blocks, axis=0)
+            mean_val = np.nanmean(all_trials, axis=0)
+            sem_val  = sem(all_trials, axis=0, nan_policy='omit')
+
+            all_labels.append(label)
+            all_means.append(mean_val)
+            all_sems.append(sem_val)
+            all_data.append(all_trials)
+
+        results['all_datasets'] = {
+            'labels': all_labels,
+            'mean': all_means,
+            'sem': all_sems,
+            'data': all_data
+        }
+
+        # ---------- Optional: interval averaging ----------
+        if event_frames is not None:
+            example = all_means[0]
+            n_frames = example.shape[1]
+            intervals = self.build_event_intervals(event_frames, n_frames, 101)
+            n_events = len(intervals)
+
+            for key in results:
+                interval_means, interval_sems = [], []
+
+                for mean_mat, sem_mat in zip(results[key]['mean'], results[key]['sem']):
+                    im = np.full((mean_mat.shape[0], n_events), np.nan)
+                    isem = np.full_like(im, np.nan)
+
+                    for ev, frames in enumerate(intervals):
+                        if len(frames) == 0:
+                            continue
+
+                        frames = np.asarray(frames, dtype=int)   # <-- THIS LINE
+
+                        im[:, ev] = np.nanmean(mean_mat[:, frames], axis=1)
+                        isem[:, ev] = np.nanmean(sem_mat[:, frames], axis=1)
+
+                    interval_means.append(im)
+                    interval_sems.append(isem)
+
+                results[key]['interval_mean'] = interval_means
+                results[key]['interval_sem'] = interval_sems
+
+                results_interval[key] = {
+                    'labels': results[key]['labels'],
+                    'mean': interval_means,
+                    'sem': interval_sems
+                }
+
+                interval_data = []
+
+                for data_mat in results[key]['data']:  # (n_trials, n_factors, n_frames)
+                    n_trials, n_factors, _ = data_mat.shape
+                    idata = np.full((n_trials, n_factors, n_events), np.nan)
+
+                    for ev, frames in enumerate(intervals):
+                        if len(frames) == 0:
+                            continue
+                        frames = np.asarray(frames, dtype=int)
+                        idata[:, :, ev] = np.nanmean(data_mat[:, :, frames], axis=2)
+
+                    interval_data.append(idata)
+
+                results[key]['interval_data'] = interval_data
+
+        return results,results_interval
+
+
 
 
     
