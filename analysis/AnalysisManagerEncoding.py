@@ -6,6 +6,7 @@ from scipy import stats
 from scipy.stats import permutation_test
 import h5py
 import random
+import pandas as pd
 
 import numpy as np
 from sklearn.svm import SVC
@@ -1049,3 +1050,105 @@ class AnalysisManagerEncoding:
             self.plotter.plot_cdf_coupling_index(coupling_index, cell_labels, colors=self.plotter.celltypecolors, title=f'{label1} vs {label2}', save_path=save_string)
 
         return coupling_index_dir, model_improvement
+    
+    def compute_within_between_coupling(self,model_output_all, predictor_groups, coupling_start_idx=183, mode='mean'):
+        """
+        Compute within-group and between-group coupling strengths for neurons based on model output.
+        Parameters:
+        model_output_all: dict
+            A dictionary where keys are fold indices and values are model output dictionaries containing 'B_weights'.
+        predictor_groups: dict
+            A dictionary where keys are group names (e.g., 'sound', 'opto') and values are lists of predictor indices corresponding to neurons in that group.
+        coupling_start_idx: int
+            The starting index in the B_weights array where coupling predictors begin.
+        mode: str
+            The mode of aggregation for coupling strengths. Options are 'mean', 'mean_abs', 'sum', 'sum_abs'.
+        Returns:
+        pd.DataFrame
+            A DataFrame containing within-group and between-group coupling strengths for each neuron.
+        """
+        all_folds = list(model_output_all.keys())
+        B = [model_output_all[f]['B_weights'] for f in all_folds]
+        B = np.stack(B, axis=0)  # (folds, predictors, neurons)
+        B_mean = np.mean(B, axis=0)  # (predictors, neurons)
+        coupling_betas = B_mean[coupling_start_idx:, :]  # (n_neurons, n_neurons)
+
+        all_data = []
+        for group_name in predictor_groups.keys():
+            this_group = predictor_groups[group_name]
+            other_groups = [g for g in predictor_groups if g != group_name]
+            other_neurons = sum([predictor_groups[g] for g in other_groups], [])
+
+            for i in this_group:
+                beta_i = coupling_betas[:, i]
+                this_idxs = [ix for ix in this_group if ix != i]
+                other_idxs = [ix for ix in other_neurons if ix != i]
+                beta_within = beta_i[this_idxs]
+                beta_between = beta_i[other_idxs]
+
+                if mode == 'mean':
+                    val_within = np.nanmean(beta_within)
+                    val_between = np.nanmean(beta_between)
+                elif mode == 'mean_abs':
+                    val_within = np.nanmean(np.abs(beta_within))
+                    val_between = np.nanmean(np.abs(beta_between))
+                elif mode == 'sum':
+                    val_within = np.nansum(beta_within)
+                    val_between = np.nansum(beta_between)
+                elif mode == 'sum_abs':
+                    val_within = np.nansum(np.abs(beta_within))
+                    val_between = np.nansum(np.abs(beta_between))
+
+                all_data.append({
+                    'neuron': i,
+                    'group': group_name,
+                    'coupling_within': val_within,
+                    'coupling_between': val_between
+                })
+
+        return pd.DataFrame(all_data)
+
+    def wrapper_dataset_compute_within_between_coupling(self,all_results,significant_neurons, model_used = 'model_output_all_neurons', mode = 'mean', groups_to_plot=None):
+        """
+        Wrapper function to compute within-group and between-group coupling strengths across multiple datasets.
+
+        Parameters
+        ----------
+        all_results : dict
+            Dictionary of model outputs from multiple datasets.
+        significant_neurons : dict
+            Dictionary of predictor groups per dataset (e.g. {'sound': [...], 'opto': [...]}).
+        model_used : str
+            Key name for which model output to use (default: 'model_output_all_neurons').
+        mode : str
+            Aggregation mode: 'mean', 'mean_abs', 'sum', 'sum_abs'.
+        groups_to_plot : list or None
+            Optional list of groups to include (e.g. ['sound', 'opto']). If None, includes all groups in each dataset.
+
+        Returns
+        -------
+        pd.DataFrame
+            Combined dataframe of within- and between-group coupling measures across datasets.
+        """
+        combined_df = []
+        for key, data in all_results.items():
+            model_output_all = data[model_used]  # or whatever model you're using
+            predictor_groups = significant_neurons[key]  # {'sound': [...], 'opto': [...]}
+
+            if groups_to_plot is not None:
+                predictor_groups = {
+                    g: predictor_groups[g]
+                    for g in groups_to_plot if g in predictor_groups
+                }
+
+            df = self.compute_within_between_coupling(
+                model_output_all=model_output_all,
+                predictor_groups=predictor_groups,
+                coupling_start_idx=183,  # adjust if different
+                mode=mode
+            )
+            df['dataset'] = key
+            combined_df.append(df)
+
+        combined_df = pd.concat(combined_df, ignore_index=True)
+        return combined_df

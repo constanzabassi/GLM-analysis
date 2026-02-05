@@ -191,7 +191,7 @@ class DataHandlerEncoding:
 
         return celltype_array, neuron_groups, colors
 
-    def load_data(self,animalID, date, server, model_type, results_type = 'results'):
+    def load_data(self, animalID, date, server, model_type, results_type='results', models_to_load=None):
         """
         Load and process GLM results for a given dataset.
         
@@ -201,54 +201,64 @@ class DataHandlerEncoding:
             server (str): The server location.
             model_type (str): The type of the GLM model.
             results_type (str): The type of results to load (default is 'results').
+            models_to_load (list): List of model indices to load (default [0,1,2,3,4])
 
         Returns:
             dict: A dictionary containing the mean deviance explained for each model.
         """
-        
-        
-        save_directory_v1 = os.path.join(f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}')
-        
-        # Load data from all models
-        model_output_all = self.load_GLM_results_cluster(os.path.join(save_directory_v1, results_type), 'poss_model_1_data_cluster_')
-        model_output_behav = self.load_GLM_results_cluster(os.path.join(save_directory_v1, results_type), 'poss_model_0_data_cluster_')
-        model_output_no_pyr = self.load_GLM_results_cluster(os.path.join(save_directory_v1, results_type), 'poss_model_2_data_cluster_')
-        model_output_no_som = self.load_GLM_results_cluster(os.path.join(save_directory_v1, results_type), 'poss_model_3_data_cluster_')
-        model_output_no_pv = self.load_GLM_results_cluster(os.path.join(save_directory_v1, results_type), 'poss_model_4_data_cluster_')
 
-        print(f'shapes model outputs: {len(model_output_all)}, {len(model_output_behav)}, {len(model_output_no_pyr)}, {len(model_output_no_som)}, {len(model_output_no_pv)}')
+        if models_to_load is None:
+            models_to_load = [0, 1, 2, 3, 4]
 
-        # Calculate the mean across folds for deviance explained
-        mean_dev = np.mean([model_output['frac_dev_expl'] for model_output in model_output_all.values()], axis=0)
-        mean_dev_behav = np.mean([model_output['frac_dev_expl'] for model_output in model_output_behav.values()], axis=0)
-        mean_dev_no_pyr = np.mean([model_output['frac_dev_expl'] for model_output in model_output_no_pyr.values()], axis=0)
-        mean_dev_no_som = np.mean([model_output['frac_dev_expl'] for model_output in model_output_no_som.values()], axis=0)
-        mean_dev_no_pv = np.mean([model_output['frac_dev_expl'] for model_output in model_output_no_pv.values()], axis=0)
+        save_directory_v1 = os.path.join(f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}', results_type)
+
+        # Mapping model indices to names and file prefixes
+        model_info = {
+            0: ("model_output_behav", "poss_model_0_data_cluster_"), #behavior only model
+            1: ("model_output_all", "poss_model_1_data_cluster_"), #using factors for coupling predictors
+            2: ("model_output_no_pyr", "poss_model_2_data_cluster_"),
+            3: ("model_output_no_som", "poss_model_3_data_cluster_"),
+            4: ("model_output_no_pv", "poss_model_4_data_cluster_"),
+            5: ("model_output_all_neurons", "poss_model_5_data_cluster_") #using indiividual neurons instead of factors for coupling predictors
+        }
+
+        loaded_models = {}
+        mean_devs = {}
+
+        # Load only requested models
+        for model_idx in models_to_load:
+            if model_idx not in model_info:
+                raise ValueError(f"Model {model_idx} not recognized")
+
+            name, prefix = model_info[model_idx]
+
+            output = self.load_GLM_results_cluster(save_directory_v1, prefix)
+            loaded_models[name] = output
+
+            # Compute mean deviance explained
+            mean_devs[f"mean_dev_{model_idx}"] = np.mean(
+                [model_output['frac_dev_expl'] for model_output in output.values()],
+                axis=0
+            )
+
+        print("Loaded models:", list(loaded_models.keys()))
 
         # Load cell types
         celltype_array, neuron_groups, colors = self.load_celltypes(server, animalID, date)
-        
-        results = {}
+
         results = {
-                'mean_dev': mean_dev,
-                'mean_dev_behav': mean_dev_behav,
-                'mean_dev_no_pyr': mean_dev_no_pyr,
-                'mean_dev_no_som': mean_dev_no_som,
-                'mean_dev_no_pv': mean_dev_no_pv,
-                'celltype_array': celltype_array,
-                'neuron_groups': neuron_groups,
-                'colors': colors,
-                'model_output_all': model_output_all,
-                'model_output_behav': model_output_behav,
-                'model_output_no_pyr': model_output_no_pyr,
-                'model_output_no_som': model_output_no_som,
-                'model_output_no_pv': model_output_no_pv
-            }
-        
+            **mean_devs,
+            **loaded_models,
+            'celltype_array': celltype_array,
+            'neuron_groups': neuron_groups,
+            'colors': colors
+        }
+
         return results
 
 
-    def process_multiple_datasets(self,datasets, model_type, results_type = 'results'):
+
+    def process_multiple_datasets(self,datasets, model_type, results_type = 'results', models_to_load = None):
         """
         Process multiple datasets and calculate mean deviance explained for each.
 
@@ -264,7 +274,7 @@ class DataHandlerEncoding:
         for animalID, date, server in datasets:
             key = f'{animalID}_{date}'
             print(f'Processing dataset: {key}')
-            results = self.load_data(animalID, date, server, model_type, results_type =results_type)
+            results = self.load_data(animalID, date, server, model_type, results_type =results_type,  models_to_load= models_to_load)
             all_results[key] = results
 
         return all_results
@@ -609,6 +619,7 @@ class DataHandlerEncoding:
             exclude_indices = []
 
         significant_neurons = {}
+        mod_indices = {}
         # Iterate over mouse_dates and map to corresponding neurons in sig_cells by index
         for idx, mouse_date in enumerate(mouse_dates):
             # ---- NEW: skip excluded datasets ----
@@ -618,6 +629,17 @@ class DataHandlerEncoding:
             significant_neurons[mouse_date] = {}
             opto_neurons = opto['sig_cells'][idx,0]-1 # Adjust for MATLAB indexing
             sound_neurons = sound['sig_cells'][0,idx]-1 # Adjust for MATLAB indexing
+
+            mod_indices[mouse_date] = {}
+
+            for context in range(opto['mod'].shape[1]):
+                mod_indices[mouse_date][context] = {}   # initialize context dictionary
+                mod_indices[mouse_date][context]['opto'] = opto['mod'][idx, context]
+            for context in range(sound['mod'].shape[1]):
+                if context not in mod_indices[mouse_date]:
+                    mod_indices[mouse_date][context] = {}
+                mod_indices[mouse_date][context]['sound'] = sound['mod'][idx, context]
+
             #get total nuerons
             all_neurons = list(range(opto['mod'][idx,0].shape[0]))#range(0,opto['mod'][idx,0].shape[0])
             
@@ -633,5 +655,5 @@ class DataHandlerEncoding:
                 significant_neurons[mouse_date]['both'] = list(set(opto_neurons).intersection(set(sound_neurons)))
                 significant_neurons[mouse_date]['unmod'] = list(set(all_neurons) - set(opto_neurons) - set(sound_neurons))
 
-        return opto, sound, mouse_dates, significant_neurons
+        return opto, sound, mouse_dates, significant_neurons, mod_indices
 

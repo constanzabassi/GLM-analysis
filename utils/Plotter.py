@@ -23,13 +23,15 @@ from scipy.stats import wilcoxon
 import matplotlib.patches as patches
 import matplotlib.cm as cm
 from matplotlib_venn import venn2
+from matplotlib.patches import Patch
 
 #import stats class
 from utils.general_stats import GeneralStats
+from scipy.stats import chi2_contingency
 from utils.GLMDataUtils import GLMDataUtils
 
 class Plotter:
-    def __init__(self, data, celltypecolors=None, save_results=None, color_map_dict = None, event_frames=None, event_labels=None):
+    def __init__(self, data, celltypecolors=None, save_results=None, color_map_dict = None, event_frames=None, event_labels=None, group_colors = None):
         """
         Initialize Plotter class with default colors and event frames
         
@@ -66,6 +68,13 @@ class Plotter:
             'pv': (0.82, 0.04, 0.04)
         }
 
+        self.default_group_colors = {
+            'sound': (0.3, 0.2, 0.6),
+            'opto': (1, 0.7, 0),
+            'both': (0.3,0.8,1),
+            'unmod': (0.7,0.7,0.7)
+        }
+
         # Default variable colors (pairs for regular and shuffled) for each decoded variable
         self.default_variable_colors = {
             'sound_category': ['darkslateblue', 'mediumslateblue'],
@@ -76,6 +85,7 @@ class Plotter:
         
         # Use custom colors if provided, otherwise use defaults
         self.celltypecolors = celltypecolors if celltypecolors is not None else self.default_colors
+        self.group_colors = group_colors if group_colors is not None else self.default_group_colors
 
         self.default_cell_type_labels = {
             'pyr': 'Pyr',
@@ -124,11 +134,11 @@ class Plotter:
             
             # Add text
             ax.text((x1 + x2) * 0.5, text_y, significance, 
-                    ha='center', va='bottom', color=color, fontsize=fontsize)
+                    ha='center', va='bottom', color=color, fontsize=fontsize, fontname='arial')
         else:  # Only x1 is provided, so draw only the significance star
             if y is not None:
                 ax.text(x1, y, significance, 
-                    ha='center', va='bottom', color=color, fontsize=fontsize)
+                    ha='center', va='bottom', color=color, fontsize=fontsize, fontname='arial')
                     
     def generate_xlabels(self,cell_types_first_half, cell_types_second_half, connector='w'):
         """
@@ -4026,6 +4036,261 @@ class Plotter:
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()
+
+    def plot_within_between_scatter(self,all_df, group_colors=None, title='Within vs. Between Coupling', figsize=(4, 4), save_path=None, mode = 'mean'):
+
+        plt.figure(figsize=figsize)
+        mpl.rcParams['pdf.fonttype'] = 42
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+
+        for group in all_df['group'].unique():
+            subset = all_df[all_df['group'] == group]
+            plt.scatter(
+                subset['coupling_within'],
+                subset['coupling_between'],
+                edgecolor=group_colors.get(group, 'gray'),
+                facecolors='none',
+                label=group,
+                alpha=1,
+                s=10,
+                linewidths=1
+            )
+
+        min_val = min(all_df['coupling_within'].min(), all_df['coupling_between'].min())
+        max_val = max(all_df['coupling_within'].max(), all_df['coupling_between'].max())
+        plt.plot([min_val, max_val], [min_val, max_val], 'k--', lw=1)
+
+        plt.xlabel('Coupling to Same Group')
+        plt.ylabel('Coupling to Other Group(s)')
+        if 'abs' in mode:
+            plt.xlabel('|Coupling to Same Group|')
+            plt.ylabel('|Coupling to Other Group(s)|')
+            
+        plt.grid(True, alpha=0.3)
+        ax = plt.gca()
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        plt.title(title, fontsize=7)
+        plt.legend(frameon=False)
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, dpi=300)
+        plt.show()
+
+    def plot_quadrant_heatmap_across_datasets(self,
+        combined_df,
+        groups=('sound', 'opto'),
+        dataset_col='dataset',
+        group_col='group',
+        save_dir=None,
+        figsize=(3, 3),
+        decimal_places = 0,
+        vmax = 100,
+        colormap='coolwarm'
+    ):
+        mpl.rcParams['pdf.fonttype'] = 42
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+
+        quadrant_labels = np.array([["+/+", "+/–"], ["–/+", "–/–"]])
+        quadrant_names = ['+/+', '+/–', '–/+', '–/–']
+        
+        # Store per-group stats
+        all_group_stats = {}
+
+        for group in groups:
+            fractions = []
+            raw_counts = []
+
+            for dataset in combined_df[dataset_col].unique():
+                subset = combined_df[
+                    (combined_df[group_col] == group) & (combined_df[dataset_col] == dataset)
+                ]
+                sign_within = np.sign(subset['coupling_within'].values)
+                sign_between = np.sign(subset['coupling_between'].values)
+
+                quadrant_counts = np.zeros((2, 2), dtype=int)
+                for s_w, s_b in zip(sign_within, sign_between):
+                    row = 0 if s_w > 0 else 1
+                    col = 0 if s_b > 0 else 1
+                    quadrant_counts[row, col] += 1
+
+                # Normalize to get fractions
+                total = quadrant_counts.sum()
+                if total == 0:
+                    continue
+                fractions.append(quadrant_counts.flatten() / total)
+                raw_counts.append(quadrant_counts.flatten())
+
+            fractions = np.array(fractions) *100  # Convert to percentages
+            mean_frac = np.nanmean(fractions, axis=0)
+            std_frac = np.nanstd(fractions, axis=0)
+
+            all_group_stats[group] = {
+                'mean': mean_frac,
+                'std': std_frac,
+                'raw_counts': np.array(raw_counts)
+            }
+
+            # Plot heatmap of mean fractions
+            mean_frac_matrix = mean_frac.reshape(2, 2)
+            label_matrix = np.array([[f"{mean_frac_matrix[i,j]:.{decimal_places}f} ± {std_frac.reshape(2,2)[i,j]:.{decimal_places}f}\n{quadrant_labels[i,j]}"
+                                    for j in range(2)] for i in range(2)])
+
+            plt.figure(figsize=figsize)
+            sns.heatmap(mean_frac_matrix, annot=label_matrix, fmt='', cmap=colormap, cbar=False,
+                        xticklabels=["Between +", "Between –"], yticklabels=["Within +", "Within –"],vmin=0, vmax=vmax)
+            plt.title(f'{group.capitalize()} Coupling Quadrants') #\n(Mean ± SD)
+            plt.tight_layout()
+
+            if save_dir:
+                plt.savefig(f"{save_dir}/{group}_quadrant_heatmap.pdf", dpi=300)
+            plt.show()
+
+        # Perform chi-square test between groups (on total counts)
+        if len(groups) >= 2:
+            group1, group2 = groups[:2]
+            total_counts_1 = np.sum(all_group_stats[group1]['raw_counts'], axis=0)
+            total_counts_2 = np.sum(all_group_stats[group2]['raw_counts'], axis=0)
+
+            contingency_table = np.stack([total_counts_1, total_counts_2], axis=0)
+            chi2, p_val, dof, expected = chi2_contingency(contingency_table)
+
+            print(f"Chi-square test between {group1} and {group2}:")
+            print(f"  χ² = {chi2:.2f}, p = {p_val:.4g}, dof = {dof}")
+            print("  Contingency Table:")
+            print(pd.DataFrame(contingency_table, index=[group1, group2], columns=quadrant_names))
+
+            # Optionally save
+            if save_dir:
+                pd.DataFrame(contingency_table, index=[group1, group2], columns=quadrant_names).to_csv(
+                    f"{save_dir}/quadrant_chi2_contingency.csv"
+                )
+                with open(f"{save_dir}/quadrant_chi2_result.txt", "w") as f:
+                    f.write(f"Chi-square test between {group1} and {group2}:\n")
+                    f.write(f"χ² = {chi2:.2f}, p = {p_val:.4g}, dof = {dof}\n")
+                    f.write("Contingency Table:\n")
+                    f.write(pd.DataFrame(contingency_table, index=[group1, group2], columns=quadrant_names).to_string())
+
+        return all_group_stats
+    
+    def plot_group_coupling_differences(self,
+        df, 
+        mode='mean_abs', 
+        save_path=None, 
+        paired=True, 
+        figure_size=(3, 3), 
+        ylim=None, 
+        group_colors=None,
+        group_order=None,
+        plot_type='bar',  # 'bar' or 'box'
+        width = 0.6,
+        showfliers=True
+    ):
+
+
+        mpl.rcParams['pdf.fonttype'] = 42
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+
+        df['diff'] = df['coupling_within'] - df['coupling_between']
+
+        # Determine group order
+        if group_order is None:
+            group_order = sorted(df['group'].unique())
+        else:
+            group_names =  group_order
+            group_order = [s.lower() for s in group_order] # ensure list for indexing
+            
+
+        # Grouped summary
+        summary = df.groupby('group')['diff'].agg(['mean', 'sem']).reindex(group_order)
+
+        # Set up group colors
+        if group_colors is None:
+            palette = sns.color_palette('muted', n_colors=len(group_order))
+            group_colors = dict(zip(group_order, palette))
+        
+        fig, ax = plt.subplots(figsize=figure_size)
+        ax.axhline(0, linestyle='--', color='gray')
+        if plot_type == 'bar':
+            for i, group in enumerate(group_order):
+                mean_val = summary.loc[group, 'mean']
+                sem_val = summary.loc[group, 'sem']
+                color = group_colors.get(group, 'gray')
+                ax.bar(i, mean_val, color=color, width=width)
+                ax.errorbar(i, mean_val, yerr=sem_val, fmt='none', ecolor='black', capsize=2)
+            ax.set_xticks(range(len(group_order)))
+            ax.set_xticklabels(group_names)
+
+        elif plot_type == 'box':
+            # Draw manually for color control
+            for i, group in enumerate(group_order):
+                data = df[df['group'] == group]['diff'].dropna().values
+                bp = ax.boxplot(data, positions=[i], widths=width, patch_artist=True,showfliers=showfliers,flierprops=dict(marker='o', markersize=2, markerfacecolor='white', markeredgecolor='gray'),
+                                boxprops=dict(facecolor=group_colors.get(group, 'gray')))
+                for patch in bp['boxes']:
+                    patch.set_facecolor(group_colors.get(group, 'gray'))
+                for element in ['medians']: #medians
+                    for line in bp[element]:
+                        line.set_color('white')
+                        line.set_linewidth(1.5)
+                for element in ['whiskers', 'caps']:
+                    for line in bp[element]:
+                        line.set_color('black')
+                        line.set_linewidth(1)
+                
+            ax.set_xticks(range(len(group_order)))
+            ax.set_xticklabels(group_names)
+        if mode == 'mean_abs':
+            ax.set_ylabel(f'Mean Coupling |Within| - |Between|')
+        else:
+            ax.set_ylabel(f'{mode.capitalize()} Coupling (Within - Between)')
+        ax.set_title(f'Coupling Selectivity')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        if ylim:
+            ax.set_ylim(ylim)
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=300)
+
+        all_p_values = []
+        all_stats_dict = {}
+        test_stats = []
+        comparisons_names = []
+        # Paired permutation test
+        for g in group_order:
+            vals = df[df['group'] == g]['diff'].dropna().values
+            p, stat = self.stats.perform_permutation_test(vals, np.zeros_like(vals), paired=paired)
+            all_p_values.append(p)
+            test_stats.append(stat)
+            print(f"{g}: p={p:.4f}, stat={stat:.3f}")
+
+            label1 = f"{g}_coupling_diff_stats"
+            all_stats_dict[label1] = self.stats.get_basic_stats(vals)
+            comparisons_names.append((label1,'zero'))
+
+        # Calculate Bonferroni significance
+        corrected_p_values, significance_stars = self.stats.calculate_bonferroni_significance(all_p_values)
+
+        # Draw significance lines and stars
+        for idx, (p, star) in enumerate(zip(corrected_p_values, significance_stars)):
+            if star != 'ns':
+                bottom, top = ax.get_ylim()
+                y = top - (top * 0.1)  # Adjust y-coordinate
+                # x1 = bar_positions[idx] - bar_width / 2
+                # x2 = bar_positions[idx] + bar_width / 2
+                x1 = idx
+                self.add_significance_line(ax, x1, y=y, significance=star)
+
+        if save_path and '/' in save_path:
+            save_path_updated = save_path[:save_path.rfind('/')]
+            print(f"Saving stats to {save_path_updated}")
+            df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, save_path=f'{save_path_updated}/stat_tests_coupling_diff.csv',type='permutation paired')
+            df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_coupling_diff.csv')
+        return summary
+
+
 
 
     # def bar_box_plot_avg_predictor_intervals(self,

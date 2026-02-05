@@ -218,3 +218,87 @@ class GeneralStats:
             else:
                 raise ValueError("save_path must end with .csv or .xlsx")
         return df
+    
+    def permutation_test_quadrants(self,
+        counts_group1: np.ndarray,
+        counts_group2: np.ndarray,
+        group1_name='sound',
+        group2_name='opto',
+        n_permutations=10000,
+        seed=None,
+        save_path=None
+    ):
+        """
+        Performs a permutation test comparing quadrant fractions between two groups.
+
+        Parameters:
+            counts_group1 (np.ndarray): shape (n_datasets_1, 4), raw counts for group 1
+            counts_group2 (np.ndarray): shape (n_datasets_2, 4), raw counts for group 2
+            group1_name (str): Label for group 1
+            group2_name (str): Label for group 2
+            n_permutations (int): Number of permutations
+            seed (int): Random seed for reproducibility
+            save_path (str): Optional path to save permutation test and summary stats
+
+        Returns:
+            p_value (float): Permutation test p-value
+            observed_stat (float): L1 norm of difference in means
+            permuted_stats (np.ndarray): Distribution of permuted test statistics
+        """
+        if seed is not None:
+            np.random.seed(seed)
+
+        # Normalize to get fractions per dataset
+        def normalize_counts(counts):
+            return np.array([row / np.sum(row) if np.sum(row) > 0 else np.zeros_like(row) for row in counts])
+
+        norm1 = normalize_counts(counts_group1)
+        norm2 = normalize_counts(counts_group2)
+
+        # Compute observed difference (L1 norm between group means)
+        mean1 = np.mean(norm1, axis=0)
+        mean2 = np.mean(norm2, axis=0)
+        observed_stat = np.sum(np.abs(mean1 - mean2))
+
+        # Stack data and generate labels
+        all_data = np.vstack([norm1, norm2])
+        group_labels = np.array([0] * len(norm1) + [1] * len(norm2))
+
+        # Permutation loop
+        permuted_stats = []
+        for _ in range(n_permutations):
+            shuffled = np.random.permutation(group_labels)
+            grp_a = all_data[shuffled == 0]
+            grp_b = all_data[shuffled == 1]
+            stat = np.sum(np.abs(np.mean(grp_a, axis=0) - np.mean(grp_b, axis=0)))
+            permuted_stats.append(stat)
+
+        permuted_stats = np.array(permuted_stats)
+        p_value = np.mean(permuted_stats >= observed_stat)
+
+        # Save summary + CSVs
+        if save_path:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+            # Save mean/std summary
+            summary_df = pd.DataFrame({
+                'Quadrant': ['+/+', '+/–', '–/+', '–/–'],
+                f'{group1_name}_mean': mean1,
+                f'{group1_name}_std': np.std(norm1, axis=0),
+                f'{group2_name}_mean': mean2,
+                f'{group2_name}_std': np.std(norm2, axis=0),
+            })
+            summary_path = save_path.replace('.csv', '_summary_stats.csv')
+            summary_df.to_csv(summary_path, index=False)
+
+            # Save permutation result
+            perm_df = pd.DataFrame({
+                'observed_stat': [observed_stat],
+                'p_value': [p_value]
+            })
+            perm_df.to_csv(save_path, index=False)
+
+            print(f"Saved permutation test to: {save_path}")
+            print(f"Saved summary stats to: {summary_path}")
+
+        return p_value, observed_stat, permuted_stats
