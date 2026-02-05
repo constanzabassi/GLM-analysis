@@ -139,65 +139,98 @@ class GLMPredictorProcessor:
         return predictor_vars
     
     def load_general_coupling_predictors(self, coupling_predictors):
-        """
-        Load general coupling predictors for each cell type from first neurons of each type.
-        
-        Parameters
-        ----------
-        coupling_predictors : np.ndarray
-            Array of shape (n_frames, n_total_predictors) or (n_total_predictors, n_frames),
-            where each neuron has 9 predictors: 3 pyr, 3 som, 3 pv.
-        
-        Returns
-        -------
-        final_predictors : np.ndarray
-            Array of shape (n_total_predictors_to_plot, n_frames)
-        first_indices : dict
-            Dictionary with first neuron index for each cell type
-        """
-
-        # Ensure shape is (frames, predictors)
         if coupling_predictors.shape[0] < coupling_predictors.shape[1]:
             coupling_predictors = coupling_predictors.T
 
-        predictors_per_cell = 9  # 3 pyr, 3 som, 3 pv
-        # Slices within a neuron
+        predictors_per_cell = 9
         pyr_indices = slice(0, 3)
         som_indices = slice(3, 6)
         pv_indices  = slice(6, 9)
-
         celltype_slices = {'pyr': pyr_indices, 'som': som_indices, 'pv': pv_indices}
 
-        # Find first neuron index for each cell type
         first_indices = {}
-        for cell_type in ['pyr','som','pv']:
+        for cell_type in ['pyr', 'som', 'pv']:
             if cell_type in self.neuron_groups and len(self.neuron_groups[cell_type]) > 0:
                 first_indices[cell_type] = self.neuron_groups[cell_type][0][0]
             else:
                 first_indices[cell_type] = None
 
-        # Collect predictors
         general_predictors = []
 
+        # Just get one set of 3 from each type
         for cell_type, first_idx in first_indices.items():
             if first_idx is None:
-                continue  # skip if no neurons of this type
-
-            # Extract this neuron's full predictor block
+                continue
             start = first_idx * predictors_per_cell
-            end   = (first_idx + 1) * predictors_per_cell
-            neuron_block = coupling_predictors[:, start:end]  # shape: (frames, 9)
+            end = (first_idx + 1) * predictors_per_cell
+            neuron_block = coupling_predictors[:, start:end]  # (frames, 9)
+            sl = celltype_slices[cell_type]
+            general_predictors.append(neuron_block[:, sl])  # (frames, 3)
 
-            # Add predictors for other cell types only
-            for other_type, sl in celltype_slices.items():
-                if other_type != cell_type:
-                    general_predictors.append(neuron_block[:, sl])  # shape: (frames, 3)
-
-        # Stack horizontally: shape (frames, n_factors)
-        final_predictors = np.hstack(general_predictors)
-
-        # Return in original format (predictors x frames)
+        final_predictors = np.hstack(general_predictors)  # (frames, 9)
         return final_predictors.T, first_indices
+
+    
+    # def load_general_coupling_predictors(self, coupling_predictors):
+    #     """
+    #     Load general coupling predictors for each cell type from first neurons of each type.
+        
+    #     Parameters
+    #     ----------
+    #     coupling_predictors : np.ndarray
+    #         Array of shape (n_frames, n_total_predictors) or (n_total_predictors, n_frames),
+    #         where each neuron has 9 predictors: 3 pyr, 3 som, 3 pv.
+        
+    #     Returns
+    #     -------
+    #     final_predictors : np.ndarray
+    #         Array of shape (n_total_predictors_to_plot, n_frames)
+    #     first_indices : dict
+    #         Dictionary with first neuron index for each cell type
+    #     """
+
+    #     # Ensure shape is (frames, predictors)
+    #     if coupling_predictors.shape[0] < coupling_predictors.shape[1]:
+    #         coupling_predictors = coupling_predictors.T
+
+    #     predictors_per_cell = 9  # 3 pyr, 3 som, 3 pv
+    #     # Slices within a neuron
+    #     pyr_indices = slice(0, 3)
+    #     som_indices = slice(3, 6)
+    #     pv_indices  = slice(6, 9)
+
+    #     celltype_slices = {'pyr': pyr_indices, 'som': som_indices, 'pv': pv_indices}
+
+    #     # Find first neuron index for each cell type
+    #     first_indices = {}
+    #     for cell_type in ['pyr','som','pv']:
+    #         if cell_type in self.neuron_groups and len(self.neuron_groups[cell_type]) > 0:
+    #             first_indices[cell_type] = self.neuron_groups[cell_type][0][0]
+    #         else:
+    #             first_indices[cell_type] = None
+
+    #     # Collect predictors
+    #     general_predictors = []
+
+    #     for cell_type, first_idx in first_indices.items():
+    #         if first_idx is None:
+    #             continue  # skip if no neurons of this type
+
+    #         # Extract this neuron's full predictor block
+    #         start = first_idx * predictors_per_cell
+    #         end   = (first_idx + 1) * predictors_per_cell
+    #         neuron_block = coupling_predictors[:, start:end]  # shape: (frames, 9)
+
+    #         # Add predictors for other cell types only
+    #         for other_type, sl in celltype_slices.items():
+    #             if other_type != cell_type:
+    #                 general_predictors.append(neuron_block[:, sl])  # shape: (frames, 3)
+
+    #     # Stack horizontally: shape (frames, n_factors)
+    #     final_predictors = np.hstack(general_predictors)
+
+    #     # Return in original format (predictors x frames)
+    #     return final_predictors.T, first_indices
     
     def match_coupling_factors(avg_A, avg_B):
 
@@ -878,17 +911,21 @@ class GLMPredictorProcessor:
     
     
 
-    def _match_factors(self,reference, target, is_data=False):
+    def _match_factors(self,reference, target, is_data=False, return_indices=False):
         """
         Matches factors in the target array to the reference using absolute correlation.
         reference, target: (n_factors, n_frames)
+        is_data : bool
+            Whether target is trial-based data (3D)
+        return_indices : bool
+            If True, also return the index mapping from target to reference
         returns reordered target matched to reference
         """
         if not is_data:
             # Both inputs are (n_factors, n_frames)
             corr = np.corrcoef(reference, target)[:reference.shape[0], reference.shape[0]:]
             row_ind, col_ind = linear_sum_assignment(-np.abs(corr))
-            return target[col_ind, :]
+            reordered = target[col_ind, :]
 
         else:
             # target shape: (n_trials, n_factors, n_frames)
@@ -901,8 +938,11 @@ class GLMPredictorProcessor:
             row_ind, col_ind = linear_sum_assignment(-np.abs(corr))
 
             # Reorder factors on axis=1
-            matched = target[:, col_ind, :]
-            return matched
+            reordered = target[:, col_ind, :]
+            
+        if return_indices:
+            return reordered, col_ind
+        return reordered
 
     def match_and_aggregate_factors(self,
                                     aligned_predictors_dict,
@@ -982,49 +1022,78 @@ class GLMPredictorProcessor:
             if dataset_key == ref_key:
                 continue
 
-            matched_means, matched_sems, matched_data = [], [], []
+            matched_means, matched_sems, matched_data, match_indices = [], [], [], []
             for ref_mat, tgt_mat, tgt_sem, tgt_data in zip(
                 ref_means,
                 results[dataset_key]['mean'],
                 results[dataset_key]['sem'],
                 results[dataset_key]['data']
             ):
-                matched_means.append(self._match_factors(ref_mat, tgt_mat))
-                matched_sems.append(self._match_factors(ref_mat, tgt_sem))
+                mm, idx = self._match_factors(ref_mat, tgt_mat, return_indices=True)
+                matched_means.append(mm)
+                matched_sems.append(self._match_factors(ref_mat, tgt_sem))  # use same idx if desired
                 matched_data.append(self._match_factors(ref_mat, tgt_data, is_data=True))
+                match_indices.append(idx)
+                # matched_means.append(self._match_factors(ref_mat, tgt_mat))
+                # matched_sems.append(self._match_factors(ref_mat, tgt_sem))
+                # matched_data.append(self._match_factors(ref_mat, tgt_data, is_data=True))
 
             results[dataset_key]['mean'] = matched_means
             results[dataset_key]['sem'] = matched_sems
             results[dataset_key]['data'] = matched_data
+            results[dataset_key]['match_indices'] = match_indices
             # for ref_mat, tgt_mat in zip(ref_means, results[dataset_key]['mean']):
             #     matched_means.append(self._match_factors(ref_mat, tgt_mat))
 
             # results[dataset_key]['mean'] = matched_means
 
-        # ---------- All-datasets aggregation ----------
-        all_labels, all_means, all_sems, all_data = [], [], [], []
+        # ---------- All-datasets aggregation (SEM across datasets) ----------
+        n_labels = len(results[ref_key]['labels'])
+        n_factors, n_frames = results[ref_key]['mean'][0].shape
 
-        for label, trial_blocks in pooled_by_label.items():
-            all_trials = np.concatenate(trial_blocks, axis=0)
-            mean_val = np.nanmean(all_trials, axis=0)
-            sem_val  = sem(all_trials, axis=0, nan_policy='omit')
+        # Shape: (n_datasets, n_labels, n_factors, n_frames)
+        all_means_stack = []
 
-            all_labels.append(label)
-            all_means.append(mean_val)
-            all_sems.append(sem_val)
-            all_data.append(all_trials)
+        for dataset_key in results:
+            if dataset_key == 'all_datasets':
+                continue
+            all_means_stack.append(np.stack(results[dataset_key]['mean'], axis=0))  # (n_labels, n_factors, n_frames)
+
+        all_means_stack = np.stack(all_means_stack, axis=0)  # (n_datasets, n_labels, n_factors, n_frames)
+
+        mean_across_datasets = np.nanmean(all_means_stack, axis=0)  # (n_labels, n_factors, n_frames)
+        sem_across_datasets  = sem(all_means_stack, axis=0, nan_policy='omit')     # same shape
 
         results['all_datasets'] = {
-            'labels': all_labels,
-            'mean': all_means,
-            'sem': all_sems,
-            'data': all_data
+            'labels': results[ref_key]['labels'],
+            'mean': list(mean_across_datasets),  # convert from array to list of (n_factors × n_frames)
+            'sem':  list(sem_across_datasets),
         }
+
+        ## ---------- All-datasets aggregation ----------
+        # all_labels, all_means, all_sems, all_data = [], [], [], []
+
+        # for label, trial_blocks in pooled_by_label.items():
+        #     all_trials = np.concatenate(trial_blocks, axis=0)
+        #     mean_val = np.nanmean(all_trials, axis=0)
+        #     sem_val  = sem(all_trials, axis=0, nan_policy='omit')
+
+        #     all_labels.append(label)
+        #     all_means.append(mean_val)
+        #     all_sems.append(sem_val)
+        #     all_data.append(all_trials)
+
+        # results['all_datasets'] = {
+        #     'labels': all_labels,
+        #     'mean': all_means,
+        #     'sem': all_sems,
+        #     'data': all_data
+        # }
 
         # ---------- Optional: interval averaging ----------
         if event_frames is not None:
-            example = all_means[0]
-            n_frames = example.shape[1]
+            example = np.asarray(results['all_datasets']['mean'])
+            n_frames = example.shape[2] #3d array of 1 x predictors x frames
             intervals = self.build_event_intervals(event_frames, n_frames, 101)
             n_events = len(intervals)
 
@@ -1056,21 +1125,21 @@ class GLMPredictorProcessor:
                     'sem': interval_sems
                 }
 
-                interval_data = []
+                # interval_data = []
 
-                for data_mat in results[key]['data']:  # (n_trials, n_factors, n_frames)
-                    n_trials, n_factors, _ = data_mat.shape
-                    idata = np.full((n_trials, n_factors, n_events), np.nan)
+                # for data_mat in results[key]['data']:  # (n_trials, n_factors, n_frames)
+                #     n_trials, n_factors, _ = data_mat.shape
+                #     idata = np.full((n_trials, n_factors, n_events), np.nan)
 
-                    for ev, frames in enumerate(intervals):
-                        if len(frames) == 0:
-                            continue
-                        frames = np.asarray(frames, dtype=int)
-                        idata[:, :, ev] = np.nanmean(data_mat[:, :, frames], axis=2)
+                #     for ev, frames in enumerate(intervals):
+                #         if len(frames) == 0:
+                #             continue
+                #         frames = np.asarray(frames, dtype=int)
+                #         idata[:, :, ev] = np.nanmean(data_mat[:, :, frames], axis=2)
 
-                    interval_data.append(idata)
+                #     interval_data.append(idata)
 
-                results[key]['interval_data'] = interval_data
+                # results[key]['interval_data'] = interval_data
 
         return results,results_interval
 

@@ -524,3 +524,114 @@ class DataHandlerEncoding:
                 print(f"No significant neurons found for {mouse_date}")
 
         return significant_neurons, mod_index_neurons, mouse_dates
+    
+
+    def unwrap_matlab(self,data):
+
+        for field in data.dtype.names:
+
+            arr = data[field]
+
+            if isinstance(arr, np.ndarray):
+
+                fixed = np.empty(arr.shape, dtype=object)
+
+                for idx in np.ndindex(arr.shape):
+
+                    val = arr[idx]
+
+                    # FIRST unwrap 2D arrays with one row
+                    if isinstance(val, np.ndarray) and val.ndim == 2 and val.shape[0] == 1:
+                        val = val[0]
+
+                    # THEN if that result is still a (1,1) object array, unwrap again
+                    if isinstance(val, np.ndarray) and val.shape == (1,):
+                        val = val[0]
+
+                    fixed[idx] = val
+
+                data[field] = fixed
+
+        return data
+    
+    def load_sound_opto_data(self,dir, set_diff = True, exclude=None):
+        """
+        Loads neuron IDs and their modulation indices based on the provided directories and optogenetic condition.
+
+        Parameters:
+        dir: str
+            Directory for opto data.
+
+
+        Returns:
+        significant_neurons: dict
+            A dictionary mapping mouse_date to its significant neurons.
+        mod_index_neurons: dict
+            A dictionary mapping mouse_date to its corresponding modulation index for significant neurons.
+        mouse_dates: list
+            A list of mouse dates after formatting.
+        """
+        
+        # Load the condition_array_trials structure
+        mat_data = scipy.io.loadmat(os.path.join(dir, 'opto.mat'))
+        opto = mat_data['opto'][0][0]
+        opto = self.unwrap_matlab(opto)
+
+        mat_data = scipy.io.loadmat(os.path.join(dir, 'sound.mat'))
+        sound = mat_data['sound'][0][0]
+        sound = self.unwrap_matlab(sound)
+
+            # Load the info structure to get mouse_date
+
+        mat_data = scipy.io.loadmat(os.path.join(dir, 'info.mat'))
+        info = mat_data['info'][0][0]    
+
+        # Assuming your mouse_date structure is loaded as a numpy array
+        mouse_dates = [
+            item[0].replace('\\', '_').replace('/', '_')  # Replace slashes with underscores for consistency
+            for item in info['mouse_date'][0]
+        ]
+
+        # ---- NEW: process exclusion argument ----
+        if exclude is not None:
+            # convert single value to list
+            if not isinstance(exclude, (list, tuple)):
+                exclude = [exclude]
+            exclude_indices = []
+            for ex in exclude:
+                if isinstance(ex, int):
+                    exclude_indices.append(ex)
+                elif isinstance(ex, str) and ex in mouse_dates:
+                    exclude_indices.append(mouse_dates.index(ex))
+            # remove duplicates
+            exclude_indices = list(set(exclude_indices))
+        else:
+            exclude_indices = []
+
+        significant_neurons = {}
+        # Iterate over mouse_dates and map to corresponding neurons in sig_cells by index
+        for idx, mouse_date in enumerate(mouse_dates):
+            # ---- NEW: skip excluded datasets ----
+            if idx in exclude_indices:
+                continue
+
+            significant_neurons[mouse_date] = {}
+            opto_neurons = opto['sig_cells'][idx,0]-1 # Adjust for MATLAB indexing
+            sound_neurons = sound['sig_cells'][0,idx]-1 # Adjust for MATLAB indexing
+            #get total nuerons
+            all_neurons = list(range(opto['mod'][idx,0].shape[0]))#range(0,opto['mod'][idx,0].shape[0])
+            
+            #get significant neurons
+            if set_diff:
+                significant_neurons[mouse_date]['opto'] = list(set(opto_neurons) - set(sound_neurons))
+                significant_neurons[mouse_date]['sound'] = list(set(sound_neurons) - set(opto_neurons))
+                significant_neurons[mouse_date]['both'] = list(set(opto_neurons).intersection(set(sound_neurons)))
+                significant_neurons[mouse_date]['unmod'] = list(set(all_neurons) - set(opto_neurons) - set(sound_neurons))
+            else:   
+                significant_neurons[mouse_date]['opto'] = opto_neurons
+                significant_neurons[mouse_date]['sound'] = sound_neurons
+                significant_neurons[mouse_date]['both'] = list(set(opto_neurons).intersection(set(sound_neurons)))
+                significant_neurons[mouse_date]['unmod'] = list(set(all_neurons) - set(opto_neurons) - set(sound_neurons))
+
+        return opto, sound, mouse_dates, significant_neurons
+
