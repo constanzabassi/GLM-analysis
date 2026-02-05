@@ -4037,7 +4037,7 @@ class Plotter:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()
 
-    def plot_within_between_scatter(self,all_df, group_colors=None, title='Within vs. Between Coupling', figsize=(4, 4), save_path=None, mode = 'mean'):
+    def plot_within_between_scatter(self,all_df, group_colors=None, title='Within vs. Between Coupling', figsize=(4, 4), save_path=None, mode = 'mean',x_ylim=None):
 
         plt.figure(figsize=figsize)
         mpl.rcParams['pdf.fonttype'] = 42
@@ -4058,6 +4058,11 @@ class Plotter:
 
         min_val = min(all_df['coupling_within'].min(), all_df['coupling_between'].min())
         max_val = max(all_df['coupling_within'].max(), all_df['coupling_between'].max())
+        if x_ylim is not None:
+            plt.ylim(x_ylim)
+            plt.xlim(x_ylim)
+            min_val, max_val = x_ylim
+
         plt.plot([min_val, max_val], [min_val, max_val], 'k--', lw=1)
 
         plt.xlabel('Coupling to Same Group')
@@ -4094,6 +4099,8 @@ class Plotter:
         quadrant_labels = np.array([["+/+", "+/–"], ["–/+", "–/–"]])
         quadrant_names = ['+/+', '+/–', '–/+', '–/–']
         
+        #total groups
+        ntotal = len(groups)
         # Store per-group stats
         all_group_stats = {}
 
@@ -4138,12 +4145,12 @@ class Plotter:
 
             plt.figure(figsize=figsize)
             sns.heatmap(mean_frac_matrix, annot=label_matrix, fmt='', cmap=colormap, cbar=False,
-                        xticklabels=["Between +", "Between –"], yticklabels=["Within +", "Within –"],vmin=0, vmax=vmax)
+                        xticklabels=["Between +", "Between –"], yticklabels=["Within +", "Within –"],vmin=-10, vmax=vmax)
             plt.title(f'{group.capitalize()} Coupling Quadrants') #\n(Mean ± SD)
             plt.tight_layout()
 
             if save_dir:
-                plt.savefig(f"{save_dir}/{group}_quadrant_heatmap.pdf", dpi=300)
+                plt.savefig(f"{save_dir}/{group}_quadrant_heatmap_{ntotal}.pdf", dpi=300)
             plt.show()
 
         # Perform chi-square test between groups (on total counts)
@@ -4251,9 +4258,6 @@ class Plotter:
             ax.set_ylim(ylim)
         plt.tight_layout()
 
-        if save_path:
-            plt.savefig(save_path, dpi=300)
-
         all_p_values = []
         all_stats_dict = {}
         test_stats = []
@@ -4283,11 +4287,15 @@ class Plotter:
                 x1 = idx
                 self.add_significance_line(ax, x1, y=y, significance=star)
 
+        if save_path:
+            plt.savefig(save_path, dpi=300)
         if save_path and '/' in save_path:
             save_path_updated = save_path[:save_path.rfind('/')]
             print(f"Saving stats to {save_path_updated}")
-            df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, save_path=f'{save_path_updated}/stat_tests_coupling_diff.csv',type='permutation paired')
-            df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_coupling_diff.csv')
+            name_without_ext = save_path.split('/')[-1].split('.')[0]
+
+            df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, save_path=f'{save_path_updated}/stat_tests_{name_without_ext}.csv',type='permutation paired')
+            df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_{name_without_ext}.csv')
         return summary
 
 

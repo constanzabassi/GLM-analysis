@@ -1132,6 +1132,7 @@ class AnalysisManagerEncoding:
         """
         combined_df = []
         for key, data in all_results.items():
+            # print(f"Processing dataset: {key}")
             model_output_all = data[model_used]  # or whatever model you're using
             predictor_groups = significant_neurons[key]  # {'sound': [...], 'opto': [...]}
 
