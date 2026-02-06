@@ -911,96 +911,114 @@ class GLMPredictorProcessor:
     
     
 
-    def _match_factors(self,reference, target, is_data=False, return_indices=False):
+    def _match_factors(
+        self,
+        reference,
+        target,
+        is_data=False,
+        return_indices=False,
+        index_override=None
+    ):
         """
-        Matches factors in the target array to the reference using absolute correlation.
-        reference, target: (n_factors, n_frames)
-        is_data : bool
-            Whether target is trial-based data (3D)
-        return_indices : bool
-            If True, also return the index mapping from target to reference
-        returns reordered target matched to reference
+        Match factors in target to reference using correlation.
+
+        reference: (n_factors, n_frames)
+        target:
+            if is_data=False → (n_factors, n_frames)
+            if is_data=True  → (n_trials, n_factors, n_frames)
+
+        index_override: optional ordering to apply directly
         """
+
+        # If indices already provided → just reorder
+        if index_override is not None:
+            idx = np.asarray(index_override)
+
+            if not is_data:
+                matched = target[idx, :]
+            else:
+                matched = target[:, idx, :]
+
+            if return_indices:
+                return matched, idx
+            return matched
+
+        # --- compute matching ---
         if not is_data:
-            # Both inputs are (n_factors, n_frames)
-            corr = np.corrcoef(reference, target)[:reference.shape[0], reference.shape[0]:]
-            row_ind, col_ind = linear_sum_assignment(-np.abs(corr))
-            reordered = target[col_ind, :]
-
+            corr = np.corrcoef(reference, target)[:reference.shape[0],
+                                                reference.shape[0]:]
         else:
-            # target shape: (n_trials, n_factors, n_frames)
-            n_trials, n_factors, n_frames = target.shape
+            target_avg = np.nanmean(target, axis=0)
+            corr = np.corrcoef(reference, target_avg)[:reference.shape[0],
+                                                    reference.shape[0]:]
 
-            # Average across trials to get matching template
-            target_avg = np.nanmean(target, axis=0)  # (n_factors, n_frames)
+        row_ind, col_ind = linear_sum_assignment(-np.abs(corr))
 
-            corr = np.corrcoef(reference, target_avg)[:reference.shape[0], reference.shape[0]:]
-            row_ind, col_ind = linear_sum_assignment(-np.abs(corr))
+        if not is_data:
+            matched = target[col_ind, :]
+        else:
+            matched = target[:, col_ind, :]
 
-            # Reorder factors on axis=1
-            reordered = target[:, col_ind, :]
-            
         if return_indices:
-            return reordered, col_ind
-        return reordered
+            return matched, col_ind
 
-    def match_and_aggregate_factors(self,
-                                    aligned_predictors_dict,
-                                    condition_array_dict,
-                                    fields_to_separate,
-                                    event_frames=None):
-        """
-        Match and aggregate coupling factors across datasets, folds, and conditions.
+        return matched
 
-        Returns:
-        --------
-        results : dict
-            results[dataset_key]['labels']
-            results[dataset_key]['mean']   # list of (n_factors × n_frames)
-            results[dataset_key]['sem']
-            results[dataset_key]['data']   # list of (n_trials, n_factors, n_frames)
-            
-            results['all_datasets'] same structure
-            If event_frames provided:
-                results[key]['interval_mean']
-                results[key]['interval_sem']
-        """
+
+    def match_and_aggregate_factors(
+        self,
+        aligned_predictors_dict,
+        condition_array_dict,
+        fields_to_separate,
+        event_frames=None
+    ):
 
         results = {}
         results_interval = {}
-        pooled_by_label = {}
 
-        # ---------- First pass: per-dataset, per-condition, fold-averaged ----------
+        # ---- factor blocks (within‑celltype matching) ----
+        factor_groups = {
+            'pyr': slice(0, 3),
+            'som': slice(3, 6),
+            'pv':  slice(6, 9)
+        }
+
+        # =========================================================
+        # FIRST PASS — per dataset aggregation
+        # =========================================================
+
         for dataset_key in aligned_predictors_dict:
+
             fold_data = aligned_predictors_dict[dataset_key]
             fold_conditions = condition_array_dict[dataset_key]
 
             condition_trials_by_label = {}
 
             for fold in fold_data:
-                predictors = fold_data[fold]  # (trials, factors, frames)
-                condition_array = fold_conditions[fold]['condition_array_trials']
 
+                predictors = fold_data[fold]
+                condition_array = fold_conditions[fold]['condition_array_trials']
 
                 all_conditions, _ = self.get_trial_conditions_from_array(
                     condition_array, fields_to_separate
                 )
 
                 for trial_inds, _, label in all_conditions:
+
                     if len(trial_inds) == 0:
                         continue
 
-                    trials = predictors[trial_inds, :, :]  # (trials, factors, frames)
-
+                    trials = predictors[trial_inds, :, :]
                     condition_trials_by_label.setdefault(label, []).append(trials)
-                    pooled_by_label.setdefault(label, []).append(trials)
 
             labels, means, sems, raw_data = [], [], [], []
 
             for label, trial_blocks in condition_trials_by_label.items():
+
                 all_trials = np.concatenate(trial_blocks, axis=0)
-                mean_val = np.nanmean(all_trials, axis=0)  # (factors × frames)
-                sem_val  = sem(all_trials, axis=0, nan_policy='omit')
+
+                mean_val = np.nanmean(all_trials, axis=0)
+                sem_val = sem(all_trials, axis=0, nan_policy='omit')
 
                 labels.append(label)
                 means.append(mean_val)
@@ -1014,104 +1032,137 @@ class GLMPredictorProcessor:
                 'data': raw_data
             }
 
-        # ---------- Factor matching across datasets ----------
+        # =========================================================
+        # MATCHING ACROSS DATASETS (WITHIN CELLTYPE)
+        # =========================================================
+
         ref_key = next(iter(results.keys()))
         ref_means = results[ref_key]['mean']
 
         for dataset_key in results:
+
             if dataset_key == ref_key:
+                results[dataset_key]['match_indices'] = [0,1,2,3,4,5,6,7,8]
                 continue
 
-            matched_means, matched_sems, matched_data, match_indices = [], [], [], []
+            matched_means = []
+            matched_sems = []
+            matched_data = []
+            match_indices = []
+
             for ref_mat, tgt_mat, tgt_sem, tgt_data in zip(
                 ref_means,
                 results[dataset_key]['mean'],
                 results[dataset_key]['sem'],
                 results[dataset_key]['data']
             ):
-                mm, idx = self._match_factors(ref_mat, tgt_mat, return_indices=True)
-                matched_means.append(mm)
-                matched_sems.append(self._match_factors(ref_mat, tgt_sem))  # use same idx if desired
-                matched_data.append(self._match_factors(ref_mat, tgt_data, is_data=True))
-                match_indices.append(idx)
-                # matched_means.append(self._match_factors(ref_mat, tgt_mat))
-                # matched_sems.append(self._match_factors(ref_mat, tgt_sem))
-                # matched_data.append(self._match_factors(ref_mat, tgt_data, is_data=True))
+
+                blocks_mean = []
+                blocks_sem = []
+                blocks_data = []
+                idx_all = []
+
+                for _, sl in factor_groups.items():
+
+                    mm, idx = self._match_factors(
+                        ref_mat[sl, :],
+                        tgt_mat[sl, :],
+                        return_indices=True
+                    )
+
+                    ms = self._match_factors(
+                        ref_mat[sl, :],
+                        tgt_sem[sl, :],
+                        index_override=idx
+                    )
+
+                    md = self._match_factors(
+                        ref_mat[sl, :],
+                        tgt_data[:, sl, :],
+                        is_data=True,
+                        index_override=idx
+                    )
+
+                    blocks_mean.append(mm)
+                    blocks_sem.append(ms)
+                    blocks_data.append(md)
+
+                    idx_all.extend(sl.start + idx)
+
+                matched_means.append(np.vstack(blocks_mean))
+                matched_sems.append(np.vstack(blocks_sem))
+                matched_data.append(np.concatenate(blocks_data, axis=1))
+                match_indices.append(idx_all)
 
             results[dataset_key]['mean'] = matched_means
             results[dataset_key]['sem'] = matched_sems
             results[dataset_key]['data'] = matched_data
             results[dataset_key]['match_indices'] = match_indices
-            # for ref_mat, tgt_mat in zip(ref_means, results[dataset_key]['mean']):
-            #     matched_means.append(self._match_factors(ref_mat, tgt_mat))
 
-            # results[dataset_key]['mean'] = matched_means
+        # =========================================================
+        # AGGREGATE ACROSS DATASETS
+        # =========================================================
 
-        # ---------- All-datasets aggregation (SEM across datasets) ----------
-        n_labels = len(results[ref_key]['labels'])
-        n_factors, n_frames = results[ref_key]['mean'][0].shape
-
-        # Shape: (n_datasets, n_labels, n_factors, n_frames)
         all_means_stack = []
 
         for dataset_key in results:
-            if dataset_key == 'all_datasets':
-                continue
-            all_means_stack.append(np.stack(results[dataset_key]['mean'], axis=0))  # (n_labels, n_factors, n_frames)
+            all_means_stack.append(
+                np.stack(results[dataset_key]['mean'], axis=0)
+            )
 
-        all_means_stack = np.stack(all_means_stack, axis=0)  # (n_datasets, n_labels, n_factors, n_frames)
+        all_means_stack = np.stack(all_means_stack, axis=0)
 
-        mean_across_datasets = np.nanmean(all_means_stack, axis=0)  # (n_labels, n_factors, n_frames)
-        sem_across_datasets  = sem(all_means_stack, axis=0, nan_policy='omit')     # same shape
+        mean_across = np.nanmean(all_means_stack, axis=0)
+        sem_across = sem(all_means_stack, axis=0, nan_policy='omit')
 
         results['all_datasets'] = {
             'labels': results[ref_key]['labels'],
-            'mean': list(mean_across_datasets),  # convert from array to list of (n_factors × n_frames)
-            'sem':  list(sem_across_datasets),
+            'mean': list(mean_across),
+            'sem': list(sem_across)
         }
 
-        ## ---------- All-datasets aggregation ----------
-        # all_labels, all_means, all_sems, all_data = [], [], [], []
+        # =========================================================
+        # OPTIONAL INTERVAL AVERAGING
+        # =========================================================
 
-        # for label, trial_blocks in pooled_by_label.items():
-        #     all_trials = np.concatenate(trial_blocks, axis=0)
-        #     mean_val = np.nanmean(all_trials, axis=0)
-        #     sem_val  = sem(all_trials, axis=0, nan_policy='omit')
-
-        #     all_labels.append(label)
-        #     all_means.append(mean_val)
-        #     all_sems.append(sem_val)
-        #     all_data.append(all_trials)
-
-        # results['all_datasets'] = {
-        #     'labels': all_labels,
-        #     'mean': all_means,
-        #     'sem': all_sems,
-        #     'data': all_data
-        # }
-
-        # ---------- Optional: interval averaging ----------
         if event_frames is not None:
+
             example = np.asarray(results['all_datasets']['mean'])
-            n_frames = example.shape[2] #3d array of 1 x predictors x frames
-            intervals = self.build_event_intervals(event_frames, n_frames, 101)
+            n_frames = example.shape[2]
+
+            intervals = self.build_event_intervals(
+                event_frames, n_frames, 101
+            )
+
             n_events = len(intervals)
 
             for key in results:
-                interval_means, interval_sems = [], []
 
-                for mean_mat, sem_mat in zip(results[key]['mean'], results[key]['sem']):
+                interval_means = []
+                interval_sems = []
+
+                for mean_mat, sem_mat in zip(
+                    results[key]['mean'],
+                    results[key]['sem']
+                ):
+
                     im = np.full((mean_mat.shape[0], n_events), np.nan)
                     isem = np.full_like(im, np.nan)
 
                     for ev, frames in enumerate(intervals):
+
                         if len(frames) == 0:
                             continue
 
-                        frames = np.asarray(frames, dtype=int)   # <-- THIS LINE
+                        frames = np.asarray(frames, dtype=int)
 
-                        im[:, ev] = np.nanmean(mean_mat[:, frames], axis=1)
-                        isem[:, ev] = np.nanmean(sem_mat[:, frames], axis=1)
+                        im[:, ev] = np.nanmean(
+                            mean_mat[:, frames], axis=1
+                        )
+
+                        isem[:, ev] = np.nanmean(
+                            sem_mat[:, frames], axis=1
+                        )
 
                     interval_means.append(im)
                     interval_sems.append(isem)
@@ -1125,23 +1176,8 @@ class GLMPredictorProcessor:
                     'sem': interval_sems
                 }
 
-                # interval_data = []
+        return results, results_interval
 
-                # for data_mat in results[key]['data']:  # (n_trials, n_factors, n_frames)
-                #     n_trials, n_factors, _ = data_mat.shape
-                #     idata = np.full((n_trials, n_factors, n_events), np.nan)
-
-                #     for ev, frames in enumerate(intervals):
-                #         if len(frames) == 0:
-                #             continue
-                #         frames = np.asarray(frames, dtype=int)
-                #         idata[:, :, ev] = np.nanmean(data_mat[:, :, frames], axis=2)
-
-                #     interval_data.append(idata)
-
-                # results[key]['interval_data'] = interval_data
-
-        return results,results_interval
 
 
 

@@ -4146,11 +4146,11 @@ class Plotter:
             plt.figure(figsize=figsize)
             sns.heatmap(mean_frac_matrix, annot=label_matrix, fmt='', cmap=colormap, cbar=False,
                         xticklabels=["Between +", "Between –"], yticklabels=["Within +", "Within –"],vmin=-10, vmax=vmax)
-            plt.title(f'{group.capitalize()} Coupling Quadrants') #\n(Mean ± SD)
+            plt.title(f'{group.capitalize()} Coupling Quadrants', fontsize=7) #\n(Mean ± SD)
             plt.tight_layout()
 
             if save_dir:
-                plt.savefig(f"{save_dir}/{group}_quadrant_heatmap_{ntotal}.pdf", dpi=300)
+                plt.savefig(f"{save_dir}/{group}_quadrant_heatmap_{str(ntotal)}.pdf", dpi=300)
             plt.show()
 
         # Perform chi-square test between groups (on total counts)
@@ -4239,7 +4239,7 @@ class Plotter:
                 for element in ['medians']: #medians
                     for line in bp[element]:
                         line.set_color('white')
-                        line.set_linewidth(1.5)
+                        line.set_linewidth(1.2)
                 for element in ['whiskers', 'caps']:
                     for line in bp[element]:
                         line.set_color('black')
@@ -4297,6 +4297,81 @@ class Plotter:
             df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, save_path=f'{save_path_updated}/stat_tests_{name_without_ext}.csv',type='permutation paired')
             df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_{name_without_ext}.csv')
         return summary
+    
+    def plot_active_passive_quadrant_difference(self,
+            quad_stats_active,
+            quad_stats_passive,
+            save_dir=None,
+            figsize=(3, 3),
+            decimal_places=0,
+            vmax=50,
+            colormap='coolwarm'
+        ):
+
+        mpl.rcParams['pdf.fonttype'] = 42
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+
+        quadrant_labels = np.array([["+/+", "+/–"], ["–/+", "–/–"]])
+
+        groups = quad_stats_active.keys()
+
+        results = {}
+
+        for group in groups:
+
+            active_counts = quad_stats_active[group]['raw_counts']   # datasets x 4
+            passive_counts = quad_stats_passive[group]['raw_counts'] # datasets x 4
+
+            # Convert to fractions per dataset
+            active_frac = active_counts / active_counts.sum(axis=1, keepdims=True) * 100
+            passive_frac = passive_counts / passive_counts.sum(axis=1, keepdims=True) * 100
+
+            # Difference per dataset
+            diff = active_frac - passive_frac
+
+            mean_diff = np.nanmean(diff, axis=0)
+            std_diff = np.nanstd(diff, axis=0)
+
+            results[group] = {
+                'mean_diff': mean_diff,
+                'std_diff': std_diff,
+                'all_dataset_diff': diff
+            }
+
+            # Reshape to 2x2 for plotting
+            mean_matrix = mean_diff.reshape(2, 2)
+            std_matrix = std_diff.reshape(2, 2)
+
+            label_matrix = np.array([
+                [
+                    f"{mean_matrix[i,j]:.{decimal_places}f} ± {std_matrix[i,j]:.{decimal_places}f}\n{quadrant_labels[i,j]}"
+                    for j in range(2)
+                ] for i in range(2)
+            ])
+
+            plt.figure(figsize=figsize)
+            sns.heatmap(
+                mean_matrix,
+                annot=label_matrix,
+                fmt='',
+                cmap=colormap,
+                center=0,
+                cbar=False,
+                vmin=-vmax,
+                vmax=vmax,
+                xticklabels=["Between +", "Between –"],
+                yticklabels=["Within +", "Within –"]
+            )
+
+            plt.title(f"{group.capitalize()}:\nActive – Passive (%)", fontsize=7)
+            plt.tight_layout()
+
+            if save_dir:
+                plt.savefig(f"{save_dir}/{group}_active_minus_passive_heatmap.pdf", dpi=300)
+
+            plt.show()
+
+        return results
 
 
 
