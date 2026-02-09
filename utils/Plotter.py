@@ -4091,13 +4091,19 @@ class Plotter:
         figsize=(3, 3),
         decimal_places = 0,
         vmax = 100,
-        colormap='coolwarm'
+        colormap='coolwarm',
+        string = None
     ):
         mpl.rcParams['pdf.fonttype'] = 42
         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
-        quadrant_labels = np.array([["+/+", "+/–"], ["–/+", "–/–"]])
-        quadrant_names = ['+/+', '+/–', '–/+', '–/–']
+        # quadrant_labels = np.array([["+/+", "+/–"], ["–/+", "–/–"]])
+        # quadrant_names = ['+/+', '+/–', '–/+', '–/–']
+        quadrant_labels = np.array([["+/–", "+/+"],
+                            ["–/–", "–/+"]])
+
+        quadrant_names = ['+/–', '+/+', '–/–', '–/+']
+
         
         #total groups
         ntotal = len(groups)
@@ -4116,10 +4122,17 @@ class Plotter:
                 sign_between = np.sign(subset['coupling_between'].values)
 
                 quadrant_counts = np.zeros((2, 2), dtype=int)
+                # for s_w, s_b in zip(sign_within, sign_between):
+                #     row = 0 if s_w > 0 else 1
+                #     col = 0 if s_b > 0 else 1
+                #     quadrant_counts[row, col] += 1
                 for s_w, s_b in zip(sign_within, sign_between):
-                    row = 0 if s_w > 0 else 1
-                    col = 0 if s_b > 0 else 1
+                    # row = BETWEEN sign (y-axis)
+                    row = 0 if s_b > 0 else 1
+                    # col = WITHIN sign (x-axis)
+                    col = 0 if s_w < 0 else 1
                     quadrant_counts[row, col] += 1
+
 
                 # Normalize to get fractions
                 total = quadrant_counts.sum()
@@ -4144,13 +4157,20 @@ class Plotter:
                                     for j in range(2)] for i in range(2)])
 
             plt.figure(figsize=figsize)
+            # sns.heatmap(mean_frac_matrix, annot=label_matrix, fmt='', cmap=colormap, cbar=False,
+            #             xticklabels=["Between +", "Between –"], yticklabels=["Within +", "Within –"],vmin=-10, vmax=vmax)
             sns.heatmap(mean_frac_matrix, annot=label_matrix, fmt='', cmap=colormap, cbar=False,
-                        xticklabels=["Between +", "Between –"], yticklabels=["Within +", "Within –"],vmin=-10, vmax=vmax)
+                        xticklabels=["Within –", "Within +"], yticklabels=["Between +", "Between –"],vmin=-10, vmax=vmax)
             plt.title(f'{group.capitalize()} Coupling Quadrants', fontsize=7) #\n(Mean ± SD)
             plt.tight_layout()
 
             if save_dir:
-                plt.savefig(f"{save_dir}/{group}_quadrant_heatmap_{str(ntotal)}.pdf", dpi=300)
+                if string:
+                    plt.savefig(f"{save_dir}/{group}_quadrant_heatmap_{str(ntotal)}_{string}.pdf", dpi=300)
+                else:
+                    plt.savefig(f"{save_dir}/{group}_quadrant_heatmap_{str(ntotal)}.pdf", dpi=300)
+                
+
             plt.show()
 
         # Perform chi-square test between groups (on total counts)
@@ -4305,13 +4325,16 @@ class Plotter:
             figsize=(3, 3),
             decimal_places=0,
             vmax=50,
-            colormap='coolwarm'
+            colormap='coolwarm',
+            string = None
         ):
 
         mpl.rcParams['pdf.fonttype'] = 42
         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
 
-        quadrant_labels = np.array([["+/+", "+/–"], ["–/+", "–/–"]])
+        # quadrant_labels = np.array([["+/+", "+/–"], ["–/+", "–/–"]])
+        quadrant_labels = np.array([["+/–", "+/+"],
+                            ["–/–", "–/+"]])
 
         groups = quad_stats_active.keys()
 
@@ -4359,19 +4382,174 @@ class Plotter:
                 cbar=False,
                 vmin=-vmax,
                 vmax=vmax,
-                xticklabels=["Between +", "Between –"],
-                yticklabels=["Within +", "Within –"]
+                xticklabels=["Within –", "Within +"],
+                yticklabels=["Between +", "Between –"]
             )
 
             plt.title(f"{group.capitalize()}:\nActive – Passive (%)", fontsize=7)
             plt.tight_layout()
 
             if save_dir:
-                plt.savefig(f"{save_dir}/{group}_active_minus_passive_heatmap.pdf", dpi=300)
+                if string:
+                    plt.savefig(f"{save_dir}/{group}_active_minus_passive_heatmap_{string}.pdf", dpi=300)
+                else:
+                    plt.savefig(f"{save_dir}/{group}_active_minus_passive_heatmap.pdf", dpi=300)
 
             plt.show()
 
         return results
+    
+    def plot_quadrant_means_across_datasets(self,
+            combined_df,
+            groups=('sound', 'opto'),
+            dataset_col='dataset',
+            group_col='group',
+            save_dir=None,
+            figsize=(3, 3),
+            decimal_places=2,
+            vmax=None,
+            colormap='coolwarm',
+            string=None,
+            pool_across_datasets=False,
+            metric='difference'   # 'within', 'between', or 'difference'
+        ):
+
+        mpl.rcParams['pdf.fonttype'] = 42
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+
+        quadrant_labels = np.array([["+/–", "+/+"],
+                                    ["–/–", "–/+"]])
+
+        all_group_stats = {}
+
+        for group in groups:
+
+            subset_group = combined_df[combined_df[group_col] == group]
+
+            # function to compute metric of interest
+            def get_metric(df):
+                if metric == 'within':
+                    return df['coupling_within'].values
+                elif metric == 'between':
+                    return df['coupling_between'].values
+                elif metric == 'difference':
+                    return df['coupling_within'].values - df['coupling_between'].values 
+                elif metric == 'distance':
+                    w = df['coupling_within'].values
+                    b = df['coupling_between'].values
+                    return np.sqrt(w**2 + b**2)
+                else:
+                    raise ValueError("metric must be 'within', 'between','distance', or 'difference'")
+
+            # helper to compute quadrant means for a dataframe
+            def compute_quadrant_means(df):
+
+                sign_within = np.sign(df['coupling_within'].values)
+                sign_between = np.sign(df['coupling_between'].values)
+
+                values = get_metric(df)
+
+                quadrant_vals = { (0,0): [], (0,1): [], (1,0): [], (1,1): [] }
+
+                for s_w, s_b, val in zip(sign_within, sign_between, values):
+
+                    row = 0 if s_b > 0 else 1
+                    col = 0 if s_w < 0 else 1
+
+                    quadrant_vals[(row, col)].append(val)
+
+                means = np.zeros((2,2))
+                stds = np.zeros((2,2))
+
+                for (r,c), arr in quadrant_vals.items():
+                    if len(arr) > 0:
+                        means[r,c] = np.nanmean(arr)
+                        stds[r,c] = np.nanstd(arr)
+                    else:
+                        means[r,c] = np.nan
+                        stds[r,c] = np.nan
+
+                return means, stds
+
+            # ---- OPTION 1: POOL ALL NEURONS ----
+            if pool_across_datasets:
+
+                mean_matrix, std_matrix = compute_quadrant_means(subset_group)
+
+                all_group_stats[group] = {
+                    'mean': mean_matrix,
+                    'std': std_matrix
+                }
+
+            # ---- OPTION 2: AVERAGE PER DATASET FIRST ----
+            else:
+
+                dataset_means = []
+                for dataset in subset_group[dataset_col].unique():
+                    subset = subset_group[subset_group[dataset_col] == dataset]
+                    means, _ = compute_quadrant_means(subset)
+                    dataset_means.append(means)
+
+                dataset_means = np.array(dataset_means)
+
+                mean_matrix = np.nanmean(dataset_means, axis=0)
+                std_matrix = np.nanstd(dataset_means, axis=0)
+
+                all_group_stats[group] = {
+                    'mean': mean_matrix,
+                    'std': std_matrix,
+                    'all_dataset_means': dataset_means
+                }
+
+            # ----- PLOTTING -----
+
+            label_matrix = np.array([
+                [
+                    f"{mean_matrix[i,j]:.{decimal_places}f} ± {std_matrix[i,j]:.{decimal_places}f}\n{quadrant_labels[i,j]}"
+                    for j in range(2)
+                ] for i in range(2)
+            ])
+
+            plt.figure(figsize=figsize)
+            if metric == 'distance':
+                center = None
+                vmin=0
+            else:
+                center = 0
+                vmin=-vmax if vmax else None
+
+            sns.heatmap(
+                mean_matrix,
+                annot=label_matrix,
+                fmt='',
+                cmap=colormap,
+                center=center,
+                cbar=True,
+                vmin=vmin,
+                vmax=vmax,
+                xticklabels=["Within –", "Within +"],
+                yticklabels=["Between +", "Between –"]
+            )
+
+            mode = "pooled" if pool_across_datasets else "per dataset"
+
+            plt.title(f'{group.capitalize()} Quadrant Means', fontsize=7) #\nMetric: {metric} ({mode})
+            plt.tight_layout()
+            ax = plt.gca()
+            ax.set_box_aspect(1)
+
+            if save_dir:
+                tag = "_pooled" if pool_across_datasets else "_perDataset"
+                if string:
+                    fname = f"{save_dir}/{group}_quadrant_means_{metric}_{string}{tag}.pdf"
+                else:
+                    fname = f"{save_dir}/{group}_quadrant_means_{metric}{tag}.pdf"
+
+                plt.savefig(fname, dpi=300)
+
+            plt.show()
+
+        return all_group_stats
 
 
 
