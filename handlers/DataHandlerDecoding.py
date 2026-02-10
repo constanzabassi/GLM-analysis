@@ -144,6 +144,26 @@ class DataHandlerDecoding:
             }
 
         try:
+            # with h5py.File(filepath, 'r') as file:
+            #     target_path = f'decoder_results/aligned/{decoded_variables}/cat_results'
+            #     if target_path not in file:
+            #         print(f"[WARN] '{target_path}' path not found in {filepath}")
+            #         return None
+
+            #     cat_results = file[target_path]
+
+            #     result = (
+            #         process_dataset(cat_results, file)
+            #         if isinstance(cat_results, h5py.Dataset)
+            #         else process_group(cat_results, file)
+            #     )
+
+            #     # Ensure consistent return type
+            #     if isinstance(result, dict):
+            #         return [result]   # wrap single struct in list
+
+            #     return result
+
             with h5py.File(filepath, 'r') as file:
                 # Construct the dynamic path based on the variable
                 target_path = f'decoder_results/aligned/{decoded_variables}/cat_results'
@@ -202,32 +222,6 @@ class DataHandlerDecoding:
                 #     print(f"[WARN] Missing {variable} for split {splits} → skipping")
                 #     continue
 
-                # If file is missing → insert EMPTY fields
-                # if not mat_path.exists():
-                #     print(f"[WARN] Missing {mat_path}, inserting empty structure")
-                #     for key in variables_to_load:
-                #         if key == 'event_frame':
-                #             cat_results[variable][splits][key] = np.array([])
-                #         else:
-                #             cat_results[variable][splits][key] = np.array([])
-                #     continue  # move on to next variable
-
-                # Load .mat file
-                temp_results = self.load_cat_results(mat_path, variable)[0]
-                # try:
-                #     temp_results = self.load_cat_results(mat_path, variable)[0]
-                # except Exception as e:
-                #     print(f"[ERROR] Failed loading {mat_path}: {e} → skipping variable")
-                #     continue
-                
-                # Initialize the dictionary for the variable
-                if variable not in cat_results:
-                    cat_results[variable] = {}
-                
-                # Initialize the dictionary for the splits
-                if splits not in cat_results[variable]:
-                    cat_results[variable][splits] = {}
-                
                 # Define variables to extract
                 variables_to_load = [
                     'pop_instantaneous_information',
@@ -240,6 +234,35 @@ class DataHandlerDecoding:
                     'sc_cumulative_fraction_correct',
                     'event_frame' #have to subtract one to this value because it is in MATLAB indexing
                 ]
+
+                # Initialize the dictionary for the variable
+                if variable not in cat_results:
+                    cat_results[variable] = {}
+                
+                # Initialize the dictionary for the splits
+                if splits not in cat_results[variable]:
+                    cat_results[variable][splits] = {}
+
+                # If file is missing → insert EMPTY fields
+                if not mat_path.exists():
+                    print(f"[WARN] Missing {mat_path}, inserting empty structure")
+                    for key in variables_to_load:
+                        if key == 'event_frame':
+                            cat_results[variable][splits][key] = np.array([])
+                        else:
+                            cat_results[variable][splits][key] = np.array([])
+                    continue  # move on to next variable
+
+                # Load .mat file
+                temp_results = self.load_cat_results(mat_path, variable)[0]
+                # try:
+                #     temp_results = self.load_cat_results(mat_path, variable)[0]
+                # except Exception as e:
+                #     print(f"[ERROR] Failed loading {mat_path}: {e} → skipping variable")
+                #     continue
+                            
+                
+                
                 for key in variables_to_load:
                     if key == 'event_frame':
                         cat_results[variable][splits][key] = temp_results[key] - 1
@@ -266,7 +289,11 @@ class DataHandlerDecoding:
                     data = cat_results[variable][split][measure]
                     
                     # Handle sc vs pop data
-                    if 'sc_' in measure:
+                    # If data is empty, just propagate empty
+                    if data is None or len(data) == 0:
+                        mean_data = np.array([])
+                        std_data = np.array([])
+                    elif 'sc_' in measure:
                         mean_data = np.mean(data, axis=2)  # frames x neurons
                         std_data = np.std(data, axis=2)
                     elif 'pop_' in measure:   

@@ -4411,7 +4411,8 @@ class Plotter:
             colormap='coolwarm',
             string=None,
             pool_across_datasets=False,
-            metric='difference'   # 'within', 'between', or 'difference'
+            metric='difference',   # 'within', 'between', or 'difference',
+            scale_factor = 100
         ):
 
         mpl.rcParams['pdf.fonttype'] = 42
@@ -4437,7 +4438,7 @@ class Plotter:
                 elif metric == 'distance':
                     w = df['coupling_within'].values
                     b = df['coupling_between'].values
-                    return np.sqrt(w**2 + b**2)
+                    return np.sqrt(w**2 + b**2) * scale_factor
                 else:
                     raise ValueError("metric must be 'within', 'between','distance', or 'difference'")
 
