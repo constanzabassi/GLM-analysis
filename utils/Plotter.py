@@ -20,6 +20,8 @@ from matplotlib.lines import Line2D
 import seaborn as sns
 from matplotlib.ticker import FormatStrFormatter
 from scipy.stats import wilcoxon
+from scipy.stats import pearsonr
+from scipy.stats import sem
 import matplotlib.patches as patches
 import matplotlib.cm as cm
 from matplotlib_venn import venn2
@@ -29,6 +31,11 @@ from matplotlib.patches import Patch
 from utils.general_stats import GeneralStats
 from scipy.stats import chi2_contingency
 from utils.GLMDataUtils import GLMDataUtils
+
+from matplotlib.colors import to_hex
+import matplotlib.patches as mpatches
+import matplotlib.ticker as mticker
+
 
 class Plotter:
     def __init__(self, data, celltypecolors=None, save_results=None, color_map_dict = None, event_frames=None, event_labels=None, group_colors = None):
@@ -4551,6 +4558,297 @@ class Plotter:
             plt.show()
 
         return all_group_stats
+    
+    def plot_coupling_index_vs_decoding_info(self,
+        coupling_index_by_celltype,
+        peak_info_struc,
+        decoded_feature='sound_category',
+        state='Active',
+        threshold=None,
+        celltype_colors={'pyr': (0.37, 0.75, 0.49), 'som': (0.17, 0.35, 0.8), 'pv': (0.82, 0.04, 0.04)},
+        figsize=(3, 3),
+        marker_size=20,
+        peak_to_get = 'peak_values',
+        alpha = 1,
+        save_path = None
+    ):
+        """
+        Plots coupling index vs peak decoding info for each neuron (all datasets pooled).
+        Optionally threshold coupling index.
+        """
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+        all_rows = []
+
+        for dataset in peak_info_struc:
+            for cell_type in peak_info_struc[dataset]:
+
+                # Get decoding info
+                info = peak_info_struc[dataset][cell_type].get(decoded_feature, None)
+                if info is None:
+
+                    continue
+
+                peak_vals = info[peak_to_get]
+                if peak_to_get == 'peak_frames':
+                    peak_vals = peak_vals/169 #normalize by number of frames
+                neuron_indices = info['neuron_indices'].flatten()
+
+                # Get coupling index
+                try:
+                    coupling_vals = coupling_index_by_celltype[('No Coupling', 'All')][cell_type.lower()][state]
+                except KeyError:
+                    print(f"Missing coupling index for {dataset}, {cell_type}, {state}")
+                    continue
+
+                for i, neuron_idx in enumerate(neuron_indices):
+                    if neuron_idx >= len(coupling_vals):
+                        continue
+                    if coupling_vals[neuron_idx] < 0 or  np.isnan(coupling_vals[neuron_idx]):
+                        continue
+
+                    row = {
+                        'dataset': dataset,
+                        'cell_type': cell_type.lower(),
+                        'neuron_idx': neuron_idx,
+                        'coupling_index': coupling_vals[neuron_idx],
+                        'peak_info': peak_vals[i],
+                    }
+
+                    if threshold is not None or row['coupling_index'] > threshold:
+                        all_rows.append(row)
+
+        df = pd.DataFrame(all_rows)
+
+        # Plot
+        plt.figure(figsize=figsize)
+        for cell_type, color in celltype_colors.items():
+            sub = df[df['cell_type'] == cell_type]
+            plt.scatter(
+                sub['coupling_index'],
+                sub['peak_info'],
+                label=cell_type.upper(),
+                facecolors='none',
+                edgecolors=color,
+                s=marker_size,
+                linewidth=.5,
+                alpha=alpha
+            )
+
+        # Correlation
+        r, p = pearsonr(df['coupling_index'], df['peak_info'])
+        plt.title(f'{decoded_feature.capitalize()}', fontsize=7) 
+        if decoded_feature == 'sound_category':
+            plt.title('Sound category', fontsize=7)
+        # plt.title(f'{decoded_feature}\nr = {r:.2f}, p = {p:.3f}', fontsize=8)
+
+        plt.xlabel('Coupling Index', fontsize=7)
+        plt.ylabel('Peak Info (bits)', fontsize=7)
+        ax = plt.gca()
+        ax.set_ylim(-.01, .5)
+        ax.set_yticklabels(ax.get_yticks(), fontsize=7)
+        ax.set_xticklabels(ax.get_xticks(), fontsize=7)
+        ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.1f'))
+        plt.legend(frameon=False, fontsize=6)
+        sns.despine(right=True, top=True)
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, bbox_inches='tight')
+        plt.show()
+
+        return df
+
+
+    def plot_decoding_by_coupling_bin(self,
+        coupling_index_by_celltype,
+        peak_info_struc,
+        decoded_feature='sound_category',
+        state='Active',
+        celltype_colors={'pyr': (0.37, 0.75, 0.49), 'som': (0.17, 0.35, 0.8), 'pv': (0.82, 0.04, 0.04)},
+        figsize=(3, 3),
+        marker_size=20,
+        peak_to_get='peak_values',
+        alpha=1,
+        bins=[0, 0.25, 0.5, 0.75, 1.01],  # right-inclusive last bin
+        threshold=None,
+        top_neurons=False,
+        save_path = None
+    ):
+        """
+        Bins coupling index and plots mean ± SEM of peak decoding info per bin, per cell type.
+        """
+        all_rows = []
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+
+        top_pyr_color = (0.10, 0.36, 0.16) 
+
+        if top_neurons is True:
+            celltype_colors = {
+                'pyr': (0.37, 0.75, 0.49),
+                'som': (0.17, 0.35, 0.8),
+                'pv': (0.82, 0.04, 0.04),
+                'top_pyr': top_pyr_color
+            }
+
+        for dataset in peak_info_struc:
+            for cell_type in peak_info_struc[dataset]:
+
+                info = peak_info_struc[dataset][cell_type].get(decoded_feature, None)
+                if info is None:
+                    continue
+
+                peak_vals = info[peak_to_get]
+                if peak_to_get == 'peak_frames':
+                    peak_vals = peak_vals / 169  # normalize by frames
+                neuron_indices = info['neuron_indices'].flatten()
+
+                # First, filter to top 10 PYR neurons if requested
+                if top_neurons is True and cell_type.lower() == 'pyr':
+                    # Sort indices of top neurons by decoding strength
+                    sorted_indices = np.argsort(peak_vals)[::-1]
+                    top_indices = sorted_indices[:10]  # Top 10 neurons
+
+                try:
+                    coupling_vals = coupling_index_by_celltype[('No Coupling', 'All')][cell_type.lower()][state]
+                except KeyError:
+                    print(f"Missing coupling index for {dataset}, {cell_type}, {state}")
+                    continue
+
+                for i, neuron_idx in enumerate(neuron_indices):
+                    if neuron_idx >= len(coupling_vals):
+                        continue
+                    if coupling_vals[neuron_idx] < 0 or  np.isnan(coupling_vals[neuron_idx]):
+                        continue
+                    row = {
+                        'dataset': dataset,
+                        'cell_type': cell_type.lower(),
+                        'neuron_idx': neuron_idx,
+                        'coupling_index': coupling_vals[neuron_idx],
+                        'peak_info': peak_vals[i],
+                    }
+                    if threshold is not None:
+                        # Use threshold filtering
+                        if row['coupling_index'] > threshold:
+                            all_rows.append(row)
+                    elif top_neurons is True and cell_type.lower() == 'pyr':
+                        # print(f"Top 10 PYR neurons for {dataset}: {neuron_indices[top_indices]}")
+                        if i in top_indices:
+                            row = {
+                                'dataset': dataset,
+                                'cell_type': 'top_pyr',
+                                'neuron_idx': neuron_idx,
+                                'coupling_index': coupling_vals[neuron_idx],
+                                'peak_info': peak_vals[i],
+                            }
+                        all_rows.append(row)
+                    else:
+                        all_rows.append(row)
+
+        df = pd.DataFrame(all_rows)
+        df['coupling_bin'] = pd.cut(df['coupling_index'], bins=bins, include_lowest=True, right = False)
+
+        plt.figure(figsize=figsize)
+
+        bin_centers = [(bins[i] + bins[i+1]) / 2 for i in range(len(bins) - 1)]
+        
+        for cell_type, color in celltype_colors.items():
+            sub = df[df['cell_type'] == cell_type]
+            means = []
+            errors = []
+            bin_data_all = {}
+
+            for b in df['coupling_bin'].cat.categories:
+                bin_data = sub[sub['coupling_bin'] == b]['peak_info']
+                means.append(bin_data.mean())
+                errors.append(sem(bin_data) if len(bin_data) > 1 else 0)
+                bin_data_all[b] = bin_data
+
+            #perform stat test
+            # ---- Permutation test ----
+            bins = list(bin_data_all.keys())
+
+            if len(bins) == 2:
+                data1 = bin_data_all[bins[0]]
+                data2 = bin_data_all[bins[1]]
+
+                # only run if both bins have data
+                if len(data1) > 0 and len(data2) > 0:
+                    all_p_values = []
+                    all_stats_dict = {}
+                    test_stats = []
+                    comparisons_names = []
+                    pval, stat = self.stats.perform_permutation_test(
+                        data1, data2,
+                        paired=False,
+                        n_permutations=10000
+                    )
+                    print(f'permutation test|| pval: {pval}, celltype {cell_type}')
+                    all_p_values.append(pval)
+                    test_stats.append(stat)
+                    label1 = f"low_coupling"
+                    label2 = f"hi_coupling"
+                    all_stats_dict[label1] = self.stats.get_basic_stats(data1)
+                    all_stats_dict[label2] = self.stats.get_basic_stats(data2)
+                    comparisons_names.append((label1,label2))
+                else:
+                    pval, stat = np.nan, np.nan
+            else:
+                pval, stat = np.nan, np.nan
+
+            plt.errorbar(
+                bin_centers, means, yerr=errors,
+                label=cell_type.upper(),
+                color=color,
+                marker='o',
+                markersize=marker_size / 5,
+                capsize=2,
+                lw=1
+            )
+            
+            # select the two columns for the cell type
+            x = df[df['cell_type'] == cell_type]['coupling_index']
+            y = df[df['cell_type'] == cell_type]['peak_info']
+
+            # remove NaNs
+            mask = ~np.isnan(x) & ~np.isnan(y)
+            r, p = pearsonr(x[mask], y[mask])
+            print(f'{cell_type.upper()}: r = {r:.2f}, p = {p:.3f}')
+
+        plt.xlabel('Coupling Bin', fontsize=7)
+        plt.ylabel('Peak Info (bits)', fontsize=7)
+        plt.title(decoded_feature.capitalize(), fontsize=7)
+        if decoded_feature == 'sound_category':
+            plt.title('Sound Category', fontsize=7)
+        ax = plt.gca()
+        ax.set_xticks(bin_centers)
+        ax.set_xticklabels([f'{b.left:.2f}-{b.right:.2f}' for b in df['coupling_bin'].cat.categories], fontsize=7, rotation=45)
+        ax.set_yticklabels(ax.get_yticks(), fontsize=7)
+        ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.3f'))
+        if len(bins) != 3:
+            ax.set_box_aspect(1)
+        else:
+            ax.set_xlim(-.1,1.1)
+
+        plt.legend(
+            loc='center left',           # Anchor point of legend
+            bbox_to_anchor=(1.05, 0.5),  # Position relative to axes
+            borderaxespad=0.0,           # Padding between axes and legend
+            frameon=False,                 # Draw a frame around legend
+            fontsize=6
+        )
+        sns.despine()
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, bbox_inches='tight')
+            save_path_updated = save_path[:save_path.rfind('/')]
+            print(f"Saving stats to {save_path_updated}")
+            name_without_ext = save_path.split('/')[-1].split('.')[0]
+            df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, save_path=f'{save_path_updated}/stat_tests_{name_without_ext}.csv',type='permutation unpaired')
+            df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_{name_without_ext}.csv')
+        plt.show()
+
+        return df
+    
+
 
 
 

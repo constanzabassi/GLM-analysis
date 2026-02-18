@@ -721,6 +721,9 @@ class DecoderAnalyzer:
                     raise ValueError(f"Missing frame window for feature '{feature}'")
                 start_frame, end_frame = frame_windows[feature]
                 info = results_dict[dataset_id][feature][metric]  # frames × neurons
+                if np.shape(info)[0] == 0:
+                    continue
+
                 window = info[start_frame:end_frame, :]
                 peak_vals = np.max(window, axis=0)
                 peak_frames = np.argmax(window, axis=0) + start_frame
