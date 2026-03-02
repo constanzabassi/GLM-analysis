@@ -5,6 +5,7 @@ from scipy.ndimage import gaussian_filter1d
 import seaborn as sns
 from typing import List, Optional, Tuple
 from utils.Plotter import Plotter  # Changed to absolute import
+import matplotlib as mpl
 
 class CellVisualizer:
     """Class for visualizing single cell activity patterns."""
@@ -62,6 +63,7 @@ class CellVisualizer:
         """
         n_conditions = len(all_conditions)
         fig, axes = plt.subplots(1, n_conditions, figsize=(3*n_conditions, 3))
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
         
         # Handle single condition case
         if n_conditions == 1:
@@ -364,10 +366,15 @@ class CellVisualizer:
                                   shading: Optional[bool] = False,
                                   plot_information: bool = True,  # NEW: whether to plot peak info line
                                   combine_groups: bool = False, # NEW: whether to combine all conditions into one plot
-                                  save_path: Optional[str] = None) -> Tuple[plt.Figure, plt.Axes]:
+                                  save_path: Optional[str] = None,
+                                  linewidth: Optional[float] = None) -> Tuple[plt.Figure, plt.Axes]:
 
         # Set global font size and family 
         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+
+        if linewidth is None:
+            linewidth = 0.8
 
         condition_labels = [label for (_, _, label) in all_conditions]
         group_labels = self.split_condition_labels(condition_labels, subplot_split)
@@ -411,7 +418,7 @@ class CellVisualizer:
                     mean_trace = gaussian_filter1d(mean_trace, sigma=smoothing)
                     sem_trace = gaussian_filter1d(sem_trace, sigma=smoothing)
 
-                trace_ax.plot(mean_trace, color=color, linewidth=.8, label=label)
+                trace_ax.plot(mean_trace, color=color, linewidth=linewidth, label=label)
                 if shading:
                     trace_ax.fill_between(np.arange(len(mean_trace)),
                                         mean_trace - sem_trace,
@@ -445,7 +452,7 @@ class CellVisualizer:
                         mean_trace = gaussian_filter1d(mean_trace, sigma=smoothing)
                         sem_trace = gaussian_filter1d(sem_trace, sigma=smoothing)
 
-                    ax.plot(mean_trace, color=color, linewidth=.8, label=label)
+                    ax.plot(mean_trace, color=color, linewidth=linewidth, label=label)
                     if shading:
                         ax.fill_between(np.arange(len(mean_trace)),
                                         mean_trace - sem_trace,
