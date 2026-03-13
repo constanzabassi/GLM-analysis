@@ -643,17 +643,38 @@ class DataHandlerEncoding:
             #get total nuerons
             all_neurons = list(range(opto['mod'][idx,0].shape[0]))#range(0,opto['mod'][idx,0].shape[0])
             
-            #get significant neurons
+            # #get significant neurons
+            # if set_diff:
+            #     significant_neurons[mouse_date]['opto'] = list(set(opto_neurons) - set(sound_neurons))
+            #     significant_neurons[mouse_date]['sound'] = list(set(sound_neurons) - set(opto_neurons))
+            #     significant_neurons[mouse_date]['both'] = list(set(opto_neurons).intersection(set(sound_neurons)))
+            #     significant_neurons[mouse_date]['unmod'] = list(set(all_neurons) - set(opto_neurons) - set(sound_neurons))
+            # else:   
+            #     significant_neurons[mouse_date]['opto'] = opto_neurons
+            #     significant_neurons[mouse_date]['sound'] = sound_neurons
+            #     significant_neurons[mouse_date]['both'] = list(set(opto_neurons).intersection(set(sound_neurons)))
+            #     significant_neurons[mouse_date]['unmod'] = list(set(all_neurons) - set(opto_neurons) - set(sound_neurons))
+
+            # get modulation values for sound (assuming context 0 for sound)
+            sound_mod_values = sound['mod'][idx, 0]
+
             if set_diff:
-                significant_neurons[mouse_date]['opto'] = list(set(opto_neurons) - set(sound_neurons))
-                significant_neurons[mouse_date]['sound'] = list(set(sound_neurons) - set(opto_neurons))
-                significant_neurons[mouse_date]['both'] = list(set(opto_neurons).intersection(set(sound_neurons)))
-                significant_neurons[mouse_date]['unmod'] = list(set(all_neurons) - set(opto_neurons) - set(sound_neurons))
-            else:   
-                significant_neurons[mouse_date]['opto'] = opto_neurons
-                significant_neurons[mouse_date]['sound'] = sound_neurons
-                significant_neurons[mouse_date]['both'] = list(set(opto_neurons).intersection(set(sound_neurons)))
-                significant_neurons[mouse_date]['unmod'] = list(set(all_neurons) - set(opto_neurons) - set(sound_neurons))
+                sound_only = list(set(sound_neurons) - set(opto_neurons))
+                opto_only  = list(set(opto_neurons) - set(sound_neurons))
+            else:
+                sound_only = list(sound_neurons)
+                opto_only  = list(opto_neurons)
+
+            # Now apply sign split WITHIN the set-diff result
+            sound_pos_only = [n for n in sound_only if sound_mod_values[n] > 0]
+            sound_neg_only = [n for n in sound_only if sound_mod_values[n] < 0]
+
+            significant_neurons[mouse_date]['opto'] = opto_only
+            significant_neurons[mouse_date]['sound'] = sound_only
+            significant_neurons[mouse_date]['sound_pos'] = sound_pos_only
+            significant_neurons[mouse_date]['sound_neg'] = sound_neg_only
+            significant_neurons[mouse_date]['both'] = list(set(opto_neurons).intersection(set(sound_neurons)))
+            significant_neurons[mouse_date]['unmod'] = list(set(all_neurons) - set(opto_neurons) - set(sound_neurons))
 
         return opto, sound, mouse_dates, significant_neurons, mod_indices
 

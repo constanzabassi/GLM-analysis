@@ -24,6 +24,7 @@ from scipy.stats import pearsonr
 from scipy.stats import sem
 import matplotlib.patches as patches
 import matplotlib.cm as cm
+import matplotlib.colors as mc
 from matplotlib_venn import venn2
 from matplotlib.patches import Patch
 
@@ -4570,7 +4571,8 @@ class Plotter:
         marker_size=20,
         peak_to_get = 'peak_values',
         alpha = 1,
-        save_path = None
+        save_path = None,
+        ylim=(-.01, .5)
     ):
         """
         Plots coupling index vs peak decoding info for each neuron (all datasets pooled).
@@ -4585,7 +4587,7 @@ class Plotter:
                 # Get decoding info
                 info = peak_info_struc[dataset][cell_type].get(decoded_feature, None)
                 if info is None:
-
+                    print(f"Missing decoding info for {dataset}, {cell_type}, {decoded_feature}")
                     continue
 
                 peak_vals = info[peak_to_get]
@@ -4644,7 +4646,7 @@ class Plotter:
         plt.xlabel('Coupling Index', fontsize=7)
         plt.ylabel('Peak Info (bits)', fontsize=7)
         ax = plt.gca()
-        ax.set_ylim(-.01, .5)
+        ax.set_ylim(ylim)
         ax.set_yticklabels(ax.get_yticks(), fontsize=7)
         ax.set_xticklabels(ax.get_xticks(), fontsize=7)
         ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.1f'))
@@ -4849,7 +4851,90 @@ class Plotter:
         return df
     
 
+    def plot_within_between_cdf_two_contexts(self,all_df1, all_df2, group_colors=None,
+                                            title='Coupling CDF',
+                                            figsize=(4,4), save_path=None,
+                                            mode='mean', x_ylim=None):
 
+
+
+        mpl.rcParams['pdf.fonttype'] = 42
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+
+        def lighten_color(color, amount=0.6):
+            c = np.array(mc.to_rgb(color))
+            return tuple(c + (1 - c) * amount)
+
+        def ecdf(data):
+            data = np.sort(data)
+            data = data[~np.isnan(data)]  # remove NaNs
+            if len(data) == 0:
+                return np.array([]), np.array([])
+            y = np.arange(1, len(data)+1) / len(data)
+            return data, y
+
+        groups = sorted(list(set(all_df1['group']).union(set(all_df2['group']))))
+        n_groups = len(groups)
+
+        fig, axes = plt.subplots(1, n_groups,
+                                figsize=(figsize[0]*n_groups, figsize[1]),
+                                sharey=True)
+
+        if n_groups == 1:
+            axes = [axes]
+
+        for i, group in enumerate(groups):
+
+            ax = axes[i]
+
+            subset1 = all_df1[all_df1['group'] == group]
+            subset2 = all_df2[all_df2['group'] == group]
+
+            base_color = group_colors.get(group, 'gray') if group_colors else 'gray'
+            lighter_color = lighten_color(base_color)
+
+            # Context 1
+            x, y = ecdf(subset1['coupling_within'])
+            ax.plot(x, y, color=base_color, linestyle='-', linewidth=1, label='within C1')
+
+            x, y = ecdf(subset1['coupling_between'])
+            ax.plot(x, y, color=base_color, linestyle='--', linewidth=1, label='between C1')
+
+            # Context 2
+            x, y = ecdf(subset2['coupling_within'])
+            ax.plot(x, y, color=lighter_color, linestyle='-', linewidth=1, label='within C2')
+
+            x, y = ecdf(subset2['coupling_between'])
+            ax.plot(x, y, color=lighter_color, linestyle='--', linewidth=1, label='between C2')
+
+            ax.set_title(group, fontsize=7)
+
+            if x_ylim is not None:
+                ax.set_xlim(x_ylim)
+
+            ax.grid(True, alpha=0.3)
+
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+
+            ax.set_ylim([0,1])
+
+        axes[0].set_ylabel('Fraction of Neurons')
+
+        for ax in axes:
+            ax.set_xlabel('Coupling Strength')
+            if 'abs' in mode:
+                ax.set_xlabel('|Coupling Strength|')
+
+        axes[-1].legend(frameon=False, fontsize=6)
+
+        plt.suptitle(title, fontsize=7)
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=300)
+
+        plt.show()
 
 
 

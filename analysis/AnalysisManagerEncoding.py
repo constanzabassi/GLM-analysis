@@ -1051,7 +1051,7 @@ class AnalysisManagerEncoding:
 
         return coupling_index_dir, model_improvement
     
-    def compute_within_between_coupling(self,model_output_all, predictor_groups, coupling_start_idx=183, mode='mean'):
+    def compute_within_between_coupling(self,model_output_all, predictor_groups, coupling_start_idx=183, mode='mean', threshold = 0.0):
         """
         Compute within-group and between-group coupling strengths for neurons based on model output.
         Parameters:
@@ -1085,6 +1085,9 @@ class AnalysisManagerEncoding:
                 other_idxs = [ix for ix in other_neurons if ix != i]
                 beta_within = beta_i[this_idxs]
                 beta_between = beta_i[other_idxs]
+                #thresholding
+                beta_within = np.where(np.abs(beta_within) >= threshold, beta_within, np.nan)
+                beta_between = np.where(np.abs(beta_between) >= threshold, beta_between, np.nan)
 
                 if mode == 'mean':
                     val_within = np.nanmean(beta_within)
@@ -1108,7 +1111,7 @@ class AnalysisManagerEncoding:
 
         return pd.DataFrame(all_data)
 
-    def wrapper_dataset_compute_within_between_coupling(self,all_results,significant_neurons, model_used = 'model_output_all_neurons', mode = 'mean', groups_to_plot=None):
+    def wrapper_dataset_compute_within_between_coupling(self,all_results,significant_neurons, model_used = 'model_output_all_neurons', mode = 'mean', groups_to_plot=None, threshold = 0.0):
         """
         Wrapper function to compute within-group and between-group coupling strengths across multiple datasets.
 
@@ -1146,7 +1149,7 @@ class AnalysisManagerEncoding:
                 model_output_all=model_output_all,
                 predictor_groups=predictor_groups,
                 coupling_start_idx=183,  # adjust if different
-                mode=mode
+                mode=mode, threshold = threshold
             )
             df['dataset'] = key
             combined_df.append(df)

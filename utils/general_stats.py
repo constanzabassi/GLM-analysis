@@ -302,3 +302,102 @@ class GeneralStats:
             print(f"Saved summary stats to: {summary_path}")
 
         return p_value, observed_stat, permuted_stats
+    
+
+    def coupling_stats_by_celltype(self,all_df, celltypecolors, n_perm=10000):
+
+        # compute difference metric
+        all_df = all_df.copy()
+        all_df['within_minus_between'] = all_df['coupling_within'] - all_df['coupling_between']
+
+        # organize data by celltype
+        values_by_celltype = {}
+
+        for celltype in celltypecolors.keys():
+            vals = all_df.loc[all_df['group'] == celltype, 'within_minus_between'].values
+            vals = vals[~np.isnan(vals)]
+            values_by_celltype[celltype] = vals
+
+        # ----------------------------
+        # Kruskal-Wallis across groups
+        # ----------------------------
+
+        groups = [values_by_celltype[k] for k in celltypecolors.keys()]
+
+        kw_table = self.kruskal_wallis_to_pd(
+            'within_minus_between',
+            *groups
+        )
+
+        kw_significant = (kw_table["p_value"] < 0.05).any()
+
+        # ----------------------------
+        # Pairwise permutation tests
+        # ----------------------------
+
+        celltype_keys = list(celltypecolors.keys())
+
+        all_p_values = []
+        comparisons = []
+        comparisons_names = []
+        test_stats = []
+        all_stats_dict = {}
+
+        for i, celltype in enumerate(celltype_keys):
+
+            for j in range(i + 1, len(celltype_keys)):
+
+                other_celltype = celltype_keys[j]
+
+                comparisons.append((i, j))
+
+                data_i = values_by_celltype[celltype]
+                data_j = values_by_celltype[other_celltype]
+
+                if len(data_i) == 0 or len(data_j) == 0:
+                    print(f"No data for {celltype} or {other_celltype}. Skipping.")
+                    continue
+
+                p_value, stat = self.perform_permutation_test(
+                    data_i,
+                    data_j,
+                    paired=False,
+                    n_permutations=n_perm
+                )
+
+                all_p_values.append(p_value)
+                test_stats.append(stat)
+
+                comparisons_names.append(
+                    (f"{celltype}_within_minus_between",
+                    f"{other_celltype}_within_minus_between")
+                )
+
+                print(f"Permutation test {celltype} vs {other_celltype}: p={p_value:.4f}")
+
+                # store basic stats
+                label1 = f"{celltype}_within_minus_between"
+                label2 = f"{other_celltype}_within_minus_between"
+
+                all_stats_dict[label1] = self.get_basic_stats(data_i)
+                all_stats_dict[label2] = self.get_basic_stats(data_j)
+
+        # Bonferroni correction
+        _, significance_stars = self.calculate_bonferroni_significance(
+            all_p_values,
+            alpha=0.05
+        )
+
+        # create tables
+        df_tests = self.to_table(
+            comparisons_names,
+            test_stats,
+            all_p_values,
+            type='permutation unpaired'
+        )
+
+        df_tests = pd.concat([df_tests, kw_table], ignore_index=True)
+
+        df_stats = self.basic_stats_to_table(all_stats_dict)
+
+        return df_tests, df_stats, significance_stars, comparisons, kw_significant
