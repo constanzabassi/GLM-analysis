@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import seaborn as sns
 from matplotlib.ticker import FormatStrFormatter
+import matplotlib as mpl
 #from .Plotter import Plotter as plotter
 
 #import stats class
@@ -139,48 +140,77 @@ class AnalysisManagerEncoding:
 
         return coupling_index
     
-    def plot_coupling_index_across_celltypes_cdf(self,results_list, model_types, threshold=0.05, comparisons=[('No Coupling', 'All')], significant_neurons=None, xlim_val = 1, recalculate_modulation=False, figsize = (3*1.3,1.3*1.5)):
-        """
-        Plot the CDF of coupling index across datasets for multiple models, separated by cell type.
+    def plot_coupling_index_across_celltypes_cdf(
+        self,
+        results_list,
+        model_types,
+        threshold=0.05,
+        comparisons=[('No Coupling', 'All')],
+        significant_neurons=None,
+        xlim_val=1,
+        recalculate_modulation=False,
+        figsize=(3*1.3, 1.3*1.5),
+        outlier_model_indices=None,
+        outlier_mode='union',
+        plot_model_types=None
+    ):
 
-        Parameters:
-            results_list (list of dict): List of results dictionaries for each model.
-            celltypecolors (dict): Dictionary of colors for each cell type.
-            save_results (str): Path to save the results.
-            model_types (list of str): List of model types corresponding to each results dictionary.
-            color_map_dict (dict): Dictionary mapping (celltype, model) to specific colors.
-            threshold (float, optional): Threshold for filtering outlier values. Default is 1.
-            comparisons (list of tuple of str, optional): List of comparison labels to use, e.g., [('No Coupling', 'All'), ('No Pyr', 'All')].
-            significant_neurons (dict, optional): Dictionary with dataset keys mapping to lists of significant neuron indices.
-            recalculate_modulation (bool, optional): If True, recalculate modulation index using neurons present across all comparisons and models.
-
-        Returns:
-            dict: Dictionary containing coupling indices by cell type and model for each comparison.
-        """
         coupling_index_by_comparison = {}
-        # Initialize a set to keep track of neuron indices used across all models 
         used_neurons_set = None
-        # Initialize dictionary to track used neurons for each dataset
-        used_neurons = {}  # To track used neurons for each comparison and model
+        used_neurons = {}
 
-        # Loop over each comparison
+        # -----------------------------
+        # 🔹 DEFINE OUTLIERS (NEW PART)
+        # -----------------------------
+        if outlier_model_indices is None:
+            outlier_model_indices = [0]
+
+        outlier_sets = []
+
+        for model_idx in outlier_model_indices:
+            results = results_list[model_idx]
+
+            mean_dev_all = []
+
+            for dataset_key, dataset in results.items():
+                sig_neurons = significant_neurons.get(dataset_key, None) if significant_neurons else None
+
+                if sig_neurons is not None:
+                    sig_neurons = np.array(sig_neurons[0], dtype=np.uint16)
+                else:
+                    sig_neurons = np.arange(len(dataset['celltype_array']))
+
+                mean_dev_all.extend(np.array(dataset['mean_dev'])[sig_neurons])
+
+            outliers = set(np.where(np.array(mean_dev_all) < threshold)[0])
+            outlier_sets.append(outliers)
+
+        if outlier_mode == 'union':
+            shared_outlier_indices = set().union(*outlier_sets)
+        elif outlier_mode == 'intersection':
+            shared_outlier_indices = set.intersection(*outlier_sets)
+        else:
+            raise ValueError("outlier_mode must be 'union' or 'intersection'")
+
+        shared_outlier_indices = np.array(list(shared_outlier_indices))
+        print(f"[Outliers] Removed {len(shared_outlier_indices)} neurons")
+
+        # -----------------------------
+        # 🔹 MAIN COMPUTATION
+        # -----------------------------
         for comparison in comparisons:
-            # Initialize a dictionary to store coupling indices by cell type and model for the current comparison
+
             coupling_index_by_celltype = {
                 'pyr': {model: [] for model in model_types},
                 'som': {model: [] for model in model_types},
                 'pv': {model: [] for model in model_types}
             }
-            
-            # Initialize used neurons set for this comparison
+
             used_neurons[comparison] = {model: set() for model in model_types}
 
-            # Loop over each model's results
             for model_idx, results in enumerate(results_list):
                 model_type = model_types[model_idx]
-                
 
-                # Initialize a dictionary to store the mean deviance explained values across all datasets
                 mean_dev_dict = {
                     'No Coupling': [],
                     'All': [],
@@ -188,279 +218,504 @@ class AnalysisManagerEncoding:
                     'No Som': [],
                     'No Pv': []
                 }
-                
-                # Initialize a list to store all cell labels
+
                 cell_labels = []
-                
-                # Loop over each dataset in the results dictionary
+
                 for dataset_key, dataset in results.items():
-                    # Get significant neurons for the dataset if provided
+
                     sig_neurons = significant_neurons.get(dataset_key, None) if significant_neurons else None
-                    
-                    # Filter data based on significant neurons if applicable
+
                     if sig_neurons is not None:
                         sig_neurons = np.array(sig_neurons[0], dtype=np.uint16)
                     else:
-                        sig_neurons = np.arange(len(dataset['celltype_array']))  # Use all neurons if not specified
+                        sig_neurons = np.arange(len(dataset['celltype_array']))
 
-                    
-                    # Filter mean deviance values
                     mean_dev_dict['No Coupling'].extend(np.array(dataset['mean_dev_behav'])[sig_neurons])
                     mean_dev_dict['All'].extend(np.array(dataset['mean_dev'])[sig_neurons])
                     mean_dev_dict['No Pyr'].extend(np.array(dataset['mean_dev_no_pyr'])[sig_neurons])
                     mean_dev_dict['No Som'].extend(np.array(dataset['mean_dev_no_som'])[sig_neurons])
                     mean_dev_dict['No Pv'].extend(np.array(dataset['mean_dev_no_pv'])[sig_neurons])
-                    
-                    # Map cell IDs to cell types and add to the cell_labels list
-                    cell_types = {
-                        0: 'pyr',
-                        1: 'som',
-                        2: 'pv',
-                    }
+
+                    cell_types = {0: 'pyr', 1: 'som', 2: 'pv'}
                     cell_labels.extend([cell_types[cell_id] for cell_id in np.array(dataset['celltype_array'])[sig_neurons]])
 
-                
-                # Extract labels for the comparison
                 label1, label2 = comparison
-                
-                # Identify outliers in the 'All' condition
-                outlier_indices_all = np.where(np.array(mean_dev_dict['All']) < threshold)[0]
 
-
-                # # Collect mean deviance values for outlier detection from the first model type
-                # if model_idx == 0:  # Use only the first model's data for outlier detection
-                #     all_mean_dev_all = np.array(mean_dev_dict['All'])
-
-                # # Identify outliers in the 'All' condition based on the first model type
-                # outlier_indices_all = np.where(all_mean_dev_all < threshold)[0]
-                
-                # Prepare data for comparison
                 full_data = np.array(mean_dev_dict[label2]).astype(np.float64)
                 partial_data = np.array(mean_dev_dict[label1]).astype(np.float64)
 
-                # Mask outliers
-                if len(outlier_indices_all) > 0:
-                    #print(outlier_indices_all)
-                    print(f'model type: {model_type}, original length, {len(full_data)}')
-                    full_data[outlier_indices_all] = np.nan
-                    partial_data[outlier_indices_all] = np.nan
+                # APPLY SHARED OUTLIERS
+                if len(shared_outlier_indices) > 0:
+                    full_data[shared_outlier_indices] = np.nan
+                    partial_data[shared_outlier_indices] = np.nan
 
-                # Calculate coupling index
                 coupling_index = self.calculate_coupling_index(full_data, partial_data)
 
-                #eliminate coupling indices that are greater than one
-                bad_coupling = np.where(coupling_index>1)
-                coupling_index[bad_coupling] = np.nan
+                coupling_index[coupling_index > 1] = np.nan
+                coupling_index[coupling_index < -1] = np.nan
 
-                bad_coupling = np.where(coupling_index<-1)
-                coupling_index[bad_coupling] = np.nan
-
-                # Update the used neurons for each dataset (non-NaN neurons) 
-                valid_neurons = ~np.isnan(coupling_index) 
+                valid_neurons = ~np.isnan(coupling_index)
                 used_neurons[comparison][model_type] = np.where(valid_neurons)[0]
-                
-                # Update the global used neurons set
+
                 if used_neurons_set is None:
                     used_neurons_set = set(used_neurons[comparison][model_type])
                 else:
                     used_neurons_set &= set(used_neurons[comparison][model_type])
 
-
-                # Separate coupling index by cell type
                 for idx, cell_label in enumerate(cell_labels):
                     coupling_index_by_celltype[cell_label][model_type].append(coupling_index[idx])
 
-            # Store the results for the current comparison
             coupling_index_by_comparison[comparison] = coupling_index_by_celltype
 
-        # Recalculate modulation index using only the neurons present across all comparisons and models if required
+        # -----------------------------
+        # 🔹 OPTIONAL INTERSECTION STEP
+        # -----------------------------
         if recalculate_modulation:
-            print("Recalculating coupling index using neurons present across all comparisons and models...")
+            print("Recalculating using common neurons...")
 
+            used_neurons_set_by_celltype = {'pyr': None, 'som': None, 'pv': None}
 
-            # Initialize used_neurons_set for each cell type (to track common neurons across all comparisons and models)
-            used_neurons_set_by_celltype = {
-                'pyr': None,
-                'som': None,
-                'pv': None
-            }
-
-            # Iterate over all comparisons
             for comparison in comparisons:
-                # Iterate over all model types
                 for model_type in model_types:
-                    # For each cell type, find non-NaN neuron indices and keep intersection across comparisons and models
                     for cell_type in used_neurons_set_by_celltype.keys():
-                        # Get the coupling index array for the current comparison, model type, and cell type
-                        neuron_data = np.array(coupling_index_by_comparison[comparison][cell_type][model_type]) #np.array(coupling_index_by_celltype[cell_type][model_type])
-                        
-                        # Identify non-NaN neuron indices
+
+                        neuron_data = np.array(coupling_index_by_comparison[comparison][cell_type][model_type])
                         valid_neurons = np.where(~np.isnan(neuron_data))[0]
-                        
-                        # If this is the first time, initialize the set with valid neurons
+
                         if used_neurons_set_by_celltype[cell_type] is None:
                             used_neurons_set_by_celltype[cell_type] = set(valid_neurons)
                         else:
-                            # Take intersection of valid neurons across models and comparisons
-                            used_neurons_set_by_celltype[cell_type] = used_neurons_set_by_celltype[cell_type].intersection(valid_neurons)
+                            used_neurons_set_by_celltype[cell_type] &= set(valid_neurons)
 
-            # Now used_neurons_set_by_celltype will contain only the neurons common across all comparisons and model types for each cell type
-            # You can now check and print the number of non-NaN neurons across all comparisons and models
-
-            for cell_type, neuron_set in used_neurons_set_by_celltype.items():
-                print(f"Cell Type: {cell_type}, Number of common non-NaN neurons across all comparisons and models: {len(neuron_set)}")
-
-            # Update coupling_index_by_comparison with the new common neurons
             for comparison in comparisons:
                 for model_type in model_types:
                     for cell_type, neuron_set in used_neurons_set_by_celltype.items():
-                        # Convert neuron set back to a list of indices for easy access
-                        common_neurons_indices = np.array(list(neuron_set))
-                        
-                        # Loop through the neuron data for the current comparison, model type, and cell type
-                        neuron_data = coupling_index_by_comparison[comparison][cell_type][model_type]
-                        for idx, cell_label in enumerate(neuron_data):
-                            # If the index is not in the common neuron set, mark it as NaN
-                            if idx not in common_neurons_indices:
+                        for idx in range(len(coupling_index_by_comparison[comparison][cell_type][model_type])):
+                            if idx not in neuron_set:
                                 coupling_index_by_comparison[comparison][cell_type][model_type][idx] = np.nan
 
-                        #CODE BELOW GIVES SAME NUMBER OF NEURONS IN EACH CONDITION (ie all active comparisons have the same BUT not across conditions)           
-            # for comparison in comparisons:
-            #     for cell_type in ['pyr', 'som', 'pv']:
-            #         for model_type in model_types:
-            #             # Filter out neurons not present in the global used_neurons_set
-            #             neuron_indices = used_neurons_set.intersection(used_neurons[comparison][model_type])
-            #             filtered_indices = np.array(list(neuron_indices))
-            #             #print(f'{comparison} {cell_type} {model_type} total neurons {len(filtered_indices)}')
-
-            #             for idx, cell_label in enumerate(coupling_index_by_comparison[comparison][cell_type][model_type]):
-            #                 if idx not in filtered_indices:
-            #                     coupling_index_by_comparison[comparison][cell_type][model_type][idx] = np.nan
-
-        comparisons_list = []
-        test_stats = []
-        p_values = []
+        # -----------------------------
+        # 🔹 STATS + PLOTTING (UNCHANGED)
+        # -----------------------------
+        comparisons_list, test_stats, p_values = [], [], []
         all_stats_dict = {}
 
         for comparison in comparisons:
             label1, label2 = comparison
-            # Paired permutation test for each cell type between model types
+
             for cell_type in self.plotter.celltypecolors.keys():
                 print(f"\n{cell_type.upper()} Cell Type: {label1} vs {label2}")
-                
+
                 for model_a, model_b in zip(model_types[:-1], model_types[1:]):
-                    data1 = np.array(coupling_index_by_comparison[comparison][cell_type][model_a]) # used to be coupling_index_by_celltype
+                    data1 = np.array(coupling_index_by_comparison[comparison][cell_type][model_a])
                     data2 = np.array(coupling_index_by_comparison[comparison][cell_type][model_b])
 
-                    # Perform paired permutation test
-                    p_value, observed_diff= self.stats.perform_permutation_test(data1, data2, paired=True, n_permutations=10000)#paired_permutation_test(data1, data2)
+                    p_value, observed_diff = self.stats.perform_permutation_test(
+                        data1, data2, paired=True, n_permutations=10000
+                    )
 
-                    print(f"Model {model_a} vs {model_b}:")
-                    print(f"Observed Difference: {observed_diff:.4f}, P-value: {p_value:.4f}")
+                    print(f"{model_a} vs {model_b}: diff={observed_diff:.4f}, p={p_value:.4f}")
 
-                    comparisons_list.append((f"{comparison}_{cell_type}_{model_a}", f"{comparison}_{cell_type}_{model_b}"))
+                    comparisons_list.append((f"{comparison}_{cell_type}_{model_a}",
+                                            f"{comparison}_{cell_type}_{model_b}"))
                     test_stats.append(observed_diff)
                     p_values.append(p_value)
 
-                    # Save stats for each group
-                    label1_stats = f"{comparison}_{cell_type}_{model_a}"
-                    label2_stats = f"{comparison}_{cell_type}_{model_b}"
-                    all_stats_dict[label1_stats] = self.stats.get_basic_stats(data1)
-                    all_stats_dict[label2_stats] = self.stats.get_basic_stats(data2)
+                    all_stats_dict[f"{comparison}_{cell_type}_{model_a}"] = self.stats.get_basic_stats(data1)
+                    all_stats_dict[f"{comparison}_{cell_type}_{model_b}"] = self.stats.get_basic_stats(data2)
 
-
-            # Plot the CDF of coupling index for each cell type for the current comparison
-            # Set global font size and family 
+            # -------- PLOT --------
             plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
-            plt.figure(figsize=figsize )
+            mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+            plt.figure(figsize=figsize)
 
             for i, (celltype, _) in enumerate(self.plotter.celltypecolors.items()):
                 ax = plt.subplot(1, 3, i+1)
-                
+
                 legend_elements = []
 
-                # Plot the CDF for each model within the current cell type
-                for model_type in model_types:
+                for model_type in plot_model_types:  
+                    sorted_data = np.sort(coupling_index_by_comparison[comparison][celltype][model_type])
 
-                    sorted_data = np.sort(coupling_index_by_comparison[comparison][celltype][model_type]) #coupling_index_by_celltype
-                    print(f'model type: {model_type}, {celltype},{len(sorted_data)}, original length, {len(full_data)}')
-                    x1 = np.linspace(0, 1, 100)  # Define range of x values
-                    n1, _ = np.histogram(sorted_data, bins=x1)  # Histogram counts
-                    p1 = n1 / np.sum(n1)  # Probability
-                    cdf = np.cumsum(p1)  # Cumulative sum to get CDF
-                    
-                    # Use color_map_dict to assign the specific color
-                    plt.plot(x1[:-1], cdf, label=f'{model_type}', color=self.plotter.color_map_dict[(celltype, model_type)], linewidth=1)
+                    x1 = np.linspace(0, 1, 100)
+                    n1, _ = np.histogram(sorted_data, bins=x1)
+                    p1 = n1 / np.sum(n1)
+                    cdf = np.cumsum(p1)
 
-                    legend_elements.append(Line2D([0], [0], color=self.plotter.color_map_dict[(celltype, model_type)], lw=2, label=model_type))
+                    plt.plot(
+                        x1[:-1],
+                        cdf,
+                        color=self.plotter.color_map_dict[(celltype, model_type)],
+                        linewidth=1,
+                        label=model_type
+                    )
 
-                # Set the title and labels for the plot
-                if comparison[0] == 'No Coupling':
-                    label_str = list({celltype})[0].upper()  # → 'PYR'
-                    plt.title(label_str )
-                else:
-                    plt.title(f'{label1} vs {label2}') #{celltype} -
+                    legend_elements.append(
+                        Line2D([0], [0],
+                            color=self.plotter.color_map_dict[(celltype, model_type)],
+                            lw=2,
+                            label=model_type)
+                    )
+
+                plt.title(celltype.upper() if comparison[0] == 'No Coupling' else f'{label1} vs {label2}')
                 plt.xlabel('Coupling Index')
                 if i == 0:
                     plt.ylabel('Cumulative Fraction')
 
-                # Define the ticks you want (e.g., from 0 to 1 with increments of 0.1)
-                ticks = np.arange(0, 1.1, 0.2)  # The 1.1 ensures that 1.0 is included in the ticks
-
-                # Set the format for both x and y axis ticks to show one decimal place
-                plt.gca().xaxis.set_major_formatter(FormatStrFormatter('%.1f'))
-                plt.xticks(rotation=45)  # Rotates labels 45 degrees
-
-                plt.gca().yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
-                # Ensure ticks are from 0 to 1 with consistent intervals
                 plt.xticks(np.arange(0, 1.2, 0.2))
+                plt.xticks(rotation=45)
                 plt.yticks(np.arange(0, 1.2, 0.2))
 
-                # Custom legend
-                # Add legend with colored labels
-                legend = ax.legend(handles=legend_elements, frameon=False, loc='best', handlelength=0, handletextpad=0.1)
+                legend = ax.legend(handles=legend_elements, frameon=False, loc='best')
 
-                # Set the color of the legend text to match the corresponding model types
                 for text in legend.get_texts():
-                    # Extract the model type from the legend entry
                     model_type = text.get_text()
-                    # Retrieve the color from color_map_dict using the current cell type and model type
-                    color = self.plotter.color_map_dict.get((celltype, model_type), 'black')
-                    text.set_color(color)
+                    text.set_color(self.plotter.color_map_dict.get((celltype, model_type), 'black'))
 
-                # Clean up the appearance
-                ax = plt.gca()
                 ax.spines['top'].set_visible(False)
                 ax.spines['right'].set_visible(False)
                 ax.set_box_aspect(1)
                 ax.set_xlim(0, xlim_val)
                 ax.set_ylim(0, 1)
 
-            #to save svg so that we can edit texts!
-            new_rc_params = {'text.usetex': False,
-            "svg.fonttype": 'none'
-            }
-            plt.rcParams.update(new_rc_params)
-
-            # Save the figure for the current comparison
             plt.tight_layout()
-            if significant_neurons is not None:
-                save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_sigcells.png'
-                save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_sigcells.pdf'
-                # save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_sigcells.pdf'
-            else:
-                save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_{model_types}.png'
-                save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_{model_types}.pdf'
-                # save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype.pdf'
-            plt.savefig(os.path.join(self.plotter.save_results, save_string),bbox_inches='tight', dpi=300, transparent=True)
+
+            save_path = os.path.join(self.plotter.save_results,
+                                    f'cdf_coupling_index_{label1}_vs_{label2}.pdf')
+            plt.savefig(save_path, bbox_inches='tight', dpi=300)
             plt.show()
 
-        # Save statistical test results to table
-        save_path = os.path.join(self.plotter.save_results)
-        df_tests = self.stats.to_table(comparisons_list, test_stats, p_values, save_path=f'{save_path}/stat_tests_coupling_index.csv', type='permutation')
-        df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path}/basic_stats_coupling_index.csv')
+        # save stats
+        save_path = self.plotter.save_results
+        self.stats.to_table(comparisons_list, test_stats, p_values,
+                            save_path=f'{save_path}/stat_tests_coupling_index.csv')
+        self.stats.basic_stats_to_table(all_stats_dict,
+                                        save_path=f'{save_path}/basic_stats_coupling_index.csv')
 
         return coupling_index_by_comparison, used_neurons
+    
+    # def plot_coupling_index_across_celltypes_cdf(self,results_list, model_types, threshold=0.05, comparisons=[('No Coupling', 'All')], significant_neurons=None, xlim_val = 1, recalculate_modulation=False, figsize = (3*1.3,1.3*1.5)):
+    #     """
+    #     Plot the CDF of coupling index across datasets for multiple models, separated by cell type.
+
+    #     Parameters:
+    #         results_list (list of dict): List of results dictionaries for each model.
+    #         celltypecolors (dict): Dictionary of colors for each cell type.
+    #         save_results (str): Path to save the results.
+    #         model_types (list of str): List of model types corresponding to each results dictionary.
+    #         color_map_dict (dict): Dictionary mapping (celltype, model) to specific colors.
+    #         threshold (float, optional): Threshold for filtering outlier values. Default is 1.
+    #         comparisons (list of tuple of str, optional): List of comparison labels to use, e.g., [('No Coupling', 'All'), ('No Pyr', 'All')].
+    #         significant_neurons (dict, optional): Dictionary with dataset keys mapping to lists of significant neuron indices.
+    #         recalculate_modulation (bool, optional): If True, recalculate modulation index using neurons present across all comparisons and models.
+
+    #     Returns:
+    #         dict: Dictionary containing coupling indices by cell type and model for each comparison.
+    #     """
+    #     coupling_index_by_comparison = {}
+    #     # Initialize a set to keep track of neuron indices used across all models 
+    #     used_neurons_set = None
+    #     # Initialize dictionary to track used neurons for each dataset
+    #     used_neurons = {}  # To track used neurons for each comparison and model
+
+    #     # Loop over each comparison
+    #     for comparison in comparisons:
+    #         # Initialize a dictionary to store coupling indices by cell type and model for the current comparison
+    #         coupling_index_by_celltype = {
+    #             'pyr': {model: [] for model in model_types},
+    #             'som': {model: [] for model in model_types},
+    #             'pv': {model: [] for model in model_types}
+    #         }
+            
+    #         # Initialize used neurons set for this comparison
+    #         used_neurons[comparison] = {model: set() for model in model_types}
+
+    #         # Loop over each model's results
+    #         for model_idx, results in enumerate(results_list):
+    #             model_type = model_types[model_idx]
+                
+
+    #             # Initialize a dictionary to store the mean deviance explained values across all datasets
+    #             mean_dev_dict = {
+    #                 'No Coupling': [],
+    #                 'All': [],
+    #                 'No Pyr': [],
+    #                 'No Som': [],
+    #                 'No Pv': []
+    #             }
+                
+    #             # Initialize a list to store all cell labels
+    #             cell_labels = []
+                
+    #             # Loop over each dataset in the results dictionary
+    #             for dataset_key, dataset in results.items():
+    #                 # Get significant neurons for the dataset if provided
+    #                 sig_neurons = significant_neurons.get(dataset_key, None) if significant_neurons else None
+                    
+    #                 # Filter data based on significant neurons if applicable
+    #                 if sig_neurons is not None:
+    #                     sig_neurons = np.array(sig_neurons[0], dtype=np.uint16)
+    #                 else:
+    #                     sig_neurons = np.arange(len(dataset['celltype_array']))  # Use all neurons if not specified
+
+                    
+    #                 # Filter mean deviance values
+    #                 mean_dev_dict['No Coupling'].extend(np.array(dataset['mean_dev_behav'])[sig_neurons])
+    #                 mean_dev_dict['All'].extend(np.array(dataset['mean_dev'])[sig_neurons])
+    #                 mean_dev_dict['No Pyr'].extend(np.array(dataset['mean_dev_no_pyr'])[sig_neurons])
+    #                 mean_dev_dict['No Som'].extend(np.array(dataset['mean_dev_no_som'])[sig_neurons])
+    #                 mean_dev_dict['No Pv'].extend(np.array(dataset['mean_dev_no_pv'])[sig_neurons])
+                    
+    #                 # Map cell IDs to cell types and add to the cell_labels list
+    #                 cell_types = {
+    #                     0: 'pyr',
+    #                     1: 'som',
+    #                     2: 'pv',
+    #                 }
+    #                 cell_labels.extend([cell_types[cell_id] for cell_id in np.array(dataset['celltype_array'])[sig_neurons]])
+
+                
+    #             # Extract labels for the comparison
+    #             label1, label2 = comparison
+                
+    #             # Identify outliers in the 'All' condition
+    #             outlier_indices_all = np.where(np.array(mean_dev_dict['All']) < threshold)[0]
+
+
+    #             # # Collect mean deviance values for outlier detection from the first model type
+    #             # if model_idx == 0:  # Use only the first model's data for outlier detection
+    #             #     all_mean_dev_all = np.array(mean_dev_dict['All'])
+
+    #             # # Identify outliers in the 'All' condition based on the first model type
+    #             # outlier_indices_all = np.where(all_mean_dev_all < threshold)[0]
+                
+    #             # Prepare data for comparison
+    #             full_data = np.array(mean_dev_dict[label2]).astype(np.float64)
+    #             partial_data = np.array(mean_dev_dict[label1]).astype(np.float64)
+
+    #             # Mask outliers
+    #             if len(outlier_indices_all) > 0:
+    #                 #print(outlier_indices_all)
+    #                 print(f'model type: {model_type}, original length, {len(full_data)}')
+    #                 full_data[outlier_indices_all] = np.nan
+    #                 partial_data[outlier_indices_all] = np.nan
+
+    #             # Calculate coupling index
+    #             coupling_index = self.calculate_coupling_index(full_data, partial_data)
+
+    #             #eliminate coupling indices that are greater than one
+    #             bad_coupling = np.where(coupling_index>1)
+    #             coupling_index[bad_coupling] = np.nan
+
+    #             bad_coupling = np.where(coupling_index<-1)
+    #             coupling_index[bad_coupling] = np.nan
+
+    #             # Update the used neurons for each dataset (non-NaN neurons) 
+    #             valid_neurons = ~np.isnan(coupling_index) 
+    #             used_neurons[comparison][model_type] = np.where(valid_neurons)[0]
+                
+    #             # Update the global used neurons set
+    #             if used_neurons_set is None:
+    #                 used_neurons_set = set(used_neurons[comparison][model_type])
+    #             else:
+    #                 used_neurons_set &= set(used_neurons[comparison][model_type])
+
+
+    #             # Separate coupling index by cell type
+    #             for idx, cell_label in enumerate(cell_labels):
+    #                 coupling_index_by_celltype[cell_label][model_type].append(coupling_index[idx])
+
+    #         # Store the results for the current comparison
+    #         coupling_index_by_comparison[comparison] = coupling_index_by_celltype
+
+    #     # Recalculate modulation index using only the neurons present across all comparisons and models if required
+    #     if recalculate_modulation:
+    #         print("Recalculating coupling index using neurons present across all comparisons and models...")
+
+
+    #         # Initialize used_neurons_set for each cell type (to track common neurons across all comparisons and models)
+    #         used_neurons_set_by_celltype = {
+    #             'pyr': None,
+    #             'som': None,
+    #             'pv': None
+    #         }
+
+    #         # Iterate over all comparisons
+    #         for comparison in comparisons:
+    #             # Iterate over all model types
+    #             for model_type in model_types:
+    #                 # For each cell type, find non-NaN neuron indices and keep intersection across comparisons and models
+    #                 for cell_type in used_neurons_set_by_celltype.keys():
+    #                     # Get the coupling index array for the current comparison, model type, and cell type
+    #                     neuron_data = np.array(coupling_index_by_comparison[comparison][cell_type][model_type]) #np.array(coupling_index_by_celltype[cell_type][model_type])
+                        
+    #                     # Identify non-NaN neuron indices
+    #                     valid_neurons = np.where(~np.isnan(neuron_data))[0]
+                        
+    #                     # If this is the first time, initialize the set with valid neurons
+    #                     if used_neurons_set_by_celltype[cell_type] is None:
+    #                         used_neurons_set_by_celltype[cell_type] = set(valid_neurons)
+    #                     else:
+    #                         # Take intersection of valid neurons across models and comparisons
+    #                         used_neurons_set_by_celltype[cell_type] = used_neurons_set_by_celltype[cell_type].intersection(valid_neurons)
+
+    #         # Now used_neurons_set_by_celltype will contain only the neurons common across all comparisons and model types for each cell type
+    #         # You can now check and print the number of non-NaN neurons across all comparisons and models
+
+    #         for cell_type, neuron_set in used_neurons_set_by_celltype.items():
+    #             print(f"Cell Type: {cell_type}, Number of common non-NaN neurons across all comparisons and models: {len(neuron_set)}")
+
+    #         # Update coupling_index_by_comparison with the new common neurons
+    #         for comparison in comparisons:
+    #             for model_type in model_types:
+    #                 for cell_type, neuron_set in used_neurons_set_by_celltype.items():
+    #                     # Convert neuron set back to a list of indices for easy access
+    #                     common_neurons_indices = np.array(list(neuron_set))
+                        
+    #                     # Loop through the neuron data for the current comparison, model type, and cell type
+    #                     neuron_data = coupling_index_by_comparison[comparison][cell_type][model_type]
+    #                     for idx, cell_label in enumerate(neuron_data):
+    #                         # If the index is not in the common neuron set, mark it as NaN
+    #                         if idx not in common_neurons_indices:
+    #                             coupling_index_by_comparison[comparison][cell_type][model_type][idx] = np.nan
+
+    #                     #CODE BELOW GIVES SAME NUMBER OF NEURONS IN EACH CONDITION (ie all active comparisons have the same BUT not across conditions)           
+    #         # for comparison in comparisons:
+    #         #     for cell_type in ['pyr', 'som', 'pv']:
+    #         #         for model_type in model_types:
+    #         #             # Filter out neurons not present in the global used_neurons_set
+    #         #             neuron_indices = used_neurons_set.intersection(used_neurons[comparison][model_type])
+    #         #             filtered_indices = np.array(list(neuron_indices))
+    #         #             #print(f'{comparison} {cell_type} {model_type} total neurons {len(filtered_indices)}')
+
+    #         #             for idx, cell_label in enumerate(coupling_index_by_comparison[comparison][cell_type][model_type]):
+    #         #                 if idx not in filtered_indices:
+    #         #                     coupling_index_by_comparison[comparison][cell_type][model_type][idx] = np.nan
+
+    #     comparisons_list = []
+    #     test_stats = []
+    #     p_values = []
+    #     all_stats_dict = {}
+
+    #     for comparison in comparisons:
+    #         label1, label2 = comparison
+    #         # Paired permutation test for each cell type between model types
+    #         for cell_type in self.plotter.celltypecolors.keys():
+    #             print(f"\n{cell_type.upper()} Cell Type: {label1} vs {label2}")
+                
+    #             for model_a, model_b in zip(model_types[:-1], model_types[1:]):
+    #                 data1 = np.array(coupling_index_by_comparison[comparison][cell_type][model_a]) # used to be coupling_index_by_celltype
+    #                 data2 = np.array(coupling_index_by_comparison[comparison][cell_type][model_b])
+
+    #                 # Perform paired permutation test
+    #                 p_value, observed_diff= self.stats.perform_permutation_test(data1, data2, paired=True, n_permutations=10000)#paired_permutation_test(data1, data2)
+
+    #                 print(f"Model {model_a} vs {model_b}:")
+    #                 print(f"Observed Difference: {observed_diff:.4f}, P-value: {p_value:.4f}")
+
+    #                 comparisons_list.append((f"{comparison}_{cell_type}_{model_a}", f"{comparison}_{cell_type}_{model_b}"))
+    #                 test_stats.append(observed_diff)
+    #                 p_values.append(p_value)
+
+    #                 # Save stats for each group
+    #                 label1_stats = f"{comparison}_{cell_type}_{model_a}"
+    #                 label2_stats = f"{comparison}_{cell_type}_{model_b}"
+    #                 all_stats_dict[label1_stats] = self.stats.get_basic_stats(data1)
+    #                 all_stats_dict[label2_stats] = self.stats.get_basic_stats(data2)
+
+
+    #         # Plot the CDF of coupling index for each cell type for the current comparison
+    #         # Set global font size and family 
+    #         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+    #         plt.figure(figsize=figsize )
+
+    #         for i, (celltype, _) in enumerate(self.plotter.celltypecolors.items()):
+    #             ax = plt.subplot(1, 3, i+1)
+                
+    #             legend_elements = []
+
+    #             # Plot the CDF for each model within the current cell type
+    #             for model_type in model_types:
+
+    #                 sorted_data = np.sort(coupling_index_by_comparison[comparison][celltype][model_type]) #coupling_index_by_celltype
+    #                 print(f'model type: {model_type}, {celltype},{len(sorted_data)}, original length, {len(full_data)}')
+    #                 x1 = np.linspace(0, 1, 100)  # Define range of x values
+    #                 n1, _ = np.histogram(sorted_data, bins=x1)  # Histogram counts
+    #                 p1 = n1 / np.sum(n1)  # Probability
+    #                 cdf = np.cumsum(p1)  # Cumulative sum to get CDF
+                    
+    #                 # Use color_map_dict to assign the specific color
+    #                 plt.plot(x1[:-1], cdf, label=f'{model_type}', color=self.plotter.color_map_dict[(celltype, model_type)], linewidth=1)
+
+    #                 legend_elements.append(Line2D([0], [0], color=self.plotter.color_map_dict[(celltype, model_type)], lw=2, label=model_type))
+
+    #             # Set the title and labels for the plot
+    #             if comparison[0] == 'No Coupling':
+    #                 label_str = list({celltype})[0].upper()  # → 'PYR'
+    #                 plt.title(label_str )
+    #             else:
+    #                 plt.title(f'{label1} vs {label2}') #{celltype} -
+    #             plt.xlabel('Coupling Index')
+    #             if i == 0:
+    #                 plt.ylabel('Cumulative Fraction')
+
+    #             # Define the ticks you want (e.g., from 0 to 1 with increments of 0.1)
+    #             ticks = np.arange(0, 1.1, 0.2)  # The 1.1 ensures that 1.0 is included in the ticks
+
+    #             # Set the format for both x and y axis ticks to show one decimal place
+    #             plt.gca().xaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+    #             plt.xticks(rotation=45)  # Rotates labels 45 degrees
+
+    #             plt.gca().yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+    #             # Ensure ticks are from 0 to 1 with consistent intervals
+    #             plt.xticks(np.arange(0, 1.2, 0.2))
+    #             plt.yticks(np.arange(0, 1.2, 0.2))
+
+    #             # Custom legend
+    #             # Add legend with colored labels
+    #             legend = ax.legend(handles=legend_elements, frameon=False, loc='best', handlelength=0, handletextpad=0.1)
+
+    #             # Set the color of the legend text to match the corresponding model types
+    #             for text in legend.get_texts():
+    #                 # Extract the model type from the legend entry
+    #                 model_type = text.get_text()
+    #                 # Retrieve the color from color_map_dict using the current cell type and model type
+    #                 color = self.plotter.color_map_dict.get((celltype, model_type), 'black')
+    #                 text.set_color(color)
+
+    #             # Clean up the appearance
+    #             ax = plt.gca()
+    #             ax.spines['top'].set_visible(False)
+    #             ax.spines['right'].set_visible(False)
+    #             ax.set_box_aspect(1)
+    #             ax.set_xlim(0, xlim_val)
+    #             ax.set_ylim(0, 1)
+
+    #         #to save svg so that we can edit texts!
+    #         new_rc_params = {'text.usetex': False,
+    #         "svg.fonttype": 'none'
+    #         }
+    #         plt.rcParams.update(new_rc_params)
+
+    #         # Save the figure for the current comparison
+    #         plt.tight_layout()
+    #         if significant_neurons is not None:
+    #             save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_sigcells.png'
+    #             save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_sigcells.pdf'
+    #             # save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_sigcells.pdf'
+    #         else:
+    #             save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_{model_types}.png'
+    #             save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype_{model_types}.pdf'
+    #             # save_string = f'cdf_coupling_index_comparison_{label1}_vs_{label2}_by_celltype.pdf'
+    #         plt.savefig(os.path.join(self.plotter.save_results, save_string),bbox_inches='tight', dpi=300, transparent=True)
+    #         plt.show()
+
+    #     # Save statistical test results to table
+    #     save_path = os.path.join(self.plotter.save_results)
+    #     df_tests = self.stats.to_table(comparisons_list, test_stats, p_values, save_path=f'{save_path}/stat_tests_coupling_index.csv', type='permutation')
+    #     df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path}/basic_stats_coupling_index.csv')
+
+    #     return coupling_index_by_comparison, used_neurons
     
     def bar_plot_separated_coupling_index_diff(self, coupling_index_by_celltype, comparisons, model_pairs, colors, measure_string, bar_width=0.5, save_path=None, minmax=(0, 0.1), xaxislabel = None, figsize = (3, 1)):
         """
@@ -731,6 +986,7 @@ class AnalysisManagerEncoding:
             #         if p_value < 0.05:
             #             for (cell_type1, data1), (cell_type2, data2) in itertools.combinations(zip(cell_types_for_test, data_by_celltype), 2):
             #                 perm_p_value = paired_permutation_test(data1, data2)  # Assuming this function is defined elsewhere
+            
             #                 # Ensure that cell_type1 and cell_type2 are strings by converting them before formatting
             #                 print(f"permutation test p-value: {str(perm_p_value)}")
 

@@ -80,7 +80,9 @@ class Plotter:
             'sound': (0.3, 0.2, 0.6),
             'opto': (1, 0.7, 0),
             'both': (0.3,0.8,1),
-            'unmod': (0.7,0.7,0.7)
+            'unmod': (0.7,0.7,0.7),
+            'sound_pos': (0.3, 0.2, 0.6),
+            'sound_neg': (0.3, 0.2, 0.6)
         }
 
         # Default variable colors (pairs for regular and shuffled) for each decoded variable
@@ -4572,7 +4574,8 @@ class Plotter:
         peak_to_get = 'peak_values',
         alpha = 1,
         save_path = None,
-        ylim=(-.01, .5)
+        ylim=(-.01, .5),
+        xlim=(-0.01, 1.01)
     ):
         """
         Plots coupling index vs peak decoding info for each neuron (all datasets pooled).
@@ -4647,6 +4650,7 @@ class Plotter:
         plt.ylabel('Peak Info (bits)', fontsize=7)
         ax = plt.gca()
         ax.set_ylim(ylim)
+        ax.set_xlim(xlim)
         ax.set_yticklabels(ax.get_yticks(), fontsize=7)
         ax.set_xticklabels(ax.get_xticks(), fontsize=7)
         ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.1f'))
@@ -4659,196 +4663,462 @@ class Plotter:
 
         return df
 
+    def plot_decoding_by_coupling_bin2(
+            coupling_index_by_celltype,
+            peak_info_struc,
+            decoded_feature='sound_category',
+            state='Active',
+            celltype_colors={'pyr': (0.37, 0.75, 0.49), 'som': (0.17, 0.35, 0.8), 'pv': (0.82, 0.04, 0.04)},
+            figsize=(3, 3),
+            marker_size=20,
+            peak_to_get='peak_values',
+            alpha=1,
+            bins=[0, 0.25, 0.5, 0.75, 1.01],  # right-inclusive last bin
+            threshold=None,
+            top_neurons=False,
+            save_path = None,
+            use_quantile_bins=False,          # ✅ NEW
+            n_quantiles=4,
+            group_celltypes_within_bin=False
+        ):
+            """
+            Bins coupling index and plots mean ± SEM of peak decoding info per bin, per cell type.
+            """
+            all_rows = []
+            mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
 
-    def plot_decoding_by_coupling_bin(self,
-        coupling_index_by_celltype,
-        peak_info_struc,
-        decoded_feature='sound_category',
-        state='Active',
-        celltype_colors={'pyr': (0.37, 0.75, 0.49), 'som': (0.17, 0.35, 0.8), 'pv': (0.82, 0.04, 0.04)},
-        figsize=(3, 3),
-        marker_size=20,
-        peak_to_get='peak_values',
-        alpha=1,
-        bins=[0, 0.25, 0.5, 0.75, 1.01],  # right-inclusive last bin
-        threshold=None,
-        top_neurons=False,
-        save_path = None
-    ):
-        """
-        Bins coupling index and plots mean ± SEM of peak decoding info per bin, per cell type.
-        """
-        all_rows = []
-        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+            top_pyr_color = (0.10, 0.36, 0.16) 
 
-        top_pyr_color = (0.10, 0.36, 0.16) 
+            if top_neurons is True:
+                celltype_colors = {
+                    'pyr': (0.37, 0.75, 0.49),
+                    'som': (0.17, 0.35, 0.8),
+                    'pv': (0.82, 0.04, 0.04),
+                    'top_pyr': top_pyr_color
+                }
 
-        if top_neurons is True:
-            celltype_colors = {
-                'pyr': (0.37, 0.75, 0.49),
-                'som': (0.17, 0.35, 0.8),
-                'pv': (0.82, 0.04, 0.04),
-                'top_pyr': top_pyr_color
-            }
+            for dataset in peak_info_struc:
+                for cell_type in peak_info_struc[dataset]:
 
-        for dataset in peak_info_struc:
-            for cell_type in peak_info_struc[dataset]:
-
-                info = peak_info_struc[dataset][cell_type].get(decoded_feature, None)
-                if info is None:
-                    continue
-
-                peak_vals = info[peak_to_get]
-                if peak_to_get == 'peak_frames':
-                    peak_vals = peak_vals / 169  # normalize by frames
-                neuron_indices = info['neuron_indices'].flatten()
-
-                # First, filter to top 10 PYR neurons if requested
-                if top_neurons is True and cell_type.lower() == 'pyr':
-                    # Sort indices of top neurons by decoding strength
-                    sorted_indices = np.argsort(peak_vals)[::-1]
-                    top_indices = sorted_indices[:10]  # Top 10 neurons
-
-                try:
-                    coupling_vals = coupling_index_by_celltype[('No Coupling', 'All')][cell_type.lower()][state]
-                except KeyError:
-                    print(f"Missing coupling index for {dataset}, {cell_type}, {state}")
-                    continue
-
-                for i, neuron_idx in enumerate(neuron_indices):
-                    if neuron_idx >= len(coupling_vals):
+                    info = peak_info_struc[dataset][cell_type].get(decoded_feature, None)
+                    if info is None:
                         continue
-                    if coupling_vals[neuron_idx] < 0 or  np.isnan(coupling_vals[neuron_idx]):
+
+                    peak_vals = info[peak_to_get]
+                    if peak_to_get == 'peak_frames':
+                        peak_vals = peak_vals / 169  # normalize by frames
+                    neuron_indices = info['neuron_indices'].flatten()
+
+                    # First, filter to top 10 PYR neurons if requested
+                    if top_neurons is True and cell_type.lower() == 'pyr':
+                        # Sort indices of top neurons by decoding strength
+                        sorted_indices = np.argsort(peak_vals)[::-1]
+                        top_indices = sorted_indices[:10]  # Top 10 neurons
+
+                    try:
+                        coupling_vals = coupling_index_by_celltype[('No Coupling', 'All')][cell_type.lower()][state]
+                    except KeyError:
+                        print(f"Missing coupling index for {dataset}, {cell_type}, {state}")
                         continue
-                    row = {
-                        'dataset': dataset,
-                        'cell_type': cell_type.lower(),
-                        'neuron_idx': neuron_idx,
-                        'coupling_index': coupling_vals[neuron_idx],
-                        'peak_info': peak_vals[i],
-                    }
-                    if threshold is not None:
-                        # Use threshold filtering
-                        if row['coupling_index'] > threshold:
+
+                    for i, neuron_idx in enumerate(neuron_indices):
+                        if neuron_idx >= len(coupling_vals):
+                            continue
+                        if coupling_vals[neuron_idx] < 0 or  np.isnan(coupling_vals[neuron_idx]):
+                            continue
+                        row = {
+                            'dataset': dataset,
+                            'cell_type': cell_type.lower(),
+                            'neuron_idx': neuron_idx,
+                            'coupling_index': coupling_vals[neuron_idx],
+                            'peak_info': peak_vals[i],
+                        }
+                        if threshold is not None:
+                            # Use threshold filtering
+                            if row['coupling_index'] > threshold:
+                                all_rows.append(row)
+                        elif top_neurons is True and cell_type.lower() == 'pyr':
+                            # print(f"Top 10 PYR neurons for {dataset}: {neuron_indices[top_indices]}")
+                            if i in top_indices:
+                                row = {
+                                    'dataset': dataset,
+                                    'cell_type': 'top_pyr',
+                                    'neuron_idx': neuron_idx,
+                                    'coupling_index': coupling_vals[neuron_idx],
+                                    'peak_info': peak_vals[i],
+                                }
                             all_rows.append(row)
-                    elif top_neurons is True and cell_type.lower() == 'pyr':
-                        # print(f"Top 10 PYR neurons for {dataset}: {neuron_indices[top_indices]}")
-                        if i in top_indices:
-                            row = {
-                                'dataset': dataset,
-                                'cell_type': 'top_pyr',
-                                'neuron_idx': neuron_idx,
-                                'coupling_index': coupling_vals[neuron_idx],
-                                'peak_info': peak_vals[i],
-                            }
-                        all_rows.append(row)
+                        else:
+                            all_rows.append(row)
+
+            df = pd.DataFrame(all_rows)
+            # df['coupling_bin'] = pd.cut(df['coupling_index'], bins=bins, include_lowest=True, right = False)
+            if use_quantile_bins:
+                df['coupling_bin'] = None  # initialize
+
+                for cell_type in df['cell_type'].unique():
+                    mask = df['cell_type'] == cell_type
+                    try:
+                        df.loc[mask, 'coupling_bin'] = pd.qcut(
+                            df.loc[mask, 'coupling_index'],
+                            q=n_quantiles,
+                            duplicates='drop'
+                        )
+                    except ValueError:
+                        # fallback if not enough unique values
+                        df.loc[mask, 'coupling_bin'] = pd.cut(
+                            df.loc[mask, 'coupling_index'],
+                            bins=n_quantiles
+                        )
+            else:
+                df['coupling_bin'] = pd.cut(
+                    df['coupling_index'],
+                    bins=bins,
+                    include_lowest=True,
+                    right=False
+                )
+
+            plt.figure(figsize=figsize)
+
+            # bin_centers = [(bins[i] + bins[i+1]) / 2 for i in range(len(bins) - 1)]
+            
+            
+            for cell_type, color in celltype_colors.items():
+                sub = df[df['cell_type'] == cell_type]
+                means = []
+                errors = []
+                bin_data_all = {}
+
+                categories = sorted(sub['coupling_bin'].dropna().unique()) # categories = sub['coupling_bin'].dropna().cat.categories
+                bin_centers = [(b.left + b.right) / 2 for b in categories]
+
+                if group_celltypes_within_bin:
+                    bin_centers = np.arange(len(categories))
+
+                for b in categories: #for b in df['coupling_bin'].cat.categories:
+                    bin_data = sub[sub['coupling_bin'] == b]['peak_info']
+                    means.append(bin_data.mean())
+                    errors.append(sem(bin_data) if len(bin_data) > 1 else 0)
+                    bin_data_all[b] = bin_data
+
+                #perform stat test
+                # ---- Permutation test ----
+                bins = list(bin_data_all.keys())
+
+                if len(bins) == 2:
+                    data1 = bin_data_all[bins[0]]
+                    data2 = bin_data_all[bins[1]]
+
+                    # only run if both bins have data
+                    if len(data1) > 0 and len(data2) > 0:
+                        all_p_values = []
+                        all_stats_dict = {}
+                        test_stats = []
+                        comparisons_names = []
+                        pval, stat = self.stats.perform_permutation_test(
+                            data1, data2,
+                            paired=False,
+                            n_permutations=10000
+                        )
+                        print(f'permutation test|| pval: {pval}, celltype {cell_type}')
+                        all_p_values.append(pval)
+                        test_stats.append(stat)
+                        label1 = f"low_coupling"
+                        label2 = f"hi_coupling"
+                        all_stats_dict[label1] = self.stats.get_basic_stats(data1)
+                        all_stats_dict[label2] = self.stats.get_basic_stats(data2)
+                        comparisons_names.append((label1,label2))
                     else:
-                        all_rows.append(row)
-
-        df = pd.DataFrame(all_rows)
-        df['coupling_bin'] = pd.cut(df['coupling_index'], bins=bins, include_lowest=True, right = False)
-
-        plt.figure(figsize=figsize)
-
-        bin_centers = [(bins[i] + bins[i+1]) / 2 for i in range(len(bins) - 1)]
-        
-        for cell_type, color in celltype_colors.items():
-            sub = df[df['cell_type'] == cell_type]
-            means = []
-            errors = []
-            bin_data_all = {}
-
-            for b in df['coupling_bin'].cat.categories:
-                bin_data = sub[sub['coupling_bin'] == b]['peak_info']
-                means.append(bin_data.mean())
-                errors.append(sem(bin_data) if len(bin_data) > 1 else 0)
-                bin_data_all[b] = bin_data
-
-            #perform stat test
-            # ---- Permutation test ----
-            bins = list(bin_data_all.keys())
-
-            if len(bins) == 2:
-                data1 = bin_data_all[bins[0]]
-                data2 = bin_data_all[bins[1]]
-
-                # only run if both bins have data
-                if len(data1) > 0 and len(data2) > 0:
-                    all_p_values = []
-                    all_stats_dict = {}
-                    test_stats = []
-                    comparisons_names = []
-                    pval, stat = self.stats.perform_permutation_test(
-                        data1, data2,
-                        paired=False,
-                        n_permutations=10000
-                    )
-                    print(f'permutation test|| pval: {pval}, celltype {cell_type}')
-                    all_p_values.append(pval)
-                    test_stats.append(stat)
-                    label1 = f"low_coupling"
-                    label2 = f"hi_coupling"
-                    all_stats_dict[label1] = self.stats.get_basic_stats(data1)
-                    all_stats_dict[label2] = self.stats.get_basic_stats(data2)
-                    comparisons_names.append((label1,label2))
+                        pval, stat = np.nan, np.nan
                 else:
                     pval, stat = np.nan, np.nan
+
+                plt.errorbar(
+                    bin_centers, means, yerr=errors,
+                    label=cell_type.upper(),
+                    color=color,
+                    marker='o',
+                    markersize=marker_size / 5,
+                    capsize=2,
+                    lw=1
+                )
+                
+                # select the two columns for the cell type
+                x = df[df['cell_type'] == cell_type]['coupling_index']
+                y = df[df['cell_type'] == cell_type]['peak_info']
+
+                # remove NaNs
+                mask = ~np.isnan(x) & ~np.isnan(y)
+                r, p = pearsonr(x[mask], y[mask])
+                print(f'{cell_type.upper()}: r = {r:.2f}, p = {p:.3f}')
+
+            plt.xlabel('Coupling Bin', fontsize=7)
+            plt.ylabel('Peak Info (bits)', fontsize=7)
+            plt.title(decoded_feature.capitalize(), fontsize=7)
+            if decoded_feature == 'sound_category':
+                plt.title('Sound Category', fontsize=7)
+            ax = plt.gca()
+            ax.set_xticks(bin_centers)
+            if use_quantile_bins:
+                ax.set_xticklabels([f'Q{i+1}' for i in range(len(categories))], rotation=0)
             else:
-                pval, stat = np.nan, np.nan
+                ax.set_xticklabels(
+                    [f'{b.left:.2f}-{b.right:.2f}' for b in df['coupling_bin'].cat.categories],
+                    fontsize=7,
+                    rotation=45
+                )
+            # ax.set_xticklabels([f'{b.left:.2f}-{b.right:.2f}' for b in df['coupling_bin'].cat.categories], fontsize=7, rotation=45)
+            ax.set_yticklabels(ax.get_yticks(), fontsize=7)
+            ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.3f'))
+            if len(bins) != 3:
+                ax.set_box_aspect(1)
+            else:
+                ax.set_xlim(-.1,1.1)
 
-            plt.errorbar(
-                bin_centers, means, yerr=errors,
-                label=cell_type.upper(),
-                color=color,
-                marker='o',
-                markersize=marker_size / 5,
-                capsize=2,
-                lw=1
+            plt.legend(
+                loc='center left',           # Anchor point of legend
+                bbox_to_anchor=(1.05, 0.5),  # Position relative to axes
+                borderaxespad=0.0,           # Padding between axes and legend
+                frameon=False,                 # Draw a frame around legend
+                fontsize=6
             )
+            sns.despine()
+            plt.tight_layout()
+            if save_path:
+                plt.savefig(save_path, bbox_inches='tight')
+                save_path_updated = save_path[:save_path.rfind('/')]
+                print(f"Saving stats to {save_path_updated}")
+                name_without_ext = save_path.split('/')[-1].split('.')[0]
+                df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, save_path=f'{save_path_updated}/stat_tests_{name_without_ext}.csv',type='permutation unpaired')
+                df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_{name_without_ext}.csv')
+            plt.show()
+
+            return df
+    # def plot_decoding_by_coupling_bin(self,
+    #     coupling_index_by_celltype,
+    #     peak_info_struc,
+    #     decoded_feature='sound_category',
+    #     state='Active',
+    #     celltype_colors={'pyr': (0.37, 0.75, 0.49), 'som': (0.17, 0.35, 0.8), 'pv': (0.82, 0.04, 0.04)},
+    #     figsize=(3, 3),
+    #     marker_size=20,
+    #     peak_to_get='peak_values',
+    #     alpha=1,
+    #     bins=[0, 0.25, 0.5, 0.75, 1.01],  # right-inclusive last bin
+    #     threshold=None,
+    #     top_neurons=False,
+    #     save_path = None,
+    #     use_quantile_bins=False,          # ✅ NEW
+    #     n_quantiles=4
+    # ):
+    #     """
+    #     Bins coupling index and plots mean ± SEM of peak decoding info per bin, per cell type.
+    #     """
+    #     all_rows = []
+    #     mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+
+    #     top_pyr_color = (0.10, 0.36, 0.16) 
+
+    #     if top_neurons is True:
+    #         celltype_colors = {
+    #             'pyr': (0.37, 0.75, 0.49),
+    #             'som': (0.17, 0.35, 0.8),
+    #             'pv': (0.82, 0.04, 0.04),
+    #             'top_pyr': top_pyr_color
+    #         }
+
+    #     for dataset in peak_info_struc:
+    #         for cell_type in peak_info_struc[dataset]:
+
+    #             info = peak_info_struc[dataset][cell_type].get(decoded_feature, None)
+    #             if info is None:
+    #                 continue
+
+    #             peak_vals = info[peak_to_get]
+    #             if peak_to_get == 'peak_frames':
+    #                 peak_vals = peak_vals / 169  # normalize by frames
+    #             neuron_indices = info['neuron_indices'].flatten()
+
+    #             # First, filter to top 10 PYR neurons if requested
+    #             if top_neurons is True and cell_type.lower() == 'pyr':
+    #                 # Sort indices of top neurons by decoding strength
+    #                 sorted_indices = np.argsort(peak_vals)[::-1]
+    #                 top_indices = sorted_indices[:10]  # Top 10 neurons
+
+    #             try:
+    #                 coupling_vals = coupling_index_by_celltype[('No Coupling', 'All')][cell_type.lower()][state]
+    #             except KeyError:
+    #                 print(f"Missing coupling index for {dataset}, {cell_type}, {state}")
+    #                 continue
+
+    #             for i, neuron_idx in enumerate(neuron_indices):
+    #                 if neuron_idx >= len(coupling_vals):
+    #                     continue
+    #                 if coupling_vals[neuron_idx] < 0 or  np.isnan(coupling_vals[neuron_idx]):
+    #                     continue
+    #                 row = {
+    #                     'dataset': dataset,
+    #                     'cell_type': cell_type.lower(),
+    #                     'neuron_idx': neuron_idx,
+    #                     'coupling_index': coupling_vals[neuron_idx],
+    #                     'peak_info': peak_vals[i],
+    #                 }
+    #                 if threshold is not None:
+    #                     # Use threshold filtering
+    #                     if row['coupling_index'] > threshold:
+    #                         all_rows.append(row)
+    #                 elif top_neurons is True and cell_type.lower() == 'pyr':
+    #                     # print(f"Top 10 PYR neurons for {dataset}: {neuron_indices[top_indices]}")
+    #                     if i in top_indices:
+    #                         row = {
+    #                             'dataset': dataset,
+    #                             'cell_type': 'top_pyr',
+    #                             'neuron_idx': neuron_idx,
+    #                             'coupling_index': coupling_vals[neuron_idx],
+    #                             'peak_info': peak_vals[i],
+    #                         }
+    #                     all_rows.append(row)
+    #                 else:
+    #                     all_rows.append(row)
+
+    #     df = pd.DataFrame(all_rows)
+    #     # df['coupling_bin'] = pd.cut(df['coupling_index'], bins=bins, include_lowest=True, right = False)
+    #     if use_quantile_bins:
+    #         df['coupling_bin'] = None  # initialize
+
+    #         for cell_type in df['cell_type'].unique():
+    #             mask = df['cell_type'] == cell_type
+    #             try:
+    #                 df.loc[mask, 'coupling_bin'] = pd.qcut(
+    #                     df.loc[mask, 'coupling_index'],
+    #                     q=n_quantiles,
+    #                     duplicates='drop'
+    #                 )
+    #             except ValueError:
+    #                 # fallback if not enough unique values
+    #                 df.loc[mask, 'coupling_bin'] = pd.cut(
+    #                     df.loc[mask, 'coupling_index'],
+    #                     bins=n_quantiles
+    #                 )
+    #     else:
+    #         df['coupling_bin'] = pd.cut(
+    #             df['coupling_index'],
+    #             bins=bins,
+    #             include_lowest=True,
+    #             right=False
+    #         )
+
+    #     plt.figure(figsize=figsize)
+
+    #     # bin_centers = [(bins[i] + bins[i+1]) / 2 for i in range(len(bins) - 1)]
+    #     categories = sub['coupling_bin'].dropna().cat.categories
+    #     bin_centers = [(b.left + b.right) / 2 for b in categories]
+        
+    #     for cell_type, color in celltype_colors.items():
+    #         sub = df[df['cell_type'] == cell_type]
+    #         means = []
+    #         errors = []
+    #         bin_data_all = {}
+
+    #         for b in categories: #for b in df['coupling_bin'].cat.categories:
+    #             bin_data = sub[sub['coupling_bin'] == b]['peak_info']
+    #             means.append(bin_data.mean())
+    #             errors.append(sem(bin_data) if len(bin_data) > 1 else 0)
+    #             bin_data_all[b] = bin_data
+
+    #         #perform stat test
+    #         # ---- Permutation test ----
+    #         bins = list(bin_data_all.keys())
+
+    #         if len(bins) == 2:
+    #             data1 = bin_data_all[bins[0]]
+    #             data2 = bin_data_all[bins[1]]
+
+    #             # only run if both bins have data
+    #             if len(data1) > 0 and len(data2) > 0:
+    #                 all_p_values = []
+    #                 all_stats_dict = {}
+    #                 test_stats = []
+    #                 comparisons_names = []
+    #                 pval, stat = self.stats.perform_permutation_test(
+    #                     data1, data2,
+    #                     paired=False,
+    #                     n_permutations=10000
+    #                 )
+    #                 print(f'permutation test|| pval: {pval}, celltype {cell_type}')
+    #                 all_p_values.append(pval)
+    #                 test_stats.append(stat)
+    #                 label1 = f"low_coupling"
+    #                 label2 = f"hi_coupling"
+    #                 all_stats_dict[label1] = self.stats.get_basic_stats(data1)
+    #                 all_stats_dict[label2] = self.stats.get_basic_stats(data2)
+    #                 comparisons_names.append((label1,label2))
+    #             else:
+    #                 pval, stat = np.nan, np.nan
+    #         else:
+    #             pval, stat = np.nan, np.nan
+
+    #         plt.errorbar(
+    #             bin_centers, means, yerr=errors,
+    #             label=cell_type.upper(),
+    #             color=color,
+    #             marker='o',
+    #             markersize=marker_size / 5,
+    #             capsize=2,
+    #             lw=1
+    #         )
             
-            # select the two columns for the cell type
-            x = df[df['cell_type'] == cell_type]['coupling_index']
-            y = df[df['cell_type'] == cell_type]['peak_info']
+    #         # select the two columns for the cell type
+    #         x = df[df['cell_type'] == cell_type]['coupling_index']
+    #         y = df[df['cell_type'] == cell_type]['peak_info']
 
-            # remove NaNs
-            mask = ~np.isnan(x) & ~np.isnan(y)
-            r, p = pearsonr(x[mask], y[mask])
-            print(f'{cell_type.upper()}: r = {r:.2f}, p = {p:.3f}')
+    #         # remove NaNs
+    #         mask = ~np.isnan(x) & ~np.isnan(y)
+    #         r, p = pearsonr(x[mask], y[mask])
+    #         print(f'{cell_type.upper()}: r = {r:.2f}, p = {p:.3f}')
 
-        plt.xlabel('Coupling Bin', fontsize=7)
-        plt.ylabel('Peak Info (bits)', fontsize=7)
-        plt.title(decoded_feature.capitalize(), fontsize=7)
-        if decoded_feature == 'sound_category':
-            plt.title('Sound Category', fontsize=7)
-        ax = plt.gca()
-        ax.set_xticks(bin_centers)
-        ax.set_xticklabels([f'{b.left:.2f}-{b.right:.2f}' for b in df['coupling_bin'].cat.categories], fontsize=7, rotation=45)
-        ax.set_yticklabels(ax.get_yticks(), fontsize=7)
-        ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.3f'))
-        if len(bins) != 3:
-            ax.set_box_aspect(1)
-        else:
-            ax.set_xlim(-.1,1.1)
+    #     plt.xlabel('Coupling Bin', fontsize=7)
+    #     plt.ylabel('Peak Info (bits)', fontsize=7)
+    #     plt.title(decoded_feature.capitalize(), fontsize=7)
+    #     if decoded_feature == 'sound_category':
+    #         plt.title('Sound Category', fontsize=7)
+    #     ax = plt.gca()
+    #     ax.set_xticks(bin_centers)
+    #     if use_quantile_bins:
+    #         ax.set_xticklabels([f'Q{i+1}' for i in range(len(categories))], rotation=0)
+    #     else:
+    #         ax.set_xticklabels(
+    #             [f'{b.left:.2f}-{b.right:.2f}' for b in df['coupling_bin'].cat.categories],
+    #             fontsize=7,
+    #             rotation=45
+    #         )
+    #     # ax.set_xticklabels([f'{b.left:.2f}-{b.right:.2f}' for b in df['coupling_bin'].cat.categories], fontsize=7, rotation=45)
+    #     ax.set_yticklabels(ax.get_yticks(), fontsize=7)
+    #     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.3f'))
+    #     if len(bins) != 3:
+    #         ax.set_box_aspect(1)
+    #     else:
+    #         ax.set_xlim(-.1,1.1)
 
-        plt.legend(
-            loc='center left',           # Anchor point of legend
-            bbox_to_anchor=(1.05, 0.5),  # Position relative to axes
-            borderaxespad=0.0,           # Padding between axes and legend
-            frameon=False,                 # Draw a frame around legend
-            fontsize=6
-        )
-        sns.despine()
-        plt.tight_layout()
-        if save_path:
-            plt.savefig(save_path, bbox_inches='tight')
-            save_path_updated = save_path[:save_path.rfind('/')]
-            print(f"Saving stats to {save_path_updated}")
-            name_without_ext = save_path.split('/')[-1].split('.')[0]
-            df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, save_path=f'{save_path_updated}/stat_tests_{name_without_ext}.csv',type='permutation unpaired')
-            df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_{name_without_ext}.csv')
-        plt.show()
+    #     plt.legend(
+    #         loc='center left',           # Anchor point of legend
+    #         bbox_to_anchor=(1.05, 0.5),  # Position relative to axes
+    #         borderaxespad=0.0,           # Padding between axes and legend
+    #         frameon=False,                 # Draw a frame around legend
+    #         fontsize=6
+    #     )
+    #     sns.despine()
+    #     plt.tight_layout()
+    #     if save_path:
+    #         plt.savefig(save_path, bbox_inches='tight')
+    #         save_path_updated = save_path[:save_path.rfind('/')]
+    #         print(f"Saving stats to {save_path_updated}")
+    #         name_without_ext = save_path.split('/')[-1].split('.')[0]
+    #         df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, save_path=f'{save_path_updated}/stat_tests_{name_without_ext}.csv',type='permutation unpaired')
+    #         df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_{name_without_ext}.csv')
+    #     plt.show()
 
-        return df
+    #     return df
     
 
     def plot_within_between_cdf_two_contexts(self,all_df1, all_df2, group_colors=None,
