@@ -598,7 +598,7 @@ class DataHandlerEncoding:
         # Load the condition_array_trials structure
         mat_data = scipy.io.loadmat(os.path.join(dir, 'opto.mat'))
         opto = mat_data['opto'][0][0]
-        opto = self.unwrap_matlab(opto)
+        opto =self.unwrap_matlab(opto)
 
         mat_data = scipy.io.loadmat(os.path.join(dir, 'sound.mat'))
         sound = mat_data['sound'][0][0]
@@ -635,6 +635,7 @@ class DataHandlerEncoding:
 
             keep_idx = [i for i in range(len(mouse_dates))
                         if i not in exclude_indices]
+            print(keep_idx)
 
             mouse_dates = [mouse_dates[i] for i in keep_idx]
 
@@ -648,6 +649,8 @@ class DataHandlerEncoding:
 
                 if arr.ndim == 2 and arr.shape[0] == orig_n:
                     opto[field] = arr[keep_idx, :]
+                elif arr.shape[1] == orig_n or arr.shape[1] == orig_n-1:
+                    opto[field] = arr[:, keep_idx]
 
             for field in sound.dtype.names:
                 arr = sound[field]
@@ -657,12 +660,20 @@ class DataHandlerEncoding:
 
                 if arr.ndim == 2 and arr.shape[0] == orig_n:
                     sound[field] = arr[keep_idx, :]
+                elif arr.shape[1] == orig_n or arr.shape[1] == orig_n-1:
+                    sound[field] = arr[:, keep_idx]
            
 
         significant_neurons = {}
         mod_indices = {}
+        #create fields for sound pos and neg
+        sound_separated = {
+            'sig_cells_pos': np.empty((1, len(mouse_dates)), dtype=object),
+            'sig_cells_neg': np.empty((1, len(mouse_dates)), dtype=object)
+        }
         # Iterate over mouse_dates and map to corresponding neurons in sig_cells by index
         for idx, mouse_date in enumerate(mouse_dates):
+            
             # ---- NEW: skip excluded datasets ----
             # if idx in exclude_indices:
             #     continue
@@ -684,20 +695,22 @@ class DataHandlerEncoding:
             #get total nuerons
             all_neurons = list(range(opto['mod'][idx,0].shape[0]))#range(0,opto['mod'][idx,0].shape[0])
             
-            # #get significant neurons
-            # if set_diff:
-            #     significant_neurons[mouse_date]['opto'] = list(set(opto_neurons) - set(sound_neurons))
-            #     significant_neurons[mouse_date]['sound'] = list(set(sound_neurons) - set(opto_neurons))
-            #     significant_neurons[mouse_date]['both'] = list(set(opto_neurons).intersection(set(sound_neurons)))
-            #     significant_neurons[mouse_date]['unmod'] = list(set(all_neurons) - set(opto_neurons) - set(sound_neurons))
-            # else:   
-            #     significant_neurons[mouse_date]['opto'] = opto_neurons
-            #     significant_neurons[mouse_date]['sound'] = sound_neurons
-            #     significant_neurons[mouse_date]['both'] = list(set(opto_neurons).intersection(set(sound_neurons)))
-            #     significant_neurons[mouse_date]['unmod'] = list(set(all_neurons) - set(opto_neurons) - set(sound_neurons))
 
             # get modulation values for sound (assuming context 0 for sound)
-            sound_mod_values = sound['mod'][idx, 0]
+            sig_cells = sound_neurons
+
+            mod0 = sound['mod'][idx,0]
+            mod1 = sound['mod'][idx,1]
+
+            sound_sig_pos = [
+                n for n in sig_cells
+                if mod0[n] > 0 and mod1[n] > 0
+            ]
+
+            sound_sig_neg = [
+                n for n in sig_cells
+                if mod0[n] < 0 and mod1[n] < 0
+            ]
 
             if set_diff:
                 sound_only = list(set(sound_neurons) - set(opto_neurons))
@@ -707,8 +720,9 @@ class DataHandlerEncoding:
                 opto_only  = list(opto_neurons)
 
             # Now apply sign split WITHIN the set-diff result
-            sound_pos_only = [n for n in sound_only if sound_mod_values[n] > 0]
-            sound_neg_only = [n for n in sound_only if sound_mod_values[n] < 0]
+
+            sound_pos_only = sound_sig_pos
+            sound_neg_only = sound_sig_neg
 
             significant_neurons[mouse_date]['opto'] = opto_only
             significant_neurons[mouse_date]['sound'] = sound_only
@@ -717,5 +731,9 @@ class DataHandlerEncoding:
             significant_neurons[mouse_date]['both'] = list(set(opto_neurons).intersection(set(sound_neurons)))
             significant_neurons[mouse_date]['unmod'] = list(set(all_neurons) - set(opto_neurons) - set(sound_neurons))
 
-        return opto, sound, mouse_dates, significant_neurons, mod_indices
+            #put sound pos and neg into sound
+            sound_separated['sig_cells_pos'][0,idx] = sound_sig_pos
+            sound_separated['sig_cells_neg'][0,idx] = sound_sig_neg
+
+        return opto, sound, mouse_dates, significant_neurons, mod_indices,sound_separated
 

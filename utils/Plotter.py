@@ -1204,7 +1204,7 @@ class Plotter:
             ax.set_ylim(minmax[0],minmax[1])
         
         # Add a global title for the figure
-        fig.suptitle(f'{measure_string} Across Cell Types and Models', fontsize=8)
+        fig.suptitle(f'{measure_string} Across Cell Types and Models', fontsize=7)
         
         # Adjust layout
         plt.tight_layout(rect=[0, 0, 1, 0.95])
@@ -4667,7 +4667,7 @@ class Plotter:
         plt.title(f'{decoded_feature.capitalize()}', fontsize=7) 
         if decoded_feature == 'sound_category':
             plt.title('Sound category', fontsize=7)
-        # plt.title(f'{decoded_feature}\nr = {r:.2f}, p = {p:.3f}', fontsize=8)
+        # plt.title(f'{decoded_feature}\nr = {r:.2f}, p = {p:.3f}', fontsize=7)
 
         plt.xlabel('Coupling Index', fontsize=7)
         plt.ylabel('Peak Info (bits)', fontsize=7)
@@ -4948,12 +4948,14 @@ class Plotter:
         model_type,
         fold_number,
         label,
+        plot_real_activity = True,
         running_group_summaries=None,
         velocity_display_traces=None,
         plot_smoothed_rate=True,
         imaging_rate_hz=30.4791,
         smooth_sigma_sec=0.5,
         prediction_color="deepskyblue",
+        figsize_inputt= (8, 1.35*4)
     ):
 
         response_matrix = np.asarray(response_matrix)
@@ -4987,7 +4989,7 @@ class Plotter:
 
         n_rows = len(neuron_ids) + 1
 
-        fig, axs = plt.subplots(n_rows, 1, figsize=(8, 1.35 * n_rows), sharex=True)
+        fig, axs = plt.subplots(n_rows, 1, figsize=(figsize_inputt), sharex=True)
 
         if n_rows == 1:
             axs = [axs]
@@ -5006,12 +5008,12 @@ class Plotter:
                     sigma=smooth_sigma_frames,
                     mode="nearest"
                 )
-
+            if plot_real_activity:
                 ax.plot(frames, true_rate, color=[0.25, 0.25, 0.25], linewidth=1.0)
 
             ax.plot(frames, pred_y, color=prediction_color, linewidth=1.0)
 
-            ax.set_ylabel("N{}".format(neuron_idx), fontsize=8)
+            ax.set_ylabel("N{}".format(neuron_idx), fontsize=7)
 
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
@@ -5022,13 +5024,15 @@ class Plotter:
             for trace_name, trace in running_group_summaries.items():
                 ax.plot(frames, trace[frames], linewidth=0.9, label=trace_name)
 
-            ax.set_ylabel("Convolved pred.", fontsize=8)
+            ax.set_ylabel("Convolved pred.", fontsize=7)
 
         elif running_trace_mode in ["raw_velocity", "raw_velocity_split"]:
             for trace_name, trace in velocity_display_traces.items():
                 ax.plot(frames, trace[frames], linewidth=0.9, label=trace_name)
 
-            ax.set_ylabel("Raw vel.", fontsize=8)
+            ax.set_ylabel("Vel.", fontsize=7)
+            if running_trace_mode == "raw_velocity_split":
+                ax.set_ylabel("|Vel.|", fontsize=7)
 
         ax.set_xlabel("Frame")
 
@@ -5041,7 +5045,7 @@ class Plotter:
             "{} {}, fold {}, {}".format(
                 animalID, date, fold_number + 1, label
             ),
-            fontsize=10
+            fontsize=8
         )
 
         plt.tight_layout()
@@ -5083,11 +5087,13 @@ class Plotter:
         model_type,
         fold_number,
         label,
+        plot_real_activity=True,
         plot_smoothed_rate=True,
         imaging_rate_hz=30.4791,
         smooth_sigma_sec=0.5,
         prediction_color="deepskyblue",
         heatmap_clip=3,
+        figsize_inputt=(8, 4.5)
     ):
 
         response_matrix = np.asarray(response_matrix)
@@ -5112,14 +5118,15 @@ class Plotter:
         pred_display = np.clip(pred_display, -heatmap_clip, heatmap_clip)
 
         fig, axs = plt.subplots(
-            3, 1, figsize=(8, 4.5), sharex=True,
+            3, 1, figsize=figsize_inputt, sharex=True,
             gridspec_kw={"height_ratios": [1.2, 1.2, 2.2]}
         )
 
         true_y = response_matrix[neuron_idx, frames]
         pred_y = y_pred[frames, neuron_idx]
 
-        axs[0].plot(frames, true_y, color=[0.75, 0.75, 0.75], linewidth=0.6)
+        if plot_real_activity:
+            axs[0].plot(frames, true_y, color=[0.75, 0.75, 0.75], linewidth=0.6)
 
         if plot_smoothed_rate:
             true_rate = gaussian_filter1d(
@@ -5144,7 +5151,7 @@ class Plotter:
             ]
         )
 
-        axs[2].set_ylabel("Running predictor", fontsize=8)
+        axs[2].set_ylabel("Running predictor", fontsize=7)
         axs[2].set_xlabel("Frame")
 
         plt.colorbar(im, ax=axs[2], fraction=0.025, pad=0.02)
@@ -5191,6 +5198,340 @@ class Plotter:
         sigma = np.nanstd(x, axis=axis, keepdims=True)
         sigma[sigma < eps] = 1.0
         return (x - mu) / sigma
+
+
+    def average_aligned_across_folds(
+        self,
+        aligned_true,
+        aligned_pred,
+        aligned_velocity,
+        key,
+        folds=range(10),
+        trial_average=True,
+        velocity_axis_order=("y", "x"),
+    ):
+        """
+        Average aligned true neural, predicted neural, and velocity across folds.
+
+        Inputs:
+            aligned_true[key][fold]: trials x neurons x frames
+            aligned_pred[key][fold]: trials x neurons x frames
+            aligned_velocity[key][fold]: trials x 2 x frames
+
+        Returns:
+            avg_true: neurons x frames
+            avg_pred: neurons x frames
+            avg_velocity: 2 x frames
+            fold_counts: dict with number of trials per fold
+        """
+
+        true_fold_means = []
+        pred_fold_means = []
+        velocity_fold_means = []
+        fold_counts = {}
+
+        for fold in folds:
+            if fold not in aligned_true[key]:
+                continue
+            if fold not in aligned_pred[key]:
+                continue
+            if fold not in aligned_velocity[key]:
+                continue
+
+            true_data = np.asarray(aligned_true[key][fold])
+            pred_data = np.asarray(aligned_pred[key][fold])
+            velocity_data = np.asarray(aligned_velocity[key][fold])
+
+            if true_data.ndim != 3:
+                raise ValueError(f"true data fold {fold} should be trials x neurons x frames, got {true_data.shape}")
+            if pred_data.ndim != 3:
+                raise ValueError(f"pred data fold {fold} should be trials x neurons x frames, got {pred_data.shape}")
+            if velocity_data.ndim != 3:
+                raise ValueError(f"velocity data fold {fold} should be trials x 2 x frames, got {velocity_data.shape}")
+
+            if true_data.shape != pred_data.shape:
+                raise ValueError(
+                    f"True/pred shape mismatch for {key}, fold {fold}: "
+                    f"true {true_data.shape}, pred {pred_data.shape}"
+                )
+
+            if velocity_data.shape[0] != true_data.shape[0]:
+                raise ValueError(
+                    f"Trial mismatch for {key}, fold {fold}: "
+                    f"neural has {true_data.shape[0]} trials, velocity has {velocity_data.shape[0]}"
+                )
+
+            if velocity_data.shape[2] != true_data.shape[2]:
+                raise ValueError(
+                    f"Frame mismatch for {key}, fold {fold}: "
+                    f"neural has {true_data.shape[2]} frames, velocity has {velocity_data.shape[2]}"
+                )
+
+            if velocity_data.shape[1] != 2:
+                raise ValueError(
+                    f"Expected velocity to be trials x 2 x frames, got {velocity_data.shape}"
+                )
+
+            fold_counts[fold] = true_data.shape[0]
+
+            if trial_average:
+                true_fold_means.append(np.nanmean(true_data, axis=0))          # neurons x frames
+                pred_fold_means.append(np.nanmean(pred_data, axis=0))          # neurons x frames
+                velocity_fold_means.append(np.nanmean(velocity_data, axis=0))  # 2 x frames
+            else:
+                true_fold_means.append(true_data)
+                pred_fold_means.append(pred_data)
+                velocity_fold_means.append(velocity_data)
+
+        if len(true_fold_means) == 0:
+            raise ValueError(f"No valid folds found for key: {key}")
+
+        avg_true = np.nanmean(np.stack(true_fold_means, axis=0), axis=0)
+        avg_pred = np.nanmean(np.stack(pred_fold_means, axis=0), axis=0)
+        avg_velocity = np.nanmean(np.stack(velocity_fold_means, axis=0), axis=0)
+
+        return avg_true, avg_pred, avg_velocity, fold_counts
+
+
+    def smooth_neural_trace_for_display(
+        self,
+        neural_data,
+        imaging_rate_hz=30.4791,
+        smooth_sigma_sec=0.5,
+        axis=-1,
+    ):
+        """
+        Smooth neural data along the frame axis for display as estimated rate.
+
+        Input can be:
+            neurons x frames
+            trials x neurons x frames
+            any array where frames are axis=-1
+        """
+        sigma_frames = smooth_sigma_sec * imaging_rate_hz
+
+        return gaussian_filter1d(
+            np.asarray(neural_data).astype(float),
+            sigma=sigma_frames,
+            axis=axis,
+            mode="nearest"
+        )
+
+
+    def minmax_for_display(self, x, eps=1e-12):
+        """
+        Display-only min-max scaling to 0-1.
+        """
+        x = np.asarray(x).astype(float).copy()
+        x = x - np.nanmin(x)
+
+        denom = np.nanmax(x)
+        if denom < eps:
+            denom = 1.0
+
+        return x / denom
+
+
+    def plot_aligned_fold_average_neurons(
+        self,
+        key,
+        aligned_true,
+        aligned_pred,
+        aligned_velocity,
+        neuron_ids,
+        frame_axis=None,
+        folds=range(10),
+        response_mode="deconvolved",
+        imaging_rate_hz=30.4791,
+        smooth_sigma_sec=0.5,
+        velocity_axis_order=("y", "x"),
+        scale_velocity=True,
+        title=None,
+        save_dir=None,
+        save_name=None,
+        prediction_color="deepskyblue",
+    ):
+        """
+        Plot average aligned true vs predicted neural activity across folds for one dataset.
+
+        Inputs:
+            aligned_true[key][fold]: trials x neurons x frames
+            aligned_pred[key][fold]: trials x neurons x frames
+            aligned_velocity[key][fold]: trials x 2 x frames
+
+        response_mode:
+            "deconvolved" = plot mean deconvolved activity
+            "rate" = plot gaussian-smoothed mean deconvolved activity
+
+        velocity_axis_order:
+            ("y", "x") if velocity[:, 0, :] is y and velocity[:, 1, :] is x
+            ("x", "y") if velocity[:, 0, :] is x and velocity[:, 1, :] is y
+        """
+
+        avg_true, avg_pred, avg_velocity, fold_counts = self.average_aligned_across_folds(
+            aligned_true=aligned_true,
+            aligned_pred=aligned_pred,
+            aligned_velocity=aligned_velocity,
+            key=key,
+            folds=folds,
+            velocity_axis_order=velocity_axis_order,
+        )
+
+        if response_mode == "deconvolved":
+            true_to_plot = avg_true
+            pred_to_plot = avg_pred
+            response_label = "Mean deconvolved"
+
+        elif response_mode == "rate":
+            true_to_plot = self.smooth_neural_trace_for_display(
+                avg_true,
+                imaging_rate_hz=imaging_rate_hz,
+                smooth_sigma_sec=smooth_sigma_sec,
+                axis=-1,
+            )
+
+            pred_to_plot = self.smooth_neural_trace_for_display(
+                avg_pred,
+                imaging_rate_hz=imaging_rate_hz,
+                smooth_sigma_sec=smooth_sigma_sec,
+                axis=-1,
+            )
+
+            response_label = f"Estimated rate, σ={smooth_sigma_sec:.1f}s"
+
+        else:
+            raise ValueError("response_mode must be 'deconvolved' or 'rate'")
+
+        n_frames = true_to_plot.shape[1]
+
+        if frame_axis is None:
+            frame_axis = np.arange(n_frames)
+        else:
+            frame_axis = np.asarray(frame_axis)
+            if len(frame_axis) != n_frames:
+                raise ValueError(
+                    f"frame_axis length {len(frame_axis)} does not match n_frames {n_frames}"
+                )
+
+        n_rows = len(neuron_ids) + 1
+
+        fig, axs = plt.subplots(
+            n_rows,
+            1,
+            figsize=(8, 1.35 * n_rows),
+            sharex=True
+        )
+
+        if n_rows == 1:
+            axs = [axs]
+
+        for i, neuron_idx in enumerate(neuron_ids):
+            ax = axs[i]
+
+            ax.plot(
+                frame_axis,
+                true_to_plot[neuron_idx, :],
+                color=[0.25, 0.25, 0.25],
+                linewidth=1.0,
+                label=response_label,
+            )
+
+            ax.plot(
+                frame_axis,
+                pred_to_plot[neuron_idx, :],
+                color=prediction_color,
+                linewidth=1.0,
+                label="Predicted",
+            )
+
+            ax.set_ylabel(f"N{neuron_idx}", fontsize=8)
+            ax.legend(
+                frameon=False,
+                loc="center left",
+                bbox_to_anchor=(1, 0.5),
+                fontsize=7,
+            )
+
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+
+        # Velocity bottom panel
+        ax = axs[-1]
+
+        vel0_label, vel1_label = velocity_axis_order
+
+        vel0 = avg_velocity[0, :]
+        vel1 = avg_velocity[1, :]
+
+        if scale_velocity:
+            vel0 = self.minmax_for_display(np.abs(vel0))
+            vel1 = self.minmax_for_display(np.abs(vel1))
+            velocity_ylabel = "Velocity\nscaled"
+            vel0_label = f"abs {vel0_label} velocity"
+            vel1_label = f"abs {vel1_label} velocity"
+        else:
+            velocity_ylabel = "Velocity"
+
+        ax.plot(
+            frame_axis,
+            vel0,
+            linewidth=1.0,
+            label=vel0_label,
+        )
+
+        ax.plot(
+            frame_axis,
+            vel1,
+            linewidth=1.0,
+            label=vel1_label,
+        )
+
+        ax.set_ylabel(velocity_ylabel, fontsize=8)
+        ax.set_xlabel("Aligned frame")
+        ax.legend(
+            frameon=False,
+            loc="center left",
+            bbox_to_anchor=(1, 0.5),
+            fontsize=7,
+        )
+
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        if title is None:
+            total_trials = sum(fold_counts.values())
+            title = (
+                f"{key}, fold-averaged aligned GLM prediction, "
+                f"{response_mode}, n_trials={total_trials}"
+            )
+
+        fig.suptitle(title, fontsize=10)
+
+        plt.tight_layout()
+
+        saved_path = None
+
+        if save_dir is not None:
+            os.makedirs(save_dir, exist_ok=True)
+
+            if save_name is None:
+                save_name = (
+                    f"{key}_fold_avg_aligned_true_vs_pred_"
+                    f"{response_mode}.pdf"
+                )
+
+            saved_path = os.path.join(save_dir, save_name)
+            plt.savefig(saved_path, bbox_inches="tight")
+            print("Saved:", saved_path)
+
+        plt.show()
+
+        return fig, axs, saved_path, {
+            "avg_true": avg_true,
+            "avg_pred": avg_pred,
+            "avg_velocity": avg_velocity,
+            "fold_counts": fold_counts,
+        }
     
     # def plot_decoding_by_coupling_bin(self,
     #     coupling_index_by_celltype,

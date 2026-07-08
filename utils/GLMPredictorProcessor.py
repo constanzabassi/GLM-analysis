@@ -795,26 +795,35 @@ class GLMPredictorProcessor:
     
     def align_model_outputs_across_folds(self, datasets, frames, model_outputs_dict, model_type, data_dir = None):
         aligned_data_all = {}
+        aligned_velocity_all = {}
             
         for animalID, date, server in datasets:
             key = f'{animalID}_{date}'
             print(f'Aligning neural or model outputs for {key}...')
             
             aligned_data_all[key] = {}
+            aligned_velocity_all[key] = {}
 
             for fold_number in range(10):
                 save_directory = f'{server}/Connie/ProcessedData/{animalID}/{date}/GLM_running/'
 
                 if data_dir is None:
+                    #load predicted neural responses
                     model_outputs = model_outputs_dict[key][model_type][fold_number]['y_pred'] #[{to_align}]
-                else:
+                else: #load true neural responses
                     path = os.path.join(save_directory, f"{data_dir}{fold_number+1}",'test') 
                     model_outputs1 = scipy.io.loadmat(os.path.join(path, 'combined_response.mat'))
                     model_outputs =  model_outputs1['combined_response'].T
                 aligned_data = self.align_neural_data(frames[key][fold_number], model_outputs)
                 aligned_data_all[key][fold_number] = aligned_data
+
+                #load predictors (no convolution)
+                behav_the_matrix1 = scipy.io.loadmat(os.path.join(path, 'behav_the_matrix.mat'))
+                behav_the_matrix =  behav_the_matrix1['behav_the_matrix'].T
+                aligned_data_predictors = self.align_neural_data(frames[key][fold_number], behav_the_matrix)
+                aligned_velocity_all[key][fold_number] = aligned_data_predictors
             
-        return aligned_data_all
+        return aligned_data_all, aligned_velocity_all
     
 
     def get_trial_conditions_from_array(self, condition_array_trials,
@@ -2870,7 +2879,332 @@ class GLMPredictorProcessor:
 
 
 
+    def get_fold_test_path(self, server, animalID, date, model_type, fold_number):
+        """
+        Build path to the test folder for a given dataset/fold.
 
+        fold_number is zero-indexed.
+        """
+        save_directory = f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}/'
+        return os.path.join(save_directory, f"VR_{fold_number + 1}", "test")
+
+
+    def load_test_response(self, path):
+        """
+        Load combined_response.mat.
+
+        Expected output:
+            response_matrix: neurons x frames
+        """
+        response_path = os.path.join(path, "combined_response.mat")
+
+        if not os.path.exists(response_path):
+            raise FileNotFoundError(f"Could not find combined_response.mat at: {response_path}")
+
+        response = scipy.io.loadmat(response_path)
+
+        if "combined_response" not in response:
+            raise KeyError(
+                f"'combined_response' not found in combined_response.mat. "
+                f"Available keys: {list(response.keys())}"
+            )
+
+        response_matrix = np.asarray(response["combined_response"])
+
+        if response_matrix.ndim != 2:
+            raise ValueError(
+                f"Expected combined_response to be 2D, got shape {response_matrix.shape}"
+            )
+
+        return response_matrix
+
+
+    def load_running_predictors(self, path, expected_n_predictors=32):
+        """
+        Load behav_big_matrix.mat.
+
+        Expected output:
+            running_predictors: predictors x frames
+
+        If saved as frames x predictors, transpose automatically.
+        """
+        predictor_path = os.path.join(path, "behav_big_matrix.mat")
+
+        if not os.path.exists(predictor_path):
+            raise FileNotFoundError(f"Could not find behav_big_matrix.mat at: {predictor_path}")
+
+        pred_file = scipy.io.loadmat(predictor_path)
+
+        if "behav_big_matrix" not in pred_file:
+            raise KeyError(
+                f"'behav_big_matrix' not found in behav_big_matrix.mat. "
+                f"Available keys: {list(pred_file.keys())}"
+            )
+
+        running_predictors = np.asarray(pred_file["behav_big_matrix"])
+
+        if running_predictors.ndim != 2:
+            raise ValueError(
+                f"Expected behav_big_matrix to be 2D, got shape {running_predictors.shape}"
+            )
+
+        # If saved as frames x predictors, transpose it.
+        if (
+            running_predictors.shape[0] != expected_n_predictors
+            and running_predictors.shape[1] == expected_n_predictors
+        ):
+            running_predictors = running_predictors.T
+
+        if running_predictors.shape[0] != expected_n_predictors:
+            raise ValueError(
+                f"Expected running_predictors to be "
+                f"{expected_n_predictors} x frames, got {running_predictors.shape}"
+            )
+
+        return running_predictors
+
+
+    def load_velocity(self, path):
+        """
+        Load velocity.mat.
+
+        Expected output:
+            velocity: 2 x frames
+                velocity[0, :] = x velocity
+                velocity[1, :] = y velocity
+        """
+        velocity_path = os.path.join(path, "velocity.mat")
+
+        if not os.path.exists(velocity_path):
+            raise FileNotFoundError(f"Could not find velocity.mat at: {velocity_path}")
+
+        velocity_file = scipy.io.loadmat(velocity_path)
+
+        if "velocity" not in velocity_file:
+            raise KeyError(
+                f"'velocity' not found in velocity.mat. "
+                f"Available keys: {list(velocity_file.keys())}"
+            )
+
+        velocity = np.asarray(velocity_file["velocity"]).squeeze()
+
+        if velocity.ndim != 2:
+            raise ValueError(f"Expected velocity to be 2D, got shape {velocity.shape}")
+
+        # Make sure velocity is 2 x frames.
+        if velocity.shape[0] != 2 and velocity.shape[1] == 2:
+            velocity = velocity.T
+
+        if velocity.shape[0] != 2:
+            raise ValueError(f"Expected velocity to be 2 x frames, got {velocity.shape}")
+
+        return velocity
+
+
+    def split_velocity(self, velocity):
+        """
+        Split raw x/y velocity into positive and negative components.
+
+        Returns dictionary with:
+            x_raw, y_raw, pos_x, neg_x, pos_y, neg_y
+        """
+        velocity = np.asarray(velocity)
+
+        if velocity.ndim != 2 or velocity.shape[0] != 2:
+            raise ValueError(f"Expected velocity to be 2 x frames, got {velocity.shape}")
+
+        x_velocity_raw = velocity[0, :]
+        y_velocity_raw = velocity[1, :]
+
+        velocity_dict = {
+            "x_raw": x_velocity_raw,
+            "y_raw": y_velocity_raw,
+            "pos_x": np.maximum(x_velocity_raw, 0),
+            "neg_x": np.maximum(-x_velocity_raw, 0),
+            "pos_y": np.maximum(y_velocity_raw, 0),
+            "neg_y": np.maximum(-y_velocity_raw, 0),
+        }
+
+        return velocity_dict
+
+
+    def check_velocity_split_overlap(self, velocity_dict):
+        """
+        Check that raw positive and negative velocity components are mutually exclusive.
+        """
+        x_overlap = np.sum((velocity_dict["pos_x"] > 0) & (velocity_dict["neg_x"] > 0))
+        y_overlap = np.sum((velocity_dict["pos_y"] > 0) & (velocity_dict["neg_y"] > 0))
+
+        return {
+            "x_overlap_frames": int(x_overlap),
+            "y_overlap_frames": int(y_overlap),
+        }
+
+
+    def get_running_predictor_groups(self, group_mode="4_groups"):
+        """
+        Return predictor group indices based on MATLAB construction order.
+
+        MATLAB order:
+            0:4    +y retro
+            4:8    +y prospective
+            8:12   -y retro
+            12:16  -y prospective
+            16:20  +x retro
+            20:24  +x prospective
+            24:28  -x retro
+            28:32  -x prospective
+        """
+        predictor_groups_4 = {
+            "+y": np.arange(0, 8),
+            "-y": np.arange(8, 16),
+            "+x": np.arange(16, 24),
+            "-x": np.arange(24, 32),
+        }
+
+        predictor_groups_8 = {
+            "+y retro": np.arange(0, 4),
+            "+y pro": np.arange(4, 8),
+            "-y retro": np.arange(8, 12),
+            "-y pro": np.arange(12, 16),
+            "+x retro": np.arange(16, 20),
+            "+x pro": np.arange(20, 24),
+            "-x retro": np.arange(24, 28),
+            "-x pro": np.arange(28, 32),
+        }
+
+        if group_mode == "4_groups":
+            return predictor_groups_4
+
+        if group_mode == "8_groups":
+            return predictor_groups_8
+
+        raise ValueError("group_mode must be '4_groups' or '8_groups'")
+
+
+    def zscore_for_display(self, x, axis=1, eps=1e-12):
+        """
+        Display-only z-score.
+        Useful for visualizing predictors. Do not use this for model fitting
+        unless intentionally matching the model normalization.
+        """
+        x = np.asarray(x).astype(float).copy()
+        mu = np.nanmean(x, axis=axis, keepdims=True)
+        sigma = np.nanstd(x, axis=axis, keepdims=True)
+        sigma[sigma < eps] = 1.0
+        return (x - mu) / sigma
+
+
+    def minmax_for_display(self, x, eps=1e-12):
+        """
+        Display-only min-max scaling to 0-1.
+        """
+        x = np.asarray(x).astype(float).copy()
+        x = x - np.nanmin(x)
+
+        denom = np.nanmax(x)
+        if denom < eps:
+            denom = 1.0
+
+        return x / denom
+
+
+    def summarize_running_predictors_for_display(self, running_predictors, group_mode="4_groups"):
+        """
+        Create display-only grouped summaries of convolved running predictors.
+
+        Input:
+            running_predictors: 32 x frames
+
+        Output:
+            dict of group_name -> 0-to-1 display trace
+        """
+        running_predictors = np.asarray(running_predictors)
+
+        if running_predictors.ndim != 2 or running_predictors.shape[0] != 32:
+            raise ValueError(
+                f"Expected running_predictors to be 32 x frames, got {running_predictors.shape}"
+            )
+
+        running_pred_z = self.zscore_for_display(running_predictors, axis=1)
+        predictor_groups = self.get_running_predictor_groups(group_mode=group_mode)
+
+        running_group_summaries = {}
+
+        for group_name, group_idx in predictor_groups.items():
+            group_trace = np.nanmean(np.abs(running_pred_z[group_idx, :]), axis=0)
+            running_group_summaries[group_name] = self.minmax_for_display(group_trace)
+
+        return running_group_summaries
+
+
+    def make_raw_velocity_display_traces(self, velocity_dict, mode="raw_velocity_split"):
+        """
+        Create display traces from raw velocity.
+
+        mode:
+            "raw_velocity" = abs x, abs y
+            "raw_velocity_split" = +x, -x, +y, -y
+        """
+        if mode == "raw_velocity":
+            return {
+                "abs x raw": self.minmax_for_display(np.abs(velocity_dict["x_raw"])),
+                "abs y raw": self.minmax_for_display(np.abs(velocity_dict["y_raw"])),
+            }
+
+        if mode == "raw_velocity_split":
+            return {
+                "+x raw": self.minmax_for_display(velocity_dict["pos_x"]),
+                "-x raw": self.minmax_for_display(velocity_dict["neg_x"]),
+                "+y raw": self.minmax_for_display(velocity_dict["pos_y"]),
+                "-y raw": self.minmax_for_display(velocity_dict["neg_y"]),
+            }
+
+        raise ValueError("mode must be 'raw_velocity' or 'raw_velocity_split'")
+
+
+    def validate_response_prediction_shapes(self, response_matrix, y_pred):
+        """
+        Check that response and model prediction have matching neuron dimension.
+
+        Expected:
+            response_matrix: neurons x frames
+            y_pred: frames x neurons
+        """
+        response_matrix = np.asarray(response_matrix)
+        y_pred = np.asarray(y_pred)
+
+        if response_matrix.ndim != 2:
+            raise ValueError(f"response_matrix must be 2D, got {response_matrix.shape}")
+
+        if y_pred.ndim != 2:
+            raise ValueError(f"y_pred must be 2D, got {y_pred.shape}")
+
+        if response_matrix.shape[0] != y_pred.shape[1]:
+            raise ValueError(
+                f"Neuron mismatch: response has {response_matrix.shape[0]} neurons, "
+                f"y_pred has {y_pred.shape[1]} neurons"
+            )
+
+        if response_matrix.shape[1] != y_pred.shape[0]:
+            print(
+                f"Warning: frame mismatch. response has {response_matrix.shape[1]} frames, "
+                f"y_pred has {y_pred.shape[0]} frames"
+            )
+
+        return True
+
+
+    def get_top_and_bottom_neurons(self, frac_dev_expl, n_examples=4):
+        """
+        Return top positive and most negative neurons by fraction deviance explained.
+        """
+        frac_dev_expl = np.asarray(frac_dev_expl).squeeze()
+
+        top_positive_neurons = np.argsort(frac_dev_expl)[::-1][:n_examples]
+        most_negative_neurons = np.argsort(frac_dev_expl)[:n_examples]
+
+        return top_positive_neurons, most_negative_neurons
 
 
     
