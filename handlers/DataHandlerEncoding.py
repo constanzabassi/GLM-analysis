@@ -191,7 +191,7 @@ class DataHandlerEncoding:
 
         return celltype_array, neuron_groups, colors
 
-    def load_data(self, animalID, date, server, model_type, results_type='results', models_to_load=None):
+    def load_data(self, animalID, date, server, model_type, results_type='results', models_to_load=None, model_info=None):
         """
         Load and process GLM results for a given dataset.
         
@@ -202,6 +202,9 @@ class DataHandlerEncoding:
             model_type (str): The type of the GLM model.
             results_type (str): The type of results to load (default is 'results').
             models_to_load (list): List of model indices to load (default [0,1,2,3,4])
+            model_info : dict, optional
+                Dictionary mapping model indices to
+                (output_name, file_prefix).
 
         Returns:
             dict: A dictionary containing the mean deviance explained for each model.
@@ -213,14 +216,15 @@ class DataHandlerEncoding:
         save_directory_v1 = os.path.join(f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}', results_type)
 
         # Mapping model indices to names and file prefixes
-        model_info = {
-            0: ("model_output_behav", "poss_model_0_data_cluster_"), #behavior only model
-            1: ("model_output_all", "poss_model_1_data_cluster_"), #using factors for coupling predictors
-            2: ("model_output_no_pyr", "poss_model_2_data_cluster_"),
-            3: ("model_output_no_som", "poss_model_3_data_cluster_"),
-            4: ("model_output_no_pv", "poss_model_4_data_cluster_"),
-            5: ("model_output_all_neurons", "poss_model_5_data_cluster_") #using indiividual neurons instead of factors for coupling predictors
-        }
+        if model_info is None:
+            model_info = {
+                0: ("model_output_behav", "poss_model_0_data_cluster_"), #behavior only model
+                1: ("model_output_all", "poss_model_1_data_cluster_"), #using factors for coupling predictors
+                2: ("model_output_no_pyr", "poss_model_2_data_cluster_"),
+                3: ("model_output_no_som", "poss_model_3_data_cluster_"),
+                4: ("model_output_no_pv", "poss_model_4_data_cluster_"),
+                5: ("model_output_all_neurons", "poss_model_5_data_cluster_") #using indiividual neurons instead of factors for coupling predictors
+            }
 
         loaded_models = {}
         mean_devs = {}
@@ -258,7 +262,7 @@ class DataHandlerEncoding:
 
 
 
-    def process_multiple_datasets(self,datasets, model_type, results_type = 'results', models_to_load = None):
+    def process_multiple_datasets(self,datasets, model_type, results_type = 'results', models_to_load = None, model_info=None):
         """
         Process multiple datasets and calculate mean deviance explained for each.
 
@@ -274,7 +278,7 @@ class DataHandlerEncoding:
         for animalID, date, server in datasets:
             key = f'{animalID}_{date}'
             print(f'Processing dataset: {key}')
-            results = self.load_data(animalID, date, server, model_type, results_type =results_type,  models_to_load= models_to_load)
+            results = self.load_data(animalID, date, server, model_type, results_type =results_type,  models_to_load= models_to_load, model_info=model_info)
             all_results[key] = results
 
         return all_results
@@ -318,9 +322,23 @@ class DataHandlerEncoding:
             mouse_dates.append((animalID, date, server[0]))
 
         return mouse_dates, mouse_dates_keys
+    
+    def load_behav_big_matrix_ids(self,directory = 'V:/Connie/ProcessedData/HA11-1R/2023-05-05/GLM_3nmf_iti/prepost trial cv 73 #1'):
+        """
+        Load feature names from the behav_big_matrix_ids.mat file in the specified directory.
+
+        Parameters:
+            directory (str): The directory containing the behav_big_matrix_ids.mat file.
+        Returns:
+            list: A list of feature names extracted from the .mat file.
+        """
+        behav_big_matrix_ids_mat = scipy.io.loadmat(os.path.join(directory, 'behav_big_matrix_ids.mat'))
+        behav_big_matrix_ids = behav_big_matrix_ids_mat['behav_big_matrix_ids']
+        feature_names = [name[0] for name in behav_big_matrix_ids[0]]  # Flatten the structure
+        return feature_names
 
     #FUNCTIONS TO AGGREGATE DATASETS TOGETHER
-    def aggregate_model_data_from_results(self,all_results, no_abs=1, significant_neurons=None):
+    def aggregate_model_data_from_results(self,all_results, no_abs=1, significant_neurons=None,model_output_all_input = 'model_output_all',directory = 'V:/Connie/ProcessedData/HA11-1R/2023-05-05/GLM_3nmf_iti/prepost trial cv 73 #1'):
         """
         Aggregates model data from the all_results dictionary across multiple datasets.
 
@@ -342,18 +360,13 @@ class DataHandlerEncoding:
         }
 
         # Load actual response data (should be the same across datasets!!!)
-        behav_big_matrix_ids_mat = scipy.io.loadmat(
-            os.path.join('V:/Connie/ProcessedData/HA11-1R/2023-05-05/GLM_3nmf_iti/prepost trial cv 73 #1', 
-                        'behav_big_matrix_ids.mat')
-        )
-        behav_big_matrix_ids = behav_big_matrix_ids_mat['behav_big_matrix_ids']
-        feature_names = [name[0] for name in behav_big_matrix_ids[0]]  # Flatten the structure
+        feature_names = self.load_behav_big_matrix_ids(directory = directory) #load from one of the datasets (should be the same across all)
 
         current_index = 0
 
         for dataset_key, dataset in all_results.items():
             print(dataset_key)
-            model_output_all = dataset['model_output_all']
+            model_output_all = dataset[model_output_all_input]
             celltype_array = dataset['celltype_array']
             
             if aggregated_data['feature_names'] is None:
@@ -429,12 +442,12 @@ class DataHandlerEncoding:
 
         return combined_B_weights, aggregated_data['feature_names'], other_weights, coupling_weights, aggregated_data['coupling_indices'], aggregated_data['celltype_array'], aggregated_data['neuron_groups'], aggregated_data['start_indices']
 
-    def combine_model_output_all(self,all_results):
+    def combine_model_output_all(self,all_results,model_output_all_input='model_output_all',directory = 'V:/Connie/ProcessedData/HA11-1R/2023-05-05/GLM_3nmf_iti/prepost trial cv 73 #1'):
         combined_model_output_all = {}
         current_index = 0
 
         for dataset_key, dataset in all_results.items():
-            model_output_all = dataset['model_output_all']
+            model_output_all = dataset[model_output_all_input]
 
             for fold, metrics in model_output_all.items():
                 if fold not in combined_model_output_all:
@@ -453,7 +466,7 @@ class DataHandlerEncoding:
                 # Append the data to lists, but skip 'y_pred'
                 for key in combined_model_output_all[fold].keys():
                     if key == 'y_pred':
-                        combined_model_output_all[fold][key].append(metrics[key][:1999,:]) #append first 2000 frames
+                        combined_model_output_all[fold][key].append(metrics[key]) #append first 2000 frames [:1999,:]
                     else: 
                         combined_model_output_all[fold][key].append(metrics[key])
 
@@ -618,13 +631,41 @@ class DataHandlerEncoding:
         else:
             exclude_indices = []
 
+        if len(exclude_indices) > 0:
+
+            keep_idx = [i for i in range(len(mouse_dates))
+                        if i not in exclude_indices]
+
+            mouse_dates = [mouse_dates[i] for i in keep_idx]
+
+            # n_datasets = len(keep_idx) + len(exclude_indices)  # original number
+            orig_n = len(mouse_dates) + len(exclude_indices)
+            for field in opto.dtype.names:
+                arr = opto[field]
+
+                if not hasattr(arr, "shape"):
+                    continue
+
+                if arr.ndim == 2 and arr.shape[0] == orig_n:
+                    opto[field] = arr[keep_idx, :]
+
+            for field in sound.dtype.names:
+                arr = sound[field]
+
+                if not hasattr(arr, "shape"):
+                    continue
+
+                if arr.ndim == 2 and arr.shape[0] == orig_n:
+                    sound[field] = arr[keep_idx, :]
+           
+
         significant_neurons = {}
         mod_indices = {}
         # Iterate over mouse_dates and map to corresponding neurons in sig_cells by index
         for idx, mouse_date in enumerate(mouse_dates):
             # ---- NEW: skip excluded datasets ----
-            if idx in exclude_indices:
-                continue
+            # if idx in exclude_indices:
+            #     continue
 
             significant_neurons[mouse_date] = {}
             opto_neurons = opto['sig_cells'][idx,0]-1 # Adjust for MATLAB indexing

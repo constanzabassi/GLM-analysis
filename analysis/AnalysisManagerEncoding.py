@@ -1412,3 +1412,205 @@ class AnalysisManagerEncoding:
 
         combined_df = pd.concat(combined_df, ignore_index=True)
         return combined_df
+    
+    def fractional_deviance_from_aligned(self,Y_true_aligned, Y_pred_aligned, loss_type='poisson', frame_subset=None):
+        """
+        Y_true_aligned, Y_pred_aligned:
+            shape = trials x neurons x aligned_frames
+
+        Returns:
+            frac_dev, shape = neurons
+        """
+
+        if frame_subset is not None:
+            Y_true_aligned = Y_true_aligned[:, :, frame_subset]
+            Y_pred_aligned = Y_pred_aligned[:, :, frame_subset]
+
+        n_trials, n_neurons, n_frames = Y_true_aligned.shape
+
+        # trials x neurons x frames -> samples x neurons
+        Y_true = np.transpose(Y_true_aligned, (0, 2, 1)).reshape(-1, n_neurons)
+        Y_pred = np.transpose(Y_pred_aligned, (0, 2, 1)).reshape(-1, n_neurons)
+
+        good_rows = ~np.any(np.isnan(Y_true), axis=1) & ~np.any(np.isnan(Y_pred), axis=1)
+
+        Y_true = Y_true[good_rows, :]
+        Y_pred = Y_pred[good_rows, :]
+
+        _, model_dev, _ = self.deviance(Y_pred, Y_true, loss_type=loss_type)
+
+        null_dev = np.full(n_neurons, np.nan)
+
+        for neuron in range(n_neurons):
+            null_dev[neuron] = self.null_deviance(Y_true[:, neuron], loss_type=loss_type)
+
+        frac_dev = 1 - model_dev / null_dev
+
+        return frac_dev, null_dev, model_dev
+    
+    
+    
+    def compute_aligned_frac_dev_all(
+        self,
+        aligned_neural_true,
+        aligned_neural_pred,
+        loss_type='poisson',
+        frame_subset=None
+    ):
+
+        frac_dev_all = {}
+        d_model_all = {}
+        d_null_all = {}
+
+        for key in aligned_neural_true.keys():
+            print(f'current dataset {key}')
+            frac_dev_all[key] = {}
+            d_model_all[key] = {}
+            d_null_all[key] = {}
+
+            for fold_number in aligned_neural_true[key].keys():
+                Y_true_aligned = aligned_neural_true[key][fold_number]
+                Y_pred_aligned = aligned_neural_pred[key][fold_number]
+
+                frac_dev_expl, d_model, d_null = self.fractional_deviance_from_aligned(
+                    Y_true_aligned,
+                    Y_pred_aligned,
+                    loss_type=loss_type,
+                    frame_subset=frame_subset
+                )
+
+                frac_dev_all[key][fold_number] = frac_dev_expl
+                d_model_all[key][fold_number] = d_model
+                d_null_all[key][fold_number] = d_null
+
+        return frac_dev_all, d_model_all, d_null_all
+    
+    def average_frac_dev_across_folds(self, frac_dev_all, cell_ids_dict=None):
+        """
+        frac_dev_all[key][fold] = array, shape (n_neurons,)
+
+        Returns
+        -------
+        mean_frac_dev_by_key : dict
+            mean_frac_dev_by_key[key] = array, shape (n_neurons,)
+
+        sem_frac_dev_by_key : dict
+            sem_frac_dev_by_key[key] = array, shape (n_neurons,)
+
+        mean_frac_dev_plotting : array
+            Concatenated across datasets, shape (total_neurons,)
+
+        cell_ids_plotting : array or None
+            Concatenated cell IDs matching mean_frac_dev_plotting
+        """
+
+        mean_frac_dev_by_key = {}
+        sem_frac_dev_by_key = {}
+
+        all_mean_values = []
+        all_cell_ids = []
+
+        for key in frac_dev_all.keys():
+
+            fold_values = []
+
+            for fold_number in sorted(frac_dev_all[key].keys()):
+                fold_values.append(frac_dev_all[key][fold_number])
+
+            fold_values = np.stack(fold_values, axis=0)
+            # shape = folds x neurons
+
+            mean_frac_dev_by_key[key] = np.nanmean(fold_values, axis=0)
+            sem_frac_dev_by_key[key] = stats.sem(
+                fold_values,
+                axis=0,
+                nan_policy='omit'
+            )
+
+            all_mean_values.append(mean_frac_dev_by_key[key])
+
+            if cell_ids_dict is not None:
+                all_cell_ids.append(cell_ids_dict[key])
+
+        mean_frac_dev_plotting = np.concatenate(all_mean_values, axis=0)
+
+        if cell_ids_dict is not None:
+            cell_ids_plotting = np.concatenate(all_cell_ids, axis=0)
+        else:
+            cell_ids_plotting = None
+
+        return (
+            mean_frac_dev_by_key,
+            sem_frac_dev_by_key,
+            mean_frac_dev_plotting,
+            cell_ids_plotting
+        )
+    
+    #all code below copied over from Shih-Yi's glm class!
+
+    def pointwise_deviance(self,y_true, y_pred, loss_type = 'poisson'):
+        '''
+        Compute pointwise deviance for data with given loss type 
+        Input parameters::
+        y_true: true values, ndarray
+        y_pred: predicted values, ndarray
+        loss_type: {'gaussian', 'poisson', 'binominal'}, default = 'poisson'
+
+        Returns::
+        dev_pt: pointwise deviance value, ndarray of shape of y_true and y_pred
+        '''
+
+        assert (y_true.shape == y_true.shape), "Shapes of y_true and y_pred don't match!"
+        if loss_type == 'poisson':
+            dev_pt = 2.0 * (y_true * (np.log(self.stable(y_true)) - np.log(self.stable(y_pred))) + y_pred - y_true)
+        elif loss_type == 'gaussian':
+            dev_pt =  (y_true - y_pred)**2
+        elif loss_type == 'binominal':
+            dev_pt =  2.0 * (-y_true*np.log(self.stable(y_pred)) - (1.-y_true)*np.log(self.stable(1.-y_pred))
+                            +y_true*np.log(self.stable(y_true)) + (1.-y_true)*np.log(self.stable(1.-y_true)))
+        return dev_pt
+    
+    def deviance(self,y_pred, y_true, loss_type = 'poisson'):
+        '''
+        Compute fraction deviance explained, model deviance and null deviance for data with given loss type, 
+        averaged over n_samples for each response 
+        Input parameters::
+        y_pred: predicted values, ndarray of shape (n_samples, n_responses)
+        y_true: true values, ndarray of shape (n_samples, n_responses)
+        loss_type: {'gaussian', 'poisson', 'binominal'}, default = 'poisson'
+
+        Returns::
+        frac_dev_expl: average fraction deviance explained for each response, ndarray of shape of (n_responses,)
+        d_model: average model deviance for each response, ndarray of shape of (n_responses,)
+        d_null: average null deviance for each response, ndarray of shape of (n_responses,)
+        '''
+
+        mean_y = np.mean(y_true, axis=0)
+        d_null = np.sum(self.pointwise_deviance(y_true, mean_y, loss_type = loss_type), axis = 0)
+        d_model = np.sum(self.pointwise_deviance(y_true, y_pred, loss_type = loss_type), axis = 0)
+        frac_dev_expl = 1.0 - d_model/self.stable(d_null)    
+
+        if isinstance(frac_dev_expl, type(y_true)): # if dev is still an ndarray (skip if is a single number)
+            frac_dev_expl[mean_y == 0] = 0  # If mean_y == 0, we get 0 for model and null deviance, i.e. 0/0 in the deviance fraction.
+        
+        return frac_dev_expl, d_model, d_null
+    
+    def stable(self, x, eps = 1e-33):
+        '''
+        Add a tiny positive constant to input value to stablize it when taking log (avoid log(0))
+        '''
+        return x + eps
+    
+    def null_deviance(self,y, loss_type = 'poisson'):
+        '''
+        Compute null deviance for data with given loss type, average over n_samples for each response 
+        Input parameters::
+        y: input data, ndarray of shape (n_samples, n_responses)
+        loss_type: {'gaussian', 'poisson', 'binominal'}, default = 'poisson'
+
+        Returns::
+        null_dev: average null deviance for each response, ndarray of shape of (n_responses,)
+        '''
+        mean_y = np.mean(y, axis=0)
+        null_dev = np.sum(self.pointwise_deviance(y, mean_y, loss_type = loss_type), axis = 0)
+        return null_dev

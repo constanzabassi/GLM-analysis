@@ -1,3 +1,5 @@
+from xml.sax import handler
+
 import numpy as np
 import os
 import pickle
@@ -36,6 +38,11 @@ from utils.GLMDataUtils import GLMDataUtils
 from matplotlib.colors import to_hex
 import matplotlib.patches as mpatches
 import matplotlib.ticker as mticker
+from scipy.ndimage import gaussian_filter1d
+
+# from handlers.glm_handler import DataHandlerEncoding
+from handlers.DataHandlerEncoding import DataHandlerEncoding
+
 
 
 class Plotter:
@@ -240,14 +247,17 @@ class Plotter:
 
     #PREDICTOR PLOTTING FUNCTIONS
     # Create legend for coupling features
-    def plot_feature_weights(self,server,animalID, date, model_type, model_chosen, pyr_count=3, som_count=3, pv_count=3, no_abs=1):
+    def plot_feature_weights(self,server,animalID, date, model_type, model_chosen, pyr_count=3, som_count=3, pv_count=3, no_abs=1, directory = 'V:/Connie/ProcessedData/HA11-1R/2023-05-05/GLM_3nmf_iti/prepost trial cv 73 #1'):
         # Load actual response data
-        behav_big_matrix_ids_mat = scipy.io.loadmat(
-            os.path.join(f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}/prepost trial cv 73 #1', 
-                        'behav_big_matrix_ids.mat')
-        )
-        behav_big_matrix_ids = behav_big_matrix_ids_mat['behav_big_matrix_ids']
-        feature_names = [name[0] for name in behav_big_matrix_ids[0]]  # Flatten the structure
+
+        handler = DataHandlerEncoding(data= None)
+        feature_names = handler.load_behav_big_matrix_ids(directory = directory)
+        # behav_big_matrix_ids_mat = scipy.io.loadmat(
+        #     os.path.join(f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}/prepost trial cv 73 #1', 
+        #                 'behav_big_matrix_ids.mat')
+        # )
+        # behav_big_matrix_ids = behav_big_matrix_ids_mat['behav_big_matrix_ids']
+        # feature_names = [name[0] for name in behav_big_matrix_ids[0]]  # Flatten the structure
 
         # Aggregate B_weights across all folds for coupling predictors
         B_weights_behavior_coupling = np.concatenate([model_chosen[fold]['B_weights'] for fold in model_chosen.keys()], axis=1)
@@ -327,7 +337,7 @@ class Plotter:
 
 
 
-    def plot_weights_heatmap(self,server,animalID, date, model_type, model_chosen, coupling_indices, cmap='coolwarm', no_abs=1, minmax=(-.2,.2)):
+    def plot_weights_heatmap(self,server,animalID, date, model_type, model_chosen, coupling_indices, cmap='coolwarm', no_abs=1,total_predictors=183, minmax=(-.2,.2), directory = 'V:/Connie/ProcessedData/HA11-1R/2023-05-05/GLM_3nmf_iti/prepost trial cv 73 #1'):
         """
         Plots a heatmap of mean weights across folds for each neuron.
         
@@ -340,17 +350,23 @@ class Plotter:
         """
         
         #find the mean across unique features 
-        behav_big_matrix_ids_mat = scipy.io.loadmat(
-                os.path.join(f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}/prepost trial cv 73 #1', 
-                            'behav_big_matrix_ids.mat')
-            )
-        behav_big_matrix_ids = behav_big_matrix_ids_mat['behav_big_matrix_ids']
-        feature_names = [name[0] for name in behav_big_matrix_ids[0]]
+        handler = DataHandlerEncoding(data= None)
+        feature_names = handler.load_behav_big_matrix_ids(directory = directory)
+        # behav_big_matrix_ids_mat = scipy.io.loadmat(
+        #         os.path.join(f'{server}/Connie/ProcessedData/{animalID}/{date}/{model_type}/prepost trial cv 73 #1', 
+        #                     'behav_big_matrix_ids.mat')
+        #     )
+        # behav_big_matrix_ids = behav_big_matrix_ids_mat['behav_big_matrix_ids']
+        # feature_names = [name[0] for name in behav_big_matrix_ids[0]]
         unique_feature_names = list(set(feature_names))
 
         # Initialize an array to store the mean weights
         num_neurons = model_chosen[0]['B_weights'].shape[1]
-        mean_weights = np.zeros((len(feature_names)+len(coupling_indices), num_neurons))
+        if coupling_indices is not None:
+            num_coupling = len(coupling_indices) 
+        else:
+            num_coupling = 0   
+        mean_weights = np.zeros((len(feature_names)+num_coupling, num_neurons))
         model_output = model_chosen
         
         # Calculate mean weights across folds for each neuron
@@ -366,15 +382,14 @@ class Plotter:
             mean_weights = np.abs(mean_weights)
 
         # Extract weights for other features and coupling features
-        other_weights = mean_weights[:183, :]  # Assuming non-coupling predictors are the first 183 rows
-        coupling_weights = mean_weights[coupling_indices, :]
+        other_weights = mean_weights[:total_predictors, :]  # Assuming non-coupling predictors are the first total_predictors rows
+        if coupling_indices is not None:
+            coupling_weights = mean_weights[coupling_indices, :]
+            # Combine other weights and coupling weights for heatmap
+            combined_weights = np.vstack([other_weights, coupling_weights])
+        else:
+            combined_weights = other_weights
 
-
-        # Combine other weights and coupling weights for heatmap
-        combined_weights = np.vstack([other_weights, coupling_weights])
-
-
-        
         num_unique = len(unique_feature_names)+3
         mean_neuron_feature_unique = np.zeros((num_unique,num_neurons))
         total_beta_feature_unique = np.zeros((num_unique,num_neurons)) #sum of features!
@@ -395,58 +410,61 @@ class Plotter:
 
 
         # Now calculate mean weights for coupling features grouped by cell type
-        pyr_indices = coupling_indices[:2]  # Adjust these indices as needed
-        som_indices = coupling_indices[3:5]
-        pv_indices = coupling_indices[6:9]
+        if coupling_indices is not None:
+            pyr_indices = coupling_indices[:2]  # Adjust these indices as needed
+            som_indices = coupling_indices[3:5]
+            pv_indices = coupling_indices[6:9]
 
-        # Calculate mean for each cell type
-        mean_pyr = np.nanmean(mean_weights[pyr_indices, :], axis=0)
-        mean_som = np.nanmean(mean_weights[som_indices, :], axis=0)
-        mean_pv = np.nanmean(mean_weights[pv_indices, :], axis=0)
+            # Calculate mean for each cell type
+            mean_pyr = np.nanmean(mean_weights[pyr_indices, :], axis=0)
+            mean_som = np.nanmean(mean_weights[som_indices, :], axis=0)
+            mean_pv = np.nanmean(mean_weights[pv_indices, :], axis=0)
 
-        # Calculate sums
-        sum_pyr = np.sum(np.abs(mean_weights[pyr_indices, :]), axis=0)
-        sum_som = np.sum(np.abs(mean_weights[som_indices, :]), axis=0)
-        sum_pv = np.sum(np.abs(mean_weights[pv_indices, :]), axis=0)
+            # Calculate sums
+            sum_pyr = np.sum(np.abs(mean_weights[pyr_indices, :]), axis=0)
+            sum_som = np.sum(np.abs(mean_weights[som_indices, :]), axis=0)
+            sum_pv = np.sum(np.abs(mean_weights[pv_indices, :]), axis=0)
 
-        # Calculate max
-        max_pyr = np.max(np.abs(mean_weights[pyr_indices, :]), axis=0)
-        max_som = np.max(np.abs(mean_weights[som_indices, :]), axis=0)
-        max_pv = np.max(np.abs(mean_weights[pv_indices, :]), axis=0)
+            # Calculate max
+            max_pyr = np.max(np.abs(mean_weights[pyr_indices, :]), axis=0)
+            max_som = np.max(np.abs(mean_weights[som_indices, :]), axis=0)
+            max_pv = np.max(np.abs(mean_weights[pv_indices, :]), axis=0)
 
-        # Append these to the mean_neuron_feature_unique array
-        mean_neuron_feature_unique[-3, :] = mean_pyr
-        mean_neuron_feature_unique[-2, :] = mean_som
-        mean_neuron_feature_unique[-1, :] = mean_pv
+            # Append these to the mean_neuron_feature_unique array
+            mean_neuron_feature_unique[-3, :] = mean_pyr
+            mean_neuron_feature_unique[-2, :] = mean_som
+            mean_neuron_feature_unique[-1, :] = mean_pv
 
-        total_beta_feature_unique[-3, :] = sum_pyr
-        total_beta_feature_unique[-2, :] = sum_som
-        total_beta_feature_unique[-1, :] = sum_pv
+            total_beta_feature_unique[-3, :] = sum_pyr
+            total_beta_feature_unique[-2, :] = sum_som
+            total_beta_feature_unique[-1, :] = sum_pv
 
-        max_beta_feature_unique[-3, :] = max_pyr
-        max_beta_feature_unique[-2, :] = max_som
-        max_beta_feature_unique[-1, :] = max_pv
+            max_beta_feature_unique[-3, :] = max_pyr
+            max_beta_feature_unique[-2, :] = max_som
+            max_beta_feature_unique[-1, :] = max_pv
         
-        # Update unique_feature_names with cell type names
-        updated_feature_names = unique_feature_names + ['pyr', 'som', 'pv']
+            # Update unique_feature_names with cell type names
+            updated_feature_names = unique_feature_names + ['pyr', 'som', 'pv']
 
-        # Generate neuron labels (e.g., Neuron 1, Neuron 2, etc.)
-        neuron_labels = [f'Neuron {i+1}' for i in range(num_neurons)]
+            # Generate neuron labels (e.g., Neuron 1, Neuron 2, etc.)
+            neuron_labels = [f'Neuron {i+1}' for i in range(num_neurons)]
 
-        #get color palette
-        palette = sns.color_palette("vlag", as_cmap=True)
+            #get color palette
+            palette = sns.color_palette("vlag", as_cmap=True)
 
-        # Plot the heatmap
-        plt.figure(figsize=(14, 8))
-        sns.heatmap(mean_neuron_feature_unique, cmap=palette, cbar=True, yticklabels=updated_feature_names, vmin= minmax[0], vmax = minmax[1])
-        plt.title('Mean Weights Across Folds')
-        plt.xlabel('Neurons')
-        plt.ylabel('Features')
-        plt.xticks(rotation=90)  # Rotate x-axis labels for better readability
-        # Save the figure
-        os.chdir(self.save_results)
-        plt.savefig(f'heatmap_avg{no_abs}_uniquebeta_{animalID}_{date}_{model_type}.png')
-        plt.show()
+            # Plot the heatmap
+            plt.figure(figsize=(14, 8))
+            sns.heatmap(mean_neuron_feature_unique, cmap=palette, cbar=True, yticklabels=updated_feature_names, vmin= minmax[0], vmax = minmax[1])
+            plt.title('Mean Weights Across Folds')
+            plt.xlabel('Neurons')
+            plt.ylabel('Features')
+            plt.xticks(rotation=90)  # Rotate x-axis labels for better readability
+            # Save the figure
+            os.chdir(self.save_results)
+            plt.savefig(f'heatmap_avg{no_abs}_uniquebeta_{animalID}_{date}_{model_type}.png')
+            plt.show()
+        else:
+            updated_feature_names = []
 
         return mean_neuron_feature_unique,updated_feature_names,mean_weights,feature_names,total_beta_feature_unique,max_beta_feature_unique
 
@@ -715,7 +733,7 @@ class Plotter:
         ax.set_box_aspect(1)
 
 
-    def scatter_model_dev_comparison(self,mean_deviance1, mean_deviance2, cell_ids, measure_string, measure_string2, colors=None, plot_lims= None, save_path = None, plot_lims_neg = None):
+    def scatter_model_dev_comparison(self,mean_deviance1, mean_deviance2, cell_ids, measure_string, measure_string2, colors=None, plot_lims= None, save_path = None, plot_lims_neg = None, minmax = None):
         """
         Make scatter plot comparing deviance explained of partial vs full models.
         
@@ -757,7 +775,12 @@ class Plotter:
 
         # Draw unity line
         max_dev = max(max(mean_deviance2), max(mean_deviance1))
-        plt.plot([0, max_dev], [0, max_dev], '--', color='black', zorder = 1, label='Unity Line')
+        if minmax is not None:
+            max_dev = minmax[1]
+            min_dev = minmax[0]
+            plt.plot([min_dev, max_dev], [min_dev, max_dev], '--', color='black', zorder = 1, label='Unity Line')
+        else:
+            plt.plot([0, max_dev], [0, max_dev], '--', color='black', zorder = 1, label='Unity Line')
 
 
         # Create scatter plot
@@ -4894,6 +4917,281 @@ class Plotter:
             plt.show()
 
             return df
+    
+    def make_plot_frames(self, frame_start, frame_end, max_frame):
+            """
+            Create valid plotting frame indices.
+            """
+            frames = np.arange(frame_start, min(frame_end, max_frame))
+
+            if len(frames) == 0:
+                raise ValueError(
+                    "No frames to plot. frame_start={frame_start}, "
+                    "frame_end={frame_end}, max_frame={max_frame}"
+                )
+
+            return frames
+
+
+    def plot_running_glm_neuron_group(
+        self,
+        neuron_ids,
+        frame_start,
+        frame_end,
+        response_matrix,
+        y_pred,
+        frac_dev_expl,
+        running_trace_mode,
+        supp_figure_dir,
+        animalID,
+        date,
+        model_type,
+        fold_number,
+        label,
+        running_group_summaries=None,
+        velocity_display_traces=None,
+        plot_smoothed_rate=True,
+        imaging_rate_hz=30.4791,
+        smooth_sigma_sec=0.5,
+        prediction_color="deepskyblue",
+    ):
+
+        response_matrix = np.asarray(response_matrix)
+        y_pred = np.asarray(y_pred)
+        frac_dev_expl = np.asarray(frac_dev_expl).squeeze()
+
+        max_frame = min(response_matrix.shape[1], y_pred.shape[0])
+
+        if running_trace_mode == "grouped_predictors":
+            if running_group_summaries is None:
+                raise ValueError("running_group_summaries is required.")
+
+            for _, trace in running_group_summaries.items():
+                max_frame = min(max_frame, len(trace))
+
+        elif running_trace_mode in ["raw_velocity", "raw_velocity_split"]:
+            if velocity_display_traces is None:
+                raise ValueError("velocity_display_traces is required.")
+
+            for _, trace in velocity_display_traces.items():
+                max_frame = min(max_frame, len(trace))
+
+        else:
+            raise ValueError(
+                "running_trace_mode must be grouped_predictors, raw_velocity, or raw_velocity_split"
+            )
+
+        frames = self.make_plot_frames(frame_start, frame_end, max_frame)
+
+        smooth_sigma_frames = smooth_sigma_sec * imaging_rate_hz
+
+        n_rows = len(neuron_ids) + 1
+
+        fig, axs = plt.subplots(n_rows, 1, figsize=(8, 1.35 * n_rows), sharex=True)
+
+        if n_rows == 1:
+            axs = [axs]
+
+        for i, neuron_idx in enumerate(neuron_ids):
+            ax = axs[i]
+
+            true_y = response_matrix[neuron_idx, frames]
+            pred_y = y_pred[frames, neuron_idx]
+
+            ax.plot(frames, true_y, color=[0.75, 0.75, 0.75], linewidth=0.6)
+
+            if plot_smoothed_rate:
+                true_rate = gaussian_filter1d(
+                    true_y.astype(float),
+                    sigma=smooth_sigma_frames,
+                    mode="nearest"
+                )
+
+                ax.plot(frames, true_rate, color=[0.25, 0.25, 0.25], linewidth=1.0)
+
+            ax.plot(frames, pred_y, color=prediction_color, linewidth=1.0)
+
+            ax.set_ylabel("N{}".format(neuron_idx), fontsize=8)
+
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+
+        ax = axs[-1]
+
+        if running_trace_mode == "grouped_predictors":
+            for trace_name, trace in running_group_summaries.items():
+                ax.plot(frames, trace[frames], linewidth=0.9, label=trace_name)
+
+            ax.set_ylabel("Convolved pred.", fontsize=8)
+
+        elif running_trace_mode in ["raw_velocity", "raw_velocity_split"]:
+            for trace_name, trace in velocity_display_traces.items():
+                ax.plot(frames, trace[frames], linewidth=0.9, label=trace_name)
+
+            ax.set_ylabel("Raw vel.", fontsize=8)
+
+        ax.set_xlabel("Frame")
+
+        ax.legend(frameon=False, loc="center left", bbox_to_anchor=(1, 0.5), fontsize=7)
+
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        fig.suptitle(
+            "{} {}, fold {}, {}".format(
+                animalID, date, fold_number + 1, label
+            ),
+            fontsize=10
+        )
+
+        plt.tight_layout()
+
+        os.makedirs(supp_figure_dir, exist_ok=True)
+
+        save_path = os.path.join(
+            supp_figure_dir,
+            "{}_{}_{}_fold{}_{}to{}.pdf".format(
+                label,
+                running_trace_mode,
+                animalID,
+                fold_number + 1,
+                frames[0],
+                frames[-1]
+            )
+        )
+
+        plt.savefig(save_path, bbox_inches="tight")
+        plt.show()
+
+        print("Saved:", save_path)
+
+        return fig, axs, save_path
+
+
+    def plot_single_neuron_predictor_heatmap(
+        self,
+        neuron_idx,
+        frame_start,
+        frame_end,
+        response_matrix,
+        y_pred,
+        frac_dev_expl,
+        running_predictors,
+        supp_figure_dir,
+        animalID,
+        date,
+        model_type,
+        fold_number,
+        label,
+        plot_smoothed_rate=True,
+        imaging_rate_hz=30.4791,
+        smooth_sigma_sec=0.5,
+        prediction_color="deepskyblue",
+        heatmap_clip=3,
+    ):
+
+        response_matrix = np.asarray(response_matrix)
+        y_pred = np.asarray(y_pred)
+        frac_dev_expl = np.asarray(frac_dev_expl).squeeze()
+        running_predictors = np.asarray(running_predictors)
+
+        max_frame = min(
+            response_matrix.shape[1],
+            y_pred.shape[0],
+            running_predictors.shape[1]
+        )
+
+        frames = self.make_plot_frames(frame_start, frame_end, max_frame)
+
+        smooth_sigma_frames = smooth_sigma_sec * imaging_rate_hz
+
+        pred_display = self.zscore_for_display(
+            running_predictors[:, frames], axis=1
+        )
+
+        pred_display = np.clip(pred_display, -heatmap_clip, heatmap_clip)
+
+        fig, axs = plt.subplots(
+            3, 1, figsize=(8, 4.5), sharex=True,
+            gridspec_kw={"height_ratios": [1.2, 1.2, 2.2]}
+        )
+
+        true_y = response_matrix[neuron_idx, frames]
+        pred_y = y_pred[frames, neuron_idx]
+
+        axs[0].plot(frames, true_y, color=[0.75, 0.75, 0.75], linewidth=0.6)
+
+        if plot_smoothed_rate:
+            true_rate = gaussian_filter1d(
+                true_y.astype(float),
+                sigma=smooth_sigma_frames,
+                mode="nearest"
+            )
+
+            axs[0].plot(frames, true_rate, color=[0.25, 0.25, 0.25], linewidth=1.0)
+
+        axs[1].plot(frames, pred_y, color=prediction_color, linewidth=1.0)
+
+        im = axs[2].imshow(
+            pred_display,
+            aspect="auto",
+            interpolation="nearest",
+            extent=[
+                frames[0],
+                frames[-1],
+                running_predictors.shape[0],
+                0
+            ]
+        )
+
+        axs[2].set_ylabel("Running predictor", fontsize=8)
+        axs[2].set_xlabel("Frame")
+
+        plt.colorbar(im, ax=axs[2], fraction=0.025, pad=0.02)
+
+        for ax in axs:
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+
+        fig.suptitle(
+            "{} {}, fold {}, neuron {}".format(
+                animalID, date, fold_number + 1, neuron_idx
+            ),
+            fontsize=10
+        )
+
+        plt.tight_layout()
+
+        os.makedirs(supp_figure_dir, exist_ok=True)
+
+        save_path = os.path.join(
+            supp_figure_dir,
+            "{}_heatmap_N{}_{}_{}_fold{}_{}to{}.pdf".format(
+                label,
+                neuron_idx,
+                animalID,
+                date,
+                fold_number + 1,
+                frames[0],
+                frames[-1]
+            )
+        )
+
+        plt.savefig(save_path, bbox_inches="tight")
+        plt.show()
+
+        print("Saved:", save_path)
+
+        return fig, axs, save_path
+
+
+    def zscore_for_display(self, x, axis=1, eps=1e-12):
+        x = np.asarray(x).astype(float).copy()
+        mu = np.nanmean(x, axis=axis, keepdims=True)
+        sigma = np.nanstd(x, axis=axis, keepdims=True)
+        sigma[sigma < eps] = 1.0
+        return (x - mu) / sigma
+    
     # def plot_decoding_by_coupling_bin(self,
     #     coupling_index_by_celltype,
     #     peak_info_struc,
