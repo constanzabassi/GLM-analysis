@@ -4955,7 +4955,8 @@ class Plotter:
         imaging_rate_hz=30.4791,
         smooth_sigma_sec=0.5,
         prediction_color="deepskyblue",
-        figsize_inputt= (8, 1.35*4)
+        figsize_inputt= (8, 1.35*4),
+        save_string = 'active'
     ):
 
         response_matrix = np.asarray(response_matrix)
@@ -5000,7 +5001,8 @@ class Plotter:
             true_y = response_matrix[neuron_idx, frames]
             pred_y = y_pred[frames, neuron_idx]
 
-            ax.plot(frames, true_y, color=[0.75, 0.75, 0.75], linewidth=0.6)
+            if plot_real_activity:
+                ax.plot(frames, true_y, color=[0.75, 0.75, 0.75], linewidth=0.6)
 
             if plot_smoothed_rate:
                 true_rate = gaussian_filter1d(
@@ -5008,12 +5010,13 @@ class Plotter:
                     sigma=smooth_sigma_frames,
                     mode="nearest"
                 )
-            if plot_real_activity:
-                ax.plot(frames, true_rate, color=[0.25, 0.25, 0.25], linewidth=1.0)
+            
+                ax.plot(frames, true_rate, color=[0.25, 0.25, 0.25], linewidth=1.0,label=f'Smoothed rate, σ={smooth_sigma_sec:.1f}s')
 
-            ax.plot(frames, pred_y, color=prediction_color, linewidth=1.0)
+            ax.plot(frames, pred_y, color=prediction_color, linewidth=1.0,label=f'Running-only GLM, FDE={frac_dev_expl[neuron_idx]:.2f}')
 
             ax.set_ylabel("N{}".format(neuron_idx), fontsize=7)
+            ax.legend(frameon=False, loc='center left', bbox_to_anchor=(1, 0.5), fontsize=6)
 
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
@@ -5054,13 +5057,14 @@ class Plotter:
 
         save_path = os.path.join(
             supp_figure_dir,
-            "{}_{}_{}_fold{}_{}to{}.pdf".format(
+            "{}_{}_{}_fold{}_{}to{}_{}.pdf".format(
                 label,
                 running_trace_mode,
                 animalID,
                 fold_number + 1,
                 frames[0],
-                frames[-1]
+                frames[-1],
+                save_string
             )
         )
 
@@ -5350,6 +5354,8 @@ class Plotter:
         save_dir=None,
         save_name=None,
         prediction_color="deepskyblue",
+        figsize=(8, 1.35 * 4),
+        event_frames = []
     ):
         """
         Plot average aligned true vs predicted neural activity across folds for one dataset.
@@ -5418,7 +5424,7 @@ class Plotter:
         fig, axs = plt.subplots(
             n_rows,
             1,
-            figsize=(8, 1.35 * n_rows),
+            figsize=figsize,
             sharex=True
         )
 
@@ -5486,7 +5492,10 @@ class Plotter:
             label=vel1_label,
         )
 
-        ax.set_ylabel(velocity_ylabel, fontsize=8)
+        for frame in event_frames:
+            ax.axvline(x=frame, color='k', linestyle=':', alpha=0.5)
+
+        ax.set_ylabel(velocity_ylabel, fontsize=7)
         ax.set_xlabel("Aligned frame")
         ax.legend(
             frameon=False,
@@ -5532,6 +5541,141 @@ class Plotter:
             "avg_velocity": avg_velocity,
             "fold_counts": fold_counts,
         }
+    
+    def scatter_dev_active_passive_sound_sig(self,
+        dev_active_by_key,
+        dev_passive_by_key,
+        datasets,
+        sound,
+        sig_type = 'sig_cells',
+        measure_string='Active',
+        measure_string2='Passive',
+        plot_lims=None,
+        plot_lims_neg=None,
+        save_path=None,
+        sig_index_base=0
+    ):
+        """
+        dev_active_by_key[key] = array, shape (n_neurons,)
+        dev_passive_by_key[key] = array, shape (n_neurons,)
+
+        sound[sig_type][0, dataset_idx] = indices of sound-responsive neurons
+        """
+
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+        mpl.rcParams['pdf.fonttype'] = 42
+
+        all_active = []
+        all_passive = []
+        all_is_sig = []
+
+        for dataset_idx, (animalID, date, server) in enumerate(datasets):
+            key = f'{animalID}_{date}'
+
+            active_vals = np.asarray(dev_active_by_key[key]).squeeze()
+            passive_vals = np.asarray(dev_passive_by_key[key]).squeeze()
+
+            assert active_vals.shape == passive_vals.shape
+
+            n_neurons = active_vals.shape[0]
+
+            sig_cells = np.asarray(sound[sig_type][0, dataset_idx]).squeeze()
+
+            if sig_cells.size == 0:
+                sig_cells = np.array([], dtype=int)
+            else:
+                sig_cells = sig_cells.astype(int)
+
+            # convert MATLAB 1-based indices to Python 0-based if needed
+            if sig_index_base == 1:
+                sig_cells = sig_cells - 1
+
+            is_sig = np.zeros(n_neurons, dtype=bool)
+            sig_cells = sig_cells[(sig_cells >= 0) & (sig_cells < n_neurons)]
+            is_sig[sig_cells] = True
+
+            all_active.append(active_vals)
+            all_passive.append(passive_vals)
+            all_is_sig.append(is_sig)
+
+        active_plot = np.concatenate(all_active)
+        passive_plot = np.concatenate(all_passive)
+        is_sig_plot = np.concatenate(all_is_sig)
+
+        good = (
+            ~np.isnan(active_plot) &
+            ~np.isnan(passive_plot)
+        )
+
+        active_plot = active_plot[good]
+        passive_plot = passive_plot[good]
+        is_sig_plot = is_sig_plot[good]
+
+        fig, ax = plt.subplots(1, 1, figsize=(3, 3))
+
+        if plot_lims is None:
+            max_lim = np.nanmax([active_plot.max(), passive_plot.max(), 0.5])
+        else:
+            max_lim = plot_lims
+
+        min_lim = 0 if plot_lims_neg is None else plot_lims_neg
+
+        ax.plot(
+            [min_lim, max_lim],
+            [min_lim, max_lim],
+            '--',
+            color='black',
+            zorder=1,
+            label='Unity'
+        )
+
+        # non-sound-responsive cells
+        ax.scatter(
+            active_plot[~is_sig_plot],
+            passive_plot[~is_sig_plot],
+            c='lightgray',
+            alpha=0.6,
+            s=18,
+            zorder=2,
+            label='Not sound responsive'
+        )
+
+        # sound-responsive cells
+        ax.scatter(
+            active_plot[is_sig_plot],
+            passive_plot[is_sig_plot],
+            c='#4D3399', #purple
+            alpha=0.8,
+            s=22,
+            zorder=3,
+            label='Sound responsive'
+        )
+
+        ax.set_xlabel(measure_string, fontsize=7)
+        ax.set_ylabel(measure_string2, fontsize=7)
+        ax.set_title(f'{measure_string} vs {measure_string2}', fontsize=7)
+
+        ax.set_xlim(min_lim, max_lim)
+        ax.set_ylim(min_lim, max_lim)
+
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_box_aspect(1)
+
+        ax.legend(frameon=False, fontsize=6)
+
+        new_rc_params = {
+            'text.usetex': False,
+            'svg.fonttype': 'none'
+        }
+        plt.rcParams.update(new_rc_params)
+
+        if save_path:
+            plt.savefig(save_path, bbox_inches='tight', format='pdf')
+
+        plt.show()
+
+        return active_plot, passive_plot, is_sig_plot
     
     # def plot_decoding_by_coupling_bin(self,
     #     coupling_index_by_celltype,
@@ -5844,6 +5988,336 @@ class Plotter:
             plt.savefig(save_path, dpi=300)
 
         plt.show()
+
+    def plot_aligned_population_average(self,
+        aligned_true,
+        aligned_pred,
+        aligned_velocity,
+        datasets,
+        neuron_ids=None,
+        folds=range(10),
+        average_mode="neurons",
+        response_mode="deconvolved",
+        imaging_rate_hz=30.4791,
+        smooth_sigma_sec=0.5,
+        velocity_axis_order=("y", "x"),
+        frame_axis=None,
+        title=None,
+        save_dir=None,
+        save_name=None,
+        prediction_color="deepskyblue",
+        event_frames=None,
+        event_labels=None,
+        velocity_plot_mode="both" ):
+        """
+        Plot aligned true vs predicted traces averaged either across neurons or datasets.
+
+        average_mode:
+            "neurons"  = one dataset, average selected neurons, SEM across neurons
+            "datasets" = multiple datasets, average each dataset first, SEM across datasets
+
+        response_mode:
+            "deconvolved" = plot mean deconvolved activity
+            "rate" = smooth true activity for estimated event-rate display
+        velocity_plot_mode: 
+            "both"      # plot y and x
+            "y"         # plot only y
+            "x"         # plot only x
+            "magnitude" # plot sqrt(x^2 + y^2)
+        """
+
+
+        if average_mode not in ["neurons", "datasets"]:
+            raise ValueError("average_mode must be 'neurons' or 'datasets'")
+
+        true_units = []
+        pred_units = []
+        velocity_units = []
+
+        for dataset_idx, (animalID, date, server) in enumerate(datasets):
+            key = f'{animalID}_{date}'
+            avg_true, avg_pred, avg_velocity, fold_counts = self.average_aligned_across_folds(
+                aligned_true=aligned_true,
+                aligned_pred=aligned_pred,
+                aligned_velocity=aligned_velocity,
+                key=key,
+                folds=folds,
+                velocity_axis_order=velocity_axis_order,
+            )
+
+            # avg_true/avg_pred are neurons x frames
+            # avg_velocity is 2 x frames
+
+            if response_mode == "rate":
+                avg_true = self.smooth_neural_trace_for_display(
+                    avg_true,
+                    imaging_rate_hz=imaging_rate_hz,
+                    smooth_sigma_sec=smooth_sigma_sec,
+                    axis=-1,
+                )
+
+                # I would leave prediction unsmoothed because GLM prediction is already rate-like.
+                avg_pred = avg_pred
+
+            elif response_mode != "deconvolved":
+                raise ValueError("response_mode must be 'deconvolved' or 'rate'")
+
+            if neuron_ids is None:
+                use_neurons = np.arange(avg_true.shape[0])
+            else:
+                use_neurons =  np.asarray(neuron_ids[0, dataset_idx]).squeeze()  #np.asarray(neuron_ids)
+
+            if average_mode == "neurons":
+                if len(datasets) != 1:
+                    raise ValueError("average_mode='neurons' expects one key/dataset at a time.")
+
+                true_units = avg_true[use_neurons, :]       # neurons x frames
+                pred_units = avg_pred[use_neurons, :]       # neurons x frames
+                velocity_units = avg_velocity[None, :, :]   # 1 x 2 x frames
+
+            elif average_mode == "datasets":
+                true_units.append(np.nanmean(avg_true[use_neurons, :], axis=0))  # frames
+                pred_units.append(np.nanmean(avg_pred[use_neurons, :], axis=0))  # frames
+                velocity_units.append(avg_velocity)                              # 2 x frames
+
+        if average_mode == "datasets":
+            true_units = np.stack(true_units, axis=0)          # datasets x frames
+            pred_units = np.stack(pred_units, axis=0)          # datasets x frames
+            velocity_units = np.stack(velocity_units, axis=0)  # datasets x 2 x frames
+
+        true_mean = np.nanmean(true_units, axis=0)
+        pred_mean = np.nanmean(pred_units, axis=0)
+
+        true_sem = np.nanstd(true_units, axis=0) / np.sqrt(true_units.shape[0])
+        pred_sem = np.nanstd(pred_units, axis=0) / np.sqrt(pred_units.shape[0])
+
+        n_frames = true_mean.shape[0]
+
+        if frame_axis is None:
+            frame_axis = np.arange(n_frames)
+        else:
+            frame_axis = np.asarray(frame_axis)
+            if len(frame_axis) != n_frames:
+                raise ValueError(
+                    f"frame_axis length {len(frame_axis)} does not match n_frames {n_frames}"
+                )
+
+        fig, axs = plt.subplots(
+            2,
+            1,
+            figsize=(8, 4.2),
+            sharex=True,
+            gridspec_kw={"height_ratios": [2.2, 1.0]},
+        )
+
+        ax = axs[0]
+
+        ax.plot(
+            frame_axis,
+            true_mean,
+            color=[0.25, 0.25, 0.25],
+            linewidth=1.4,
+            label="True",
+        )
+
+        ax.fill_between(
+            frame_axis,
+            true_mean - true_sem,
+            true_mean + true_sem,
+            color=[0.25, 0.25, 0.25],
+            alpha=0.2,
+            linewidth=0,
+        )
+
+        ax.plot(
+            frame_axis,
+            pred_mean,
+            color=prediction_color,
+            linewidth=1.4,
+            label="Predicted",
+        )
+
+        ax.fill_between(
+            frame_axis,
+            pred_mean - pred_sem,
+            pred_mean + pred_sem,
+            color=prediction_color,
+            alpha=0.2,
+            linewidth=0,
+        )
+
+        if response_mode == "rate":
+            ax.set_ylabel("Estimated\nrate", fontsize=9)
+        else:
+            ax.set_ylabel("Deconvolved\nactivity", fontsize=9)
+
+        ax.legend(frameon=False, fontsize=7)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        if event_frames is not None:         
+            xlim = axs[0].get_xlim()
+            for frame in event_frames:
+                if frame < xlim[1]:
+                    axs[0].axvline(x=frame, color='k', linestyle=(0, (10.5,6.8)), alpha=1,lw=0.7)
+            axs[0].set_xticks(event_frames)
+            axs[0].set_xticklabels(event_labels, rotation=45, fontsize=7)
+
+        ax = axs[1]
+
+        vel0_label, vel1_label = velocity_axis_order
+
+        # -----------------------------
+        # Velocity mean and SEM, unscaled
+        # -----------------------------
+        # velocity_units shape:
+        #   average_mode="datasets": datasets x 2 x frames
+        #   average_mode="neurons":  1 x 2 x frames
+        #
+        # velocity_axis_order tells us what row 0 and row 1 mean.
+        # Example:
+        #   velocity_axis_order=("y", "x")
+        #   velocity_units[:, 0, :] = y velocity
+        #   velocity_units[:, 1, :] = x velocity
+
+        if velocity_units.ndim != 3 or velocity_units.shape[1] != 2:
+            raise ValueError(
+                f"Expected velocity_units to be units x 2 x frames, got {velocity_units.shape}"
+            )
+
+        velocity_traces_to_plot = {}
+
+        if velocity_plot_mode == "both":
+            velocity_units_abs = np.abs(velocity_units)
+
+            velocity_traces_to_plot[f"abs {vel0_label} velocity"] = velocity_units_abs[:, 0, :]
+            velocity_traces_to_plot[f"abs {vel1_label} velocity"] = velocity_units_abs[:, 1, :]
+
+        elif velocity_plot_mode == "y":
+            if vel0_label == "y":
+                y_idx = 0
+            elif vel1_label == "y":
+                y_idx = 1
+            else:
+                raise ValueError("velocity_axis_order must contain 'y' for velocity_plot_mode='y'")
+
+            velocity_traces_to_plot["abs y velocity"] = np.abs(velocity_units[:, y_idx, :])
+
+        elif velocity_plot_mode == "x":
+            if vel0_label == "x":
+                x_idx = 0
+            elif vel1_label == "x":
+                x_idx = 1
+            else:
+                raise ValueError("velocity_axis_order must contain 'x' for velocity_plot_mode='x'")
+
+            velocity_traces_to_plot["abs x velocity"] = np.abs(velocity_units[:, x_idx, :])
+
+        elif velocity_plot_mode == "magnitude":
+            if vel0_label == "y":
+                y_idx = 0
+            elif vel1_label == "y":
+                y_idx = 1
+            else:
+                raise ValueError("velocity_axis_order must contain 'y' for velocity_plot_mode='magnitude'")
+
+            if vel0_label == "x":
+                x_idx = 0
+            elif vel1_label == "x":
+                x_idx = 1
+            else:
+                raise ValueError("velocity_axis_order must contain 'x' for velocity_plot_mode='magnitude'")
+
+            y_vel = velocity_units[:, y_idx, :]
+            x_vel = velocity_units[:, x_idx, :]
+
+            velocity_traces_to_plot["velocity magnitude"] = np.sqrt((x_vel ** 2) + (y_vel ** 2))
+
+        velocity_mean = {}
+        velocity_sem = {}
+
+        for trace_label, trace_units in velocity_traces_to_plot.items():
+            velocity_mean[trace_label] = np.nanmean(trace_units, axis=0)
+
+            if trace_units.shape[0] > 1:
+                velocity_sem[trace_label] = np.nanstd(trace_units, axis=0) / np.sqrt(trace_units.shape[0])
+            else:
+                velocity_sem[trace_label] = np.zeros_like(velocity_mean[trace_label])
+
+        # Plot selected velocity traces
+        for trace_label in velocity_traces_to_plot.keys():
+            trace_mean = velocity_mean[trace_label]
+            trace_sem = velocity_sem[trace_label]
+
+            ax.plot(
+                frame_axis,
+                trace_mean,
+                linewidth=1.0,
+                label=trace_label
+            )
+
+            ax.fill_between(
+                frame_axis,
+                trace_mean - trace_sem,
+                trace_mean + trace_sem,
+                alpha=0.2,
+                linewidth=0,
+            )
+
+        if event_frames is not None:         
+            xlim = axs[1].get_xlim()
+            for frame in event_frames:
+                if frame < xlim[1]:
+                    axs[1].axvline(x=frame, color='k', linestyle=(0, (10.5,6.8)), alpha=1,lw=0.7)
+
+            axs[1].set_xticks(event_frames)
+            axs[1].set_xticklabels(event_labels, rotation=45, fontsize=7)
+
+        ax.set_ylabel("Velocity", fontsize=7)
+        # ax.set_xlabel("Aligned frame")
+        ax.legend(frameon=False, fontsize=7)
+
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        if title is None:
+            if average_mode == "neurons":
+                title = f"{datasets[0]}, mean across neurons, SEM across neurons"
+            else:
+                title = f"Mean across datasets, SEM across datasets, n={len(datasets)}"
+
+        fig.suptitle(title, fontsize=10)
+        plt.tight_layout()
+
+        saved_path = None
+
+        if save_dir is not None:
+            os.makedirs(save_dir, exist_ok=True)
+
+            if save_name is None:
+                if average_mode == "neurons":
+                    save_name = f"{datasets[0]}_aligned_mean_across_neurons_{response_mode}.pdf"
+                else:
+                    save_name = f"aligned_mean_across_datasets_{response_mode}.pdf"
+
+            saved_path = os.path.join(save_dir, save_name)
+            plt.savefig(saved_path, bbox_inches="tight")
+            print("Saved:", saved_path)
+
+        plt.show()
+
+        return fig, axs, saved_path, {
+            "true_units": true_units,
+            "pred_units": pred_units,
+            "velocity_units": velocity_units,
+            "true_mean": true_mean,
+            "pred_mean": pred_mean,
+            "true_sem": true_sem,
+            "pred_sem": pred_sem,
+            "velocity_mean": velocity_mean,
+            "velocity_sem": velocity_sem,
+            "velocity_plot_mode": velocity_plot_mode,
+                }
 
 
 

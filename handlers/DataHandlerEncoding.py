@@ -598,7 +598,7 @@ class DataHandlerEncoding:
         # Load the condition_array_trials structure
         mat_data = scipy.io.loadmat(os.path.join(dir, 'opto.mat'))
         opto = mat_data['opto'][0][0]
-        opto =self.unwrap_matlab(opto)
+        opto = self.unwrap_matlab(opto)
 
         mat_data = scipy.io.loadmat(os.path.join(dir, 'sound.mat'))
         sound = mat_data['sound'][0][0]
@@ -681,6 +681,10 @@ class DataHandlerEncoding:
             significant_neurons[mouse_date] = {}
             opto_neurons = opto['sig_cells'][idx,0]-1 # Adjust for MATLAB indexing
             sound_neurons = sound['sig_cells'][0,idx]-1 # Adjust for MATLAB indexing
+
+            #adjust those fields to be -1 for python indexing
+            sound['sig_cells'][0,idx] = sound_neurons
+            opto['sig_cells'][0,idx] = opto_neurons
 
             mod_indices[mouse_date] = {}
 

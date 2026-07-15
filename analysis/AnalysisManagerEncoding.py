@@ -1446,10 +1446,9 @@ class AnalysisManagerEncoding:
 
         frac_dev = 1 - model_dev / null_dev
 
-        return frac_dev, null_dev, model_dev
-    
-    
-    
+        return frac_dev, model_dev, null_dev
+
+
     def compute_aligned_frac_dev_all(
         self,
         aligned_neural_true,

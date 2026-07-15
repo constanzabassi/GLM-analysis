@@ -818,8 +818,8 @@ class GLMPredictorProcessor:
                 aligned_data_all[key][fold_number] = aligned_data
 
                 #load predictors (no convolution)
-                behav_the_matrix1 = scipy.io.loadmat(os.path.join(path, 'behav_the_matrix.mat'))
-                behav_the_matrix =  behav_the_matrix1['behav_the_matrix'].T
+                behav_the_matrix1 = scipy.io.loadmat(os.path.join(path, 'velocity.mat')) #y is row 0, x is row 1
+                behav_the_matrix =  behav_the_matrix1['velocity'].T
                 aligned_data_predictors = self.align_neural_data(frames[key][fold_number], behav_the_matrix)
                 aligned_velocity_all[key][fold_number] = aligned_data_predictors
             
@@ -2236,29 +2236,6 @@ class GLMPredictorProcessor:
 
         # return aligned_neural_data
     
-    def align_model_outputs_across_folds(self, datasets, frames, model_outputs_dict, model_type, data_dir = None):
-        aligned_data_all = {}
-            
-        for animalID, date, server in datasets:
-            key = f'{animalID}_{date}'
-            print(f'Aligning neural or model outputs for {key}...')
-            
-            aligned_data_all[key] = {}
-
-            for fold_number in range(10):
-                save_directory = f'{server}/Connie/ProcessedData/{animalID}/{date}/GLM_running/'
-
-                if data_dir is None:
-                    model_outputs = model_outputs_dict[key][model_type][fold_number]['y_pred'] #[{to_align}]
-                else:
-                    path = os.path.join(save_directory, f"{data_dir}{fold_number+1}",'test') 
-                    model_outputs1 = scipy.io.loadmat(os.path.join(path, 'combined_response.mat'))
-                    model_outputs =  model_outputs1['combined_response'].T
-                aligned_data = self.align_neural_data(frames[key][fold_number], model_outputs)
-                aligned_data_all[key][fold_number] = aligned_data
-            
-        return aligned_data_all
-    
 
     def get_trial_conditions_from_array(self, condition_array_trials,
                                     fields_to_separate=['correct']):
@@ -2928,20 +2905,20 @@ class GLMPredictorProcessor:
 
         If saved as frames x predictors, transpose automatically.
         """
-        predictor_path = os.path.join(path, "behav_big_matrix.mat")
+        predictor_path = os.path.join(path, "velocity.mat")
 
         if not os.path.exists(predictor_path):
-            raise FileNotFoundError(f"Could not find behav_big_matrix.mat at: {predictor_path}")
+            raise FileNotFoundError(f"Could not find velocity.mat at: {predictor_path}")
 
         pred_file = scipy.io.loadmat(predictor_path)
 
-        if "behav_big_matrix" not in pred_file:
+        if "velocity" not in pred_file:
             raise KeyError(
-                f"'behav_big_matrix' not found in behav_big_matrix.mat. "
+                f"'velocity' not found in velocity.mat. "
                 f"Available keys: {list(pred_file.keys())}"
             )
 
-        running_predictors = np.asarray(pred_file["behav_big_matrix"])
+        running_predictors = np.asarray(pred_file["velocity"])
 
         if running_predictors.ndim != 2:
             raise ValueError(
@@ -3151,6 +3128,13 @@ class GLMPredictorProcessor:
                 "abs x raw": self.minmax_for_display(np.abs(velocity_dict["x_raw"])),
                 "abs y raw": self.minmax_for_display(np.abs(velocity_dict["y_raw"])),
             }
+        
+        if mode == "raw_velocity_no_processing":
+            return {
+                "abs x raw": np.abs(velocity_dict["x_raw"]),
+                "abs y raw": np.abs(velocity_dict["y_raw"]),
+            }
+
 
         if mode == "raw_velocity_split":
             return {
@@ -3160,7 +3144,7 @@ class GLMPredictorProcessor:
                 "-y raw": self.minmax_for_display(velocity_dict["neg_y"]),
             }
 
-        raise ValueError("mode must be 'raw_velocity' or 'raw_velocity_split'")
+        raise ValueError("mode must be 'raw_velocity', 'raw_velocity_no_processing' or 'raw_velocity_split'")
 
 
     def validate_response_prediction_shapes(self, response_matrix, y_pred):
