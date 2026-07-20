@@ -54,7 +54,7 @@ class DataHandlerDecoding:
         self.celltype_info = {}
 
     #FUNCTION TO LOAD SAVED RESULTS (SAVES TIME)
-    def load_all_decoder_results(filepath):
+    def load_all_decoder_results(filepath, error_report = None):
             def process_reference(ref, file):
                 try:
                     if isinstance(ref, h5py.h5r.Reference):
@@ -65,6 +65,8 @@ class DataHandlerDecoding:
                     return ref
                 except Exception as e:
                     # Silent error handling
+                    if error_report is not None:
+                        error_report.append({ "filepath": str(filepath), "stage": "process_reference", "error_type": type(e).__name__, "message": str(e), })
                     return None
 
             def process_dataset(dataset, file):
@@ -76,6 +78,8 @@ class DataHandlerDecoding:
                         return process_reference(refs, file)
                     return dataset[()]
                 except Exception as e:
+                    if error_report is not None:
+                        error_report.append({ "filepath": str(filepath), "stage": "process_dataset", "error_type": type(e).__name__, "message": str(e), })
                     return None
 
             def process_group(group, file):
@@ -88,12 +92,16 @@ class DataHandlerDecoding:
                         elif isinstance(item, h5py.Dataset):
                             result[key] = process_dataset(item, file)
                     except Exception as e:
-                        pass
+                        if error_report is not None:
+                            error_report.append({ "filepath": str(filepath), "stage": "process_group", "error_type": type(e).__name__, "message": str(e), })
+                            continue
                 return result
 
             try:
                 with h5py.File(filepath, 'r') as file:            
                     if 'decoder_results' not in file:
+                        if error_report is not None:
+                            error_report.append({ "filepath": str(filepath), "stage": "process_group", "error_type": "missing key", "message": "decoder result not found", }) 
                         return None
                         
                     decoder_group = file['decoder_results']
@@ -101,7 +109,8 @@ class DataHandlerDecoding:
                     return result
                     
             except Exception as e:
-                print(f"File loading error: {e}")
+                if error_report is not None:
+                    error_report.append({ "filepath": str(filepath), "stage": "load_all_decoder_results", "error_type": type(e).__name__, "message": str(e), })
                 return None
 
         # try:
@@ -191,25 +200,35 @@ class DataHandlerDecoding:
         for splits in range(0,10):
             #decoding_dir =f'V:/Connie\ProcessedData\HA11-1R/2023-04-13\GLM_3nmf_pre\decoding/{splits+1}/'
             if single_balanced is True:
-                os.chdir(f'{decoding_dir}{splits+1}_1/')
+                # os.chdir(f'{decoding_dir}{splits+1}_1/')
                 print(f'{decoding_dir}{splits+1}_1/')
+                results_path = f'{decoding_dir}{splits+1}_1/'
             else:
                 {'Loading regular results without single balance'}
-                os.chdir(f'{decoding_dir}{splits+1}/')
+                # os.chdir(f'{decoding_dir}{splits+1}/')
                 print(f'{decoding_dir}{splits+1}/')
+                results_path = f'{decoding_dir}{splits+1}/'
             for variable in decoded_variables:
                 if variable.startswith('shuffled/'):
                     new_variable = variable[9:]
-                    mat_path = Path(f'decoder_results_shuffled_{new_variable}.mat')
-                    
+                    mat_path = Path(results_path) / f'decoder_results_shuffled_{new_variable}.mat'
+
                     # Try loading from current directory first
-                    if not mat_path.exists() and 'pre' in decoding_dir:
-                        # If file doesn't exist and we're in pre, try regular directory
-                        fallback_dir = f'{decoding_dir}{splits+1}/'
-                        os.chdir(fallback_dir)
-                        print(f'Shuffled file not found, trying fallback directory: {fallback_dir}')
+                    if not mat_path.exists() and "pre" in decoding_dir:
+                        fallback_dir = Path(decoding_dir) / str(splits + 1)
+                        fallback_path = (
+                            fallback_dir
+                            / f"decoder_results_shuffled_{new_variable}.mat"
+                        )
+
+                        print(
+                            "Shuffled file not found, trying fallback directory: "
+                            f"{fallback_dir}"
+                        )
+
+                        mat_path = fallback_path
                 else:
-                    mat_path = Path(f'decoder_results_regular_{variable}.mat')
+                    mat_path = Path(results_path) / f'decoder_results_regular_{variable}.mat'
                     # variable = variable.split('_')[0]
 
                 

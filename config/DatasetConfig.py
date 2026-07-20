@@ -4,6 +4,9 @@ class DatasetConfig:
     def __init__(self):
         self.all_datasets = {}
         self.mouse_dates_keys = []
+
+        #from paper data Bassi et al. 2026
+        self.expected_mouse_dates_keys = [ "HA11-1R_2023-05-05", "HA11-1R_2023-04-13", "HA2-1L_2023-04-12", "HA2-1L_2023-05-05", "HA1-00_2023-06-29", "HA1-00_2023-08-28", "HE4-1L1R_2023-08-21", "HE4-1L1R_2023-08-24", "HA10-1L_2023-04-10", "HA10-1L_2023-04-17", "HA10-1L_2023-04-12", "HA11-1R_2023-04-07", "HA11-1R_2023-05-01", "HA11-1R_2023-05-02", "HA2-1L_2023-04-28", "HA2-1L_2023-05-01", "HA1-00_2023-06-27", "HA1-00_2023-07-07", "HA1-00_2023-08-25", "HE4-1L1R_2023-08-14", "HE4-1L1R_2023-08-28", "HE4-1L1R_2023-09-04", "HE4-1L1R_2023-09-11", "HA10-1L_2023-03-31", "HE1-00_2023-05-30"]
         # Define which datasets lack specific decoded variables
         self.variable_indices = {
             'sound_category': {
@@ -27,6 +30,12 @@ class DatasetConfig:
     def load_from_info(self, info_dir, data_handler):
         """Load datasets and populate available variables"""
         datasets, mouse_dates_keys = data_handler.load_info(info_dir)
+
+        if list(mouse_dates_keys) != self.expected_mouse_dates_keys:
+            print("Warning: Loaded mouse_dates_keys do not match expected keys from Bassi et al. 2026.")
+            print(f"Expected: {self.expected_mouse_dates_keys}")
+            print(f"Loaded: {list(mouse_dates_keys)}")
+            raise ValueError("Loaded mouse_dates_keys do not match expected keys from Bassi et al. 2026.")
         
         # Populate present indices for each variable
         all_indices = set(range(len(datasets)))
