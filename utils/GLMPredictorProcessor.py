@@ -1443,22 +1443,6 @@ class GLMPredictorProcessor:
 
         return results, results_interval
 
-import os
-import numpy as np
-import scipy.io
-import h5py
-from scipy.stats import sem
-from scipy import stats
-
-from scipy.spatial.distance import cdist
-from scipy.optimize import linear_sum_assignment
-from scipy.stats import sem
-
-class GLMPredictorProcessor:
-    def __init__(self, neuron_groups):
-        self.neuron_groups = neuron_groups
-        self.align_info = None
-
     def load_and_align_predictors_datasets(self,datasets, model_type,alignment,save_suffix = 'prepost trial cv 73 #'):
         """
         Process multiple datasets and calculate mean deviance explained for each.
