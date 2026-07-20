@@ -1559,7 +1559,7 @@ class AnalysisManagerEncoding:
         dev_pt: pointwise deviance value, ndarray of shape of y_true and y_pred
         '''
 
-        assert (y_true.shape == y_true.shape), "Shapes of y_true and y_pred don't match!"
+        assert (y_true.shape == y_pred.shape), "Shapes of y_true and y_pred don't match!"
         if loss_type == 'poisson':
             dev_pt = 2.0 * (y_true * (np.log(self.stable(y_true)) - np.log(self.stable(y_pred))) + y_pred - y_true)
         elif loss_type == 'gaussian':
