@@ -401,6 +401,7 @@ class DataHandlerDecoding:
 
     def process_multiple_datasets(self, datasets, model_type, single_balanced=False):
         """Process multiple datasets and calculate mean decoding."""
+        self.processing_errors = {}
         for animalID, date, server in datasets:
             try:
                 key = f'{animalID}_{date}'
@@ -423,7 +424,8 @@ class DataHandlerDecoding:
                 self.celltype_info[key]['neuron_groups'] = neuron_groups
 
             except Exception as e:
-                print(f"Error processing {key}: {e}")
+                self.processing_errors[key] = { "error_type": type(e).__name__, "message": str(e), } 
+                print( f"Error processing {key}: "f"{type(e).__name__}: {e}" ) 
                 continue
 
         return self.mean_results, self.mean_results_all,self.cat_results,self.celltype_info
