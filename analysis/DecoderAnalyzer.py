@@ -6,6 +6,7 @@ from scipy import stats
 import h5py
 import random
 import re
+import itertools
 
 #import stats class
 from utils.general_stats import GeneralStats
@@ -836,6 +837,64 @@ class DecoderAnalyzer:
                 synergy_struc[ds][ct] = synergy
 
         return synergy_struc
+    
+
+    
+    def synergy_scatter_all(self,
+            peak_info_struc,
+            celltypes=["Pyr","SOM","PV"],
+            feature_names=None,
+            eps=1e-9):
+        """
+        Computes synergy between all pairs of features for each cell type.
+        
+        Synergy(featureA, featureB) = (A + B) / max(A, B) - 1
+        
+        Returns pooled dictionary:
+            pooled[celltype][feature] = concatenated peak values
+            pooled[celltype]["synergy_featureA_featureB"] = synergy array
+        """
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+        # If feature_names not provided, infer them from first dataset + first celltype
+        if feature_names is None:
+            first_ds = next(iter(peak_info_struc))
+            first_ct = next(iter(peak_info_struc[first_ds]))
+            feature_names = list(peak_info_struc[first_ds][first_ct].keys())
+
+        # Build all pair combinations for synergy
+        feature_pairs = list(itertools.combinations(feature_names, 2))
+
+        # Initialize pooled structure
+        pooled = {ct: {} for ct in celltypes}
+        for ct in celltypes:
+            for f in feature_names:
+                pooled[ct][f] = []
+            for fa, fb in feature_pairs:
+                pooled[ct][f"synergy"] = []
+
+        # Fill pooled structure
+        for ds in peak_info_struc:
+            for ct in celltypes:
+                if ct not in peak_info_struc[ds]:
+                    continue
+
+                for fa, fb in feature_pairs:
+                    A = peak_info_struc[ds][ct][fa]["peak_values"]
+                    B = peak_info_struc[ds][ct][fb]["peak_values"]
+
+                    denom = np.maximum(A, B) + eps
+                    synergy = (A + B) / denom - 1.0
+
+                    pooled[ct][fa].append(A)
+                    pooled[ct][fb].append(B)
+                    pooled[ct][f"synergy"].append(synergy)
+
+        # Concatenate lists into arrays
+        for ct in pooled:
+            for key in pooled[ct]:
+                pooled[ct][key] = np.concatenate(pooled[ct][key])
+
+        return pooled
     
     def aggregate_synergy_across_datasets(self,synergy_struc,
                                       celltypes=["Pyr","SOM","PV"]):

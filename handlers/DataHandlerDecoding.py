@@ -57,7 +57,7 @@ class DataHandlerDecoding:
         self.decoder_load_errors = []
 
     #FUNCTION TO LOAD SAVED RESULTS (SAVES TIME)
-    def load_all_decoder_results(filepath, error_report = None):
+    def load_all_decoder_results(self, filepath, error_report = None):
             def process_reference(ref, file):
                 try:
                     if isinstance(ref, h5py.h5r.Reference):

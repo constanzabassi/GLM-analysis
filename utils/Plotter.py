@@ -3533,6 +3533,97 @@ class Plotter:
 
         plt.show()
 
+    def plot_overlap_stacked(self,
+        venn_f1,
+        venn_f2,
+        venn_both,
+        f1,
+        f2,
+        figsize=(1.2, 2.0),
+        colors=None,
+        show_error=True,
+        save_path=None
+    ):
+        """
+        Stacked bar plot for overlap between two informative features.
+
+        venn_f1, venn_f2, venn_both : arrays (percentages per dataset)
+        f1, f2 : feature names (strings)
+        """
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+        # Mean ± SD
+        m1, s1 = np.mean(venn_f1), np.std(venn_f1)
+        m2, s2 = np.mean(venn_f2), np.std(venn_f2)
+        mb, sb = np.mean(venn_both), np.std(venn_both)
+
+        # Colors
+        if colors is None:
+            c1 = "#87A96B"   # soft green (f1)
+            cb = "#9E9E9E"   # gray (both)
+            c2 = "#7FA6D6"   # soft blue (f2)
+        else:
+            c1, c2 = colors
+            cb = (0.5, 0.5, 0.5)
+
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # Bottoms for stacking
+        bottom_both = m1
+        bottom_f2 = m1 + mb
+
+        # Bars
+        ax.bar(0, m1, color=c1, width=0.6, label=f"{f1} only")
+        ax.bar(0, mb, bottom=bottom_both, color=cb, width=0.6, label="Both")
+        ax.bar(0, m2, bottom=bottom_f2, color=c2, width=0.6, label=f"{f2} only")
+
+        # Optional error bars (shown at segment centers)
+        if show_error:
+            ax.errorbar(
+                [0], [m1 / 2],
+                yerr=[s1],
+                fmt='none', ecolor='k', capsize=2, lw=0.8
+            )
+            ax.errorbar(
+                [0], [bottom_both + mb / 2],
+                yerr=[sb],
+                fmt='none', ecolor='k', capsize=2, lw=0.8
+            )
+            ax.errorbar(
+                [0], [bottom_f2 + m2 / 2],
+                yerr=[s2],
+                fmt='none', ecolor='k', capsize=2, lw=0.8
+            )
+
+        # Text labels inside bars
+        ax.text(0, m1 / 2, f"{m1:.0f}%\n±{s1:.0f}", ha='center', va='center', fontsize=7)
+        ax.text(0, bottom_both + mb / 2, f"{mb:.0f}%\n±{sb:.0f}", ha='center', va='center', fontsize=7)
+        ax.text(0, bottom_f2 + m2 / 2, f"{m2:.0f}%\n±{s2:.0f}", ha='center', va='center', fontsize=7)
+
+        # Formatting
+        ax.set_xlim(-0.6, 0.6)
+        ax.set_ylim(0, 100)
+        ax.set_xticks([])
+        ax.set_ylabel("Fraction of informative\nneurons (%)", fontsize=7)
+
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        # Legend (small, clean)
+        ax.legend(
+            frameon=False,
+            fontsize=6,
+            loc="upper right",
+            bbox_to_anchor=(0.5, 1.15),
+            ncol=1
+        )
+
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=300)
+
+        plt.show()
+
     def plot_overlap(self, venn_f1, venn_f2, venn_both, f1, f2, mode="venn", figsize = (1.5,1.5),colors = None, save_path = None):
         """
         venn_f1, venn_f2, venn_both : arrays (per dataset)
@@ -3657,6 +3748,40 @@ class Plotter:
         if save_path:
             plt.savefig(save_path,  dpi=300) #bbox_inches='tight',
         fig.show()
+
+    def plot_synergy_violin(self,synergy_all,
+                        celltypes=["Pyr","SOM","PV"],
+                        figsize=(6,5),
+                        colors=None, save_path = None):
+        """
+        Violin plots of synergy index for each cell type
+        """
+        mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
+        fig ,axes = plt.subplots(figsize=figsize)
+        plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
+
+        data = []
+        labels = []
+
+        for ct in celltypes:
+            data.append(synergy_all[ct])
+            labels.append(ct)
+
+        if colors is None:
+            colors = sns.color_palette("Set2", len(celltypes))
+        sns.violinplot(data=data, inner="box", cut=0, palette=colors,linewidth=1) #inner='box',
+                        
+        plt.xticks(range(len(labels)), labels)
+        plt.ylabel("Synergy Index")
+        # plt.title("Synergy between Sound and Choice Information", fontsize=7)
+        # plt.axhline(0, linestyle="--", color="gray")
+        
+        axes.spines['top'].set_visible(False)
+        axes.spines['right'].set_visible(False)
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path,  dpi=300) #bbox_inches='tight',
+        plt.show()
 
     def plot_scatter_plot_weights_overlay_noerrorn(self,synergy_all,
                         celltypes=["Pyr","SOM","PV"],
@@ -5677,232 +5802,6 @@ class Plotter:
 
         return active_plot, passive_plot, is_sig_plot
     
-    # def plot_decoding_by_coupling_bin(self,
-    #     coupling_index_by_celltype,
-    #     peak_info_struc,
-    #     decoded_feature='sound_category',
-    #     state='Active',
-    #     celltype_colors={'pyr': (0.37, 0.75, 0.49), 'som': (0.17, 0.35, 0.8), 'pv': (0.82, 0.04, 0.04)},
-    #     figsize=(3, 3),
-    #     marker_size=20,
-    #     peak_to_get='peak_values',
-    #     alpha=1,
-    #     bins=[0, 0.25, 0.5, 0.75, 1.01],  # right-inclusive last bin
-    #     threshold=None,
-    #     top_neurons=False,
-    #     save_path = None,
-    #     use_quantile_bins=False,          # ✅ NEW
-    #     n_quantiles=4
-    # ):
-    #     """
-    #     Bins coupling index and plots mean ± SEM of peak decoding info per bin, per cell type.
-    #     """
-    #     all_rows = []
-    #     mpl.rcParams['pdf.fonttype'] = 42   # TrueType fonts (editable)
-
-    #     top_pyr_color = (0.10, 0.36, 0.16) 
-
-    #     if top_neurons is True:
-    #         celltype_colors = {
-    #             'pyr': (0.37, 0.75, 0.49),
-    #             'som': (0.17, 0.35, 0.8),
-    #             'pv': (0.82, 0.04, 0.04),
-    #             'top_pyr': top_pyr_color
-    #         }
-
-    #     for dataset in peak_info_struc:
-    #         for cell_type in peak_info_struc[dataset]:
-
-    #             info = peak_info_struc[dataset][cell_type].get(decoded_feature, None)
-    #             if info is None:
-    #                 continue
-
-    #             peak_vals = info[peak_to_get]
-    #             if peak_to_get == 'peak_frames':
-    #                 peak_vals = peak_vals / 169  # normalize by frames
-    #             neuron_indices = info['neuron_indices'].flatten()
-
-    #             # First, filter to top 10 PYR neurons if requested
-    #             if top_neurons is True and cell_type.lower() == 'pyr':
-    #                 # Sort indices of top neurons by decoding strength
-    #                 sorted_indices = np.argsort(peak_vals)[::-1]
-    #                 top_indices = sorted_indices[:10]  # Top 10 neurons
-
-    #             try:
-    #                 coupling_vals = coupling_index_by_celltype[('No Coupling', 'All')][cell_type.lower()][state]
-    #             except KeyError:
-    #                 print(f"Missing coupling index for {dataset}, {cell_type}, {state}")
-    #                 continue
-
-    #             for i, neuron_idx in enumerate(neuron_indices):
-    #                 if neuron_idx >= len(coupling_vals):
-    #                     continue
-    #                 if coupling_vals[neuron_idx] < 0 or  np.isnan(coupling_vals[neuron_idx]):
-    #                     continue
-    #                 row = {
-    #                     'dataset': dataset,
-    #                     'cell_type': cell_type.lower(),
-    #                     'neuron_idx': neuron_idx,
-    #                     'coupling_index': coupling_vals[neuron_idx],
-    #                     'peak_info': peak_vals[i],
-    #                 }
-    #                 if threshold is not None:
-    #                     # Use threshold filtering
-    #                     if row['coupling_index'] > threshold:
-    #                         all_rows.append(row)
-    #                 elif top_neurons is True and cell_type.lower() == 'pyr':
-    #                     # print(f"Top 10 PYR neurons for {dataset}: {neuron_indices[top_indices]}")
-    #                     if i in top_indices:
-    #                         row = {
-    #                             'dataset': dataset,
-    #                             'cell_type': 'top_pyr',
-    #                             'neuron_idx': neuron_idx,
-    #                             'coupling_index': coupling_vals[neuron_idx],
-    #                             'peak_info': peak_vals[i],
-    #                         }
-    #                     all_rows.append(row)
-    #                 else:
-    #                     all_rows.append(row)
-
-    #     df = pd.DataFrame(all_rows)
-    #     # df['coupling_bin'] = pd.cut(df['coupling_index'], bins=bins, include_lowest=True, right = False)
-    #     if use_quantile_bins:
-    #         df['coupling_bin'] = None  # initialize
-
-    #         for cell_type in df['cell_type'].unique():
-    #             mask = df['cell_type'] == cell_type
-    #             try:
-    #                 df.loc[mask, 'coupling_bin'] = pd.qcut(
-    #                     df.loc[mask, 'coupling_index'],
-    #                     q=n_quantiles,
-    #                     duplicates='drop'
-    #                 )
-    #             except ValueError:
-    #                 # fallback if not enough unique values
-    #                 df.loc[mask, 'coupling_bin'] = pd.cut(
-    #                     df.loc[mask, 'coupling_index'],
-    #                     bins=n_quantiles
-    #                 )
-    #     else:
-    #         df['coupling_bin'] = pd.cut(
-    #             df['coupling_index'],
-    #             bins=bins,
-    #             include_lowest=True,
-    #             right=False
-    #         )
-
-    #     plt.figure(figsize=figsize)
-
-    #     # bin_centers = [(bins[i] + bins[i+1]) / 2 for i in range(len(bins) - 1)]
-    #     categories = sub['coupling_bin'].dropna().cat.categories
-    #     bin_centers = [(b.left + b.right) / 2 for b in categories]
-        
-    #     for cell_type, color in celltype_colors.items():
-    #         sub = df[df['cell_type'] == cell_type]
-    #         means = []
-    #         errors = []
-    #         bin_data_all = {}
-
-    #         for b in categories: #for b in df['coupling_bin'].cat.categories:
-    #             bin_data = sub[sub['coupling_bin'] == b]['peak_info']
-    #             means.append(bin_data.mean())
-    #             errors.append(sem(bin_data) if len(bin_data) > 1 else 0)
-    #             bin_data_all[b] = bin_data
-
-    #         #perform stat test
-    #         # ---- Permutation test ----
-    #         bins = list(bin_data_all.keys())
-
-    #         if len(bins) == 2:
-    #             data1 = bin_data_all[bins[0]]
-    #             data2 = bin_data_all[bins[1]]
-
-    #             # only run if both bins have data
-    #             if len(data1) > 0 and len(data2) > 0:
-    #                 all_p_values = []
-    #                 all_stats_dict = {}
-    #                 test_stats = []
-    #                 comparisons_names = []
-    #                 pval, stat = self.stats.perform_permutation_test(
-    #                     data1, data2,
-    #                     paired=False,
-    #                     n_permutations=10000
-    #                 )
-    #                 print(f'permutation test|| pval: {pval}, celltype {cell_type}')
-    #                 all_p_values.append(pval)
-    #                 test_stats.append(stat)
-    #                 label1 = f"low_coupling"
-    #                 label2 = f"hi_coupling"
-    #                 all_stats_dict[label1] = self.stats.get_basic_stats(data1)
-    #                 all_stats_dict[label2] = self.stats.get_basic_stats(data2)
-    #                 comparisons_names.append((label1,label2))
-    #             else:
-    #                 pval, stat = np.nan, np.nan
-    #         else:
-    #             pval, stat = np.nan, np.nan
-
-    #         plt.errorbar(
-    #             bin_centers, means, yerr=errors,
-    #             label=cell_type.upper(),
-    #             color=color,
-    #             marker='o',
-    #             markersize=marker_size / 5,
-    #             capsize=2,
-    #             lw=1
-    #         )
-            
-    #         # select the two columns for the cell type
-    #         x = df[df['cell_type'] == cell_type]['coupling_index']
-    #         y = df[df['cell_type'] == cell_type]['peak_info']
-
-    #         # remove NaNs
-    #         mask = ~np.isnan(x) & ~np.isnan(y)
-    #         r, p = pearsonr(x[mask], y[mask])
-    #         print(f'{cell_type.upper()}: r = {r:.2f}, p = {p:.3f}')
-
-    #     plt.xlabel('Coupling Bin', fontsize=7)
-    #     plt.ylabel('Peak Info (bits)', fontsize=7)
-    #     plt.title(decoded_feature.capitalize(), fontsize=7)
-    #     if decoded_feature == 'sound_category':
-    #         plt.title('Sound Category', fontsize=7)
-    #     ax = plt.gca()
-    #     ax.set_xticks(bin_centers)
-    #     if use_quantile_bins:
-    #         ax.set_xticklabels([f'Q{i+1}' for i in range(len(categories))], rotation=0)
-    #     else:
-    #         ax.set_xticklabels(
-    #             [f'{b.left:.2f}-{b.right:.2f}' for b in df['coupling_bin'].cat.categories],
-    #             fontsize=7,
-    #             rotation=45
-    #         )
-    #     # ax.set_xticklabels([f'{b.left:.2f}-{b.right:.2f}' for b in df['coupling_bin'].cat.categories], fontsize=7, rotation=45)
-    #     ax.set_yticklabels(ax.get_yticks(), fontsize=7)
-    #     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.3f'))
-    #     if len(bins) != 3:
-    #         ax.set_box_aspect(1)
-    #     else:
-    #         ax.set_xlim(-.1,1.1)
-
-    #     plt.legend(
-    #         loc='center left',           # Anchor point of legend
-    #         bbox_to_anchor=(1.05, 0.5),  # Position relative to axes
-    #         borderaxespad=0.0,           # Padding between axes and legend
-    #         frameon=False,                 # Draw a frame around legend
-    #         fontsize=6
-    #     )
-    #     sns.despine()
-    #     plt.tight_layout()
-    #     if save_path:
-    #         plt.savefig(save_path, bbox_inches='tight')
-    #         save_path_updated = save_path[:save_path.rfind('/')]
-    #         print(f"Saving stats to {save_path_updated}")
-    #         name_without_ext = save_path.split('/')[-1].split('.')[0]
-    #         df_tests = self.stats.to_table(comparisons_names, test_stats, all_p_values, save_path=f'{save_path_updated}/stat_tests_{name_without_ext}.csv',type='permutation unpaired')
-    #         df_stats = self.stats.basic_stats_to_table(all_stats_dict, save_path=f'{save_path_updated}/basic_stats_{name_without_ext}.csv')
-    #     plt.show()
-
-    #     return df
-    
 
     def plot_within_between_cdf_two_contexts(self,all_df1, all_df2, group_colors=None,
                                             title='Coupling CDF',
@@ -6319,482 +6218,3 @@ class Plotter:
             "velocity_plot_mode": velocity_plot_mode,
                 }
 
-
-
-    # def bar_box_plot_avg_predictor_intervals(self,
-    #                                 avg_results: dict,
-    #                                 dataset_key: str,
-    #                                 factors,
-    #                                 factor_labels=None,
-    #                                 colors=None,
-    #                                 bar_width=0.25,
-    #                                 ylims=None,
-    #                                 save_path=None,
-    #                                 figsize=(2, 2),
-    #                                 plot_type='bar'):
-    #     """
-    #     Plot average predictors per event, either as bar plot (mean ± SEM) or boxplot.
-
-    #     Parameters
-    #     ----------
-    #     plot_type : str
-    #         'bar' for mean ± SEM bar plot (default), 'box' for boxplot using per-trial means.
-    #     """
-
-    #     mpl.rcParams['pdf.fonttype'] = 42
-    #     plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
-
-    #     data = avg_results[dataset_key]
-
-    #     # Get plot data
-    #     if plot_type == 'bar':
-    #         mean_vals = data['interval_mean'][0][factors, :]  # shape: (n_factors, n_events)
-    #         sem_vals  = data['interval_sem'][0][factors, :]   # shape: same
-    #     elif plot_type == 'box':
-    #         if 'data' not in data or 'interval' not in data['data']:
-    #             raise ValueError("Raw interval data not found in avg_results. Expected in data['data']['interval'].")
-
-    #         raw_data = data['data']['interval']  # list of arrays, one per factor
-    #         # Extract per-trial means across folds
-    #         mean_vals = [raw_data[f][factors, :].T for f in range(len(raw_data))]  # list of (n_events, n_trials)
-    #         # Transpose shape to: list of (n_events × n_trials_per_factor)
-    #     else:
-    #         raise ValueError("plot_type must be 'bar' or 'box'")
-
-    #     # Setup
-    #     if factor_labels is None:
-    #         factor_labels = [f'Factor {f}' for f in factors]
-
-    #     if colors is None:
-    #         colors = self.celltypecolors
-    #     colors = colors[:len(factors)]
-
-    #     fig, ax = plt.subplots(figsize=figsize)
-    #     n_factors = len(factors)
-    #     n_events = mean_vals.shape[1] if plot_type == 'bar' else mean_vals[0].shape[0]
-    #     x = np.arange(n_events)
-    #     offsets = (np.arange(n_factors) - (n_factors - 1) / 2) * bar_width
-
-    #     if plot_type == 'bar':
-    #         for f_idx in range(n_factors):
-    #             ax.bar(
-    #                 x + offsets[f_idx],
-    #                 mean_vals[f_idx, :],
-    #                 yerr=sem_vals[f_idx, :],
-    #                 width=bar_width,
-    #                 color=colors[f_idx],
-    #                 edgecolor='white',
-    #                 linewidth=1.0,
-    #                 capsize=1,
-    #                 label=factor_labels[f_idx],
-    #                 error_kw={'ecolor': 'black', 'capthick': 1, 'elinewidth': 1}
-    #             )
-    #     elif plot_type == 'box':
-    #         width = 0.8 / n_factors
-    #         for f_idx in range(n_factors):
-    #             for ev_idx in range(n_events):
-    #                 box_data = mean_vals[0][ev_idx, f_idx]  # trials for this factor/event
-    #                 box = ax.boxplot(
-    #                     box_data,
-    #                     positions=[x[ev_idx] + offsets[f_idx]],
-    #                     widths=width,
-    #                     patch_artist=True,
-    #                     boxprops=dict(facecolor=colors[f_idx], linewidth=1),
-    #                     medianprops=dict(color='black'),
-    #                     whiskerprops=dict(linewidth=1),
-    #                     capprops=dict(linewidth=1),
-    #                     flierprops=dict(marker='o', markersize=2, alpha=0.3)
-    #                 )
-
-    #     ax.set_xticks(x)
-    #     ax.set_xticklabels(self.event_labels)
-    #     ax.set_ylabel('Avg. Coupling Predictor')
-
-    #     if ylims is not None:
-    #         ax.set_ylim(ylims)
-
-    #     ax.spines['top'].set_visible(False)
-    #     ax.spines['right'].set_visible(False)
-
-    #     handles, labels_legend = ax.get_legend_handles_labels()
-    #     fig.legend(
-    #         handles,
-    #         labels_legend,
-    #         loc='center left',
-    #         bbox_to_anchor=(1.01, 0.5),
-    #         frameon=False
-    #     )
-
-    #     plt.tight_layout()
-    #     if save_path:
-    #         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    #     plt.show()
-
-
-
-
-
-    # def plot_avg_predictors_by_condition(self,avg_results: dict,
-    #                                     dataset_key: str,
-    #                                     title_prefix: str = '',
-    #                                     colors: list = None,
-    #                                     save_path: str = None,
-    #                                     ylims: tuple = None,
-    #                                     celltype: str = None):
-    #     """
-    #     Plot average predictors per condition (mean ± SEM) for a given dataset.
-
-    #     Parameters:
-    #     -----------
-    #     avg_results : dict
-    #         Output from `average_folds_by_condition`.
-    #     dataset_key : str
-    #         Dataset to plot (must exist in `avg_results`).
-    #     title_prefix : str
-    #         Optional title prefix for each subplot.
-    #     colors : list of str
-    #         List of hex colors (one per condition). Defaults to 3 preset colors.
-    #     save_path : str
-    #         Optional path to save the figure.
-    #     """
-    #     data = avg_results[dataset_key]
-    #     labels = data['labels']
-    #     mean_list = data['mean']
-    #     sem_list = data['sem']
-
-    #     # Mapping from celltype → factor indices
-    #     celltype_to_idx = {
-    #         'pyr': slice(0, 3),
-    #         'som': slice(3, 6),
-    #         'pv': slice(6, 9)
-    #     }
-
-    #     # Normalize celltype input
-    #     if celltype is None:
-    #         celltypes = list(celltype_to_idx.keys())
-    #         factor_slice = celltype_to_idx[celltypes]
-    #     elif isinstance(celltype, str):
-    #         celltypes = [celltype.lower()]
-    #         factor_slice = celltype_to_idx[celltypes]
-    #     elif isinstance(celltype, (list, tuple, set)):
-    #         celltypes = [ct.lower() for ct in celltype]
-    #         factor_slice = celltype_to_idx[celltypes]
-    #     else:
-    #         factor_slice = slice(None)
-
-    #     factor_indices = []
-    #     factor_labels = []
-    #     for ct in celltypes:
-    #         idx = celltype_to_idx[ct]
-    #         indices = list(range(idx.start, idx.stop))
-    #         factor_indices.extend(indices)
-    #         factor_labels.extend([ct.upper()] * len(indices))
-    #         # raise TypeError(
-    #         #     "celltype must be None, a string, or a list/tuple/set of strings"
-    #         # )
-
-    #     # # Select factors
-    #     # if celltype is not None:
-    #     #     celltype = celltype.lower()
-    #     #     if celltype not in celltype_to_idx:
-    #     #         raise ValueError(f"celltype must be one of {list(celltype_to_idx)}, got {celltype}")
-    #     #     factor_slice = celltype_to_idx[celltype]
-    #     # else:
-    #     #     factor_slice = slice(None)
-
-    #     n_conditions = len(labels)
-    #     n_factors = mean_list[0].shape[0]
-    #     time_axis = np.arange(mean_list[0].shape[1])
-
-    #     # Default colors
-    #     if colors is None:
-    #         colors = self.celltypecolors
-
-    #     plt.figure(figsize=(6 * n_conditions, 6))
-    #     plt.rcParams.update({'font.size': 14, 'font.family': 'arial'})
-
-    #     for i, (label, mean_vals, sem_vals) in enumerate(zip(labels, mean_list, sem_list)):
-    #         ax = plt.subplot(1, n_conditions, i + 1)
-    #         # for factor_idx in range(n_factors):
-    #         mean_vals = mean_vals[factor_indices, :]#[factor_slice, :]
-    #         sem_vals = sem_vals[factor_indices, :]#[factor_slice, :]
-
-    #         for factor_idx in range(mean_vals.shape[0]):
-    #             color = colors[factor_idx % len(colors)]
-    #             plt.plot(time_axis,
-    #                  mean_vals[factor_idx, :],
-    #                  label=f'{celltype.upper() if celltype else "Factor"} {factor_idx + 1}',
-    #                  color=color,
-    #                  linewidth=2)
-    #             plt.fill_between(time_axis,
-    #                             mean_vals[factor_idx, :] - sem_vals[factor_idx, :],
-    #                             mean_vals[factor_idx, :] + sem_vals[factor_idx, :],
-    #                             alpha=0.2,
-    #                             color=color)
-    #             # plt.plot(time_axis, mean_vals[factor_idx, :], label=f'Factor {factor_idx+1}',
-    #             #         color=color, linewidth=2)
-    #             # plt.fill_between(time_axis,
-    #             #                 mean_vals[factor_idx, :] - sem_vals[factor_idx, :],
-    #             #                 mean_vals[factor_idx, :] + sem_vals[factor_idx, :],
-    #             #                 alpha=0.2, color=color)
-
-    #         plt.xlabel('Frames Relative to Alignment')
-    #         plt.ylabel('Avg Coupling Predictor')
-    #         plt.title(f"{title_prefix}{label}")
-    #         plt.legend(frameon=False)
-
-    #         # Clean up appearance
-    #         ax.spines['top'].set_visible(False)
-    #         ax.spines['right'].set_visible(False)
-    #         ax.set_box_aspect(1)
-    #         # ax.set_xlim(-window, window)
-    #         if ylims is not None:
-    #             ax.set_ylim(ylims)
-
-    #     plt.tight_layout()
-    #     if save_path:
-    #         plt.savefig(save_path, bbox_inches='tight')
-    #     plt.show()
-
-
-    # def plot_selected_metric_with_sem(self, mean_results_all, mean_results_all_passive, decoder_type, metric, start_frame = None,end_frame = None, xlim=None, ylim=None, title=None, xlabel='Frames', ylabel=None, colors = ('blue','red'), save_dir=None):
-    #     """
-    #     Plot the selected metric from mean_results_all and mean_results_all_passive on the same plot with SEM shading.
-        
-    #     Parameters:
-    #     - mean_results_all: dict, results for the active condition
-    #     - mean_results_all_passive: dict, results for the passive condition
-    #     - decoder_type: str, the type of decoder used
-    #     - metric: str, the metric to plot
-    #     - plot_type: str, type of plot ('sc' for single cell, 'pop' for population)
-    #     - xlim: tuple, x-axis limits
-    #     - ylim: tuple, y-axis limits
-    #     - title: str, title of the plot
-    #     - xlabel: str, label for the x-axis
-    #     - ylabel: str, label for the y-axis
-    #     - save_dir: str, directory to save the plot
-    #     """
-    #     # Get event frames from first dataset
-    #     first_dataset = list(mean_results_all.keys())[0]
-    #     event_frames = mean_results_all[first_dataset][decoder_type]['event_frame_mean']
-        
-    #     # Collect data across datasets for active condition
-    #     all_data_active = []
-    #     for dataset in mean_results_all.keys():
-    #         if decoder_type in mean_results_all[dataset]:
-    #             data = mean_results_all[dataset][decoder_type][metric]
-
-    #             # Average across neurons for sc data
-    #             if 'sc' in metric and len(data.shape) == 2:  # frames x neurons
-    #                 data = np.mean(data, axis=1)  # average across neurons
-
-    #             all_data_active.append(data)
-        
-    #     # Collect data across datasets for passive condition
-    #     all_data_passive = []
-    #     for dataset in mean_results_all_passive.keys():
-    #         if decoder_type in mean_results_all_passive[dataset]:
-    #             data = mean_results_all_passive[dataset][decoder_type][metric]
-
-    #             # Average across neurons for sc data
-    #             if 'sc' in metric and len(data.shape) == 2:  # frames x neurons
-    #                 data = np.mean(data, axis=1)  # average across neurons
-
-    #             all_data_passive.append(data)
-
-        
-    #     if end_frame is None:
-    #         end_frame = data.shape[0]
-    #     if start_frame is None:
-    #         start_frame = data.shape[0]
-
-    #     used_frames = np.arange(start_frame, end_frame) # frames to use for plotting    
-    #     # Convert lists to NumPy arrays
-    #     all_data_active = np.array(all_data_active)
-    #     all_data_passive = np.array(all_data_passive)
-        
-    #     # Calculate mean and SEM for active condition
-    #     all_data_active_final = all_data_active[:,used_frames]
-    #     mean_trace_active = np.mean(all_data_active_final, axis=0)
-    #     sem_trace_active = np.std(all_data_active_final, axis=0) / np.sqrt(len(all_data_active_final))
-
-    #     # Calculate mean and SEM for passive condition
-    #     all_data_passive_final = all_data_passive[:,used_frames]  
-    #     mean_trace_passive = np.mean(all_data_passive_final, axis=0)
-    #     sem_trace_passive = np.std(all_data_passive_final, axis=0) / np.sqrt(len(all_data_passive_final))
-
-    #     # Plot the metric values
-    #     plt.figure(figsize=(3.5,3))
-    #     x = np.arange(len(mean_trace_active))
-        
-    #     # Plot active condition
-    #     active_line, = plt.plot(mean_trace_active, color=colors[0], label='Active')
-    #     plt.fill_between(x, mean_trace_active - sem_trace_active, mean_trace_active + sem_trace_active, alpha=0.3, color=colors[0]) #, label='Active SEM'
-        
-    #     # Plot passive condition
-    #     passive_line, = plt.plot(mean_trace_passive, color=colors[1], label='Passive')
-    #     plt.fill_between(x, mean_trace_passive - sem_trace_passive, mean_trace_passive + sem_trace_passive, alpha=0.3, color=colors[1]) #, label='Passive SEM'
-        
-    #     # Add event markers
-    #     for frame in event_frames:
-    #         if frame < len(mean_trace_active):
-    #             plt.axvline(x=frame - start_frame, color='k', linestyle=':', alpha=0.5)
-        
-    #     # Formatting
-    #     plt.title(title)
-    #     plt.xlabel(xlabel)
-    #     if ylabel:
-    #         plt.ylabel(ylabel)
-    #     else:
-    #         plt.ylabel('Bits' if 'information' in metric else 'Fraction Correct')
-        
-    #     plt.xlim(xlim if xlim else (0+ start_frame, len(mean_trace_active)- start_frame))
-    #     if ylim:
-    #         plt.ylim(ylim)
-        
-    #     # Add text annotations for the labels
-    #     plt.text(xlim[1]-20, ylim[1], 'Active', color=colors[0], verticalalignment='center')
-    #     plt.text(xlim[1]-20, ylim[1] - ylim[1]*.1, 'Passive', color=colors[1], verticalalignment='center')
-
-    #     # # Custom legend with colored text
-    #     # legend_labels = ['Active', 'Passive']
-    #     # legend_colors = colors
-    #     # handles = [plt.Line2D([0], [0], color='w', markerfacecolor=color, markersize=10, marker='o') for color in legend_colors]
-
-    #     # #handles = [active_line, passive_line]
-    #     # legend = plt.legend(handles, legend_labels,shadow = None, frameon = False,   loc='center left', bbox_to_anchor=(1, 0.5)) #loc='upper right',
-    #     # for text, color in zip(legend.get_texts(), legend_colors):
-    #     #     text.set_color(color)
-
-    #     # plt.legend(shadow = None, frameon = False,  loc='upper right')
-
-    #     plt.tight_layout()
-
-    #     # Clean up the appearance
-    #     ax = plt.gca()  # get current axis  
-    #     ax.spines['top'].set_visible(False)
-    #     ax.spines['right'].set_visible(False)
-        
-    #     # Save the plot if save_dir is provided
-    #     if save_dir:
-    #         plt.savefig(f"{save_dir}/{metric}_context_comparison_traces.png")
-        
-    #     plt.show()
-    #     return mean_trace_active, sem_trace_active, mean_trace_passive, sem_trace_passive
-
-    # def plot_single_neuron_analysis(results_dict, decoder_type='sound_category', start_frame= 14, end_frame = None):
-    #     print(start_frame)
-    #     """Comprehensive single neuron decoding visualization"""
-        
-    #     # 1. Neuron Performance Heatmap
-    #     plt.figure(figsize=(12, 8))
-    #     for dataset in results_dict:
-    #         data = results_dict[dataset][decoder_type]['sc_cumulative_information_mean']
-    #         celltype_array = results_dict[dataset]['celltype_array']
-            
-    #         # Sort neurons by cell type and performance
-    #         max_info = np.max(data[start_frame:, :], axis=0)
-    #         sort_idx = np.argsort(max_info)
-            
-    #         plt.subplot(len(results_dict), 1, list(results_dict.keys()).index(dataset) + 1)
-    #         sns.heatmap(data[:, sort_idx].T, 
-    #                 cmap='viridis',
-    #                 xticklabels=20,
-    #                 yticklabels=False)
-    #         plt.title(f'{dataset} Single Neuron Decoding')
-    #     plt.tight_layout()
-        
-    #     # 2. Best Neurons Analysis
-    #     # Dictionary to store neuron IDs for each dataset and cell type
-    #     neuron_ids_by_dataset = {}
-    #     fig, axes = plt.subplots(1, 2, figsize=(6, 3))  # 1 row, 2 columns
-    #     for cel_index,(celltype, color) in enumerate(plotter.celltypecolors.items()):
-    #         all_peaks = []
-    #         all_peaks_locs = []
-    #         for dataset in results_dict:
-    #             # Initialize a dictionary for this dataset if not already present
-    #             if dataset not in neuron_ids_by_dataset:
-    #                 neuron_ids_by_dataset[dataset] = {}
-
-    #             # Initialize a list for this cell type in the current dataset
-    #             if celltype not in neuron_ids_by_dataset[dataset]:
-    #                 neuron_ids_by_dataset[dataset][celltype] = []
-                
-    #             peaks_by_celltype = analyze_peaks_by_celltype( results_dict, decoder_type=decoder_type, start_frame=start_frame, end_frame = end_frame)
-    #             peaks = peaks_by_celltype[dataset][celltype]['sc']['sc_instantaneous_information_mean']['peak_values']
-    #             peaks_locs = peaks_by_celltype[dataset][celltype]['sc']['sc_instantaneous_information_mean']['peak_frames']    
-    #             if len(peaks) > 0:
-    #                 max_peaks = sorted(peaks)  # Sorted in ascending order
-    #                 top_5 = max_peaks[-5:]     # Slice the last 5 elements (highest values)
-    #                 all_peaks.extend(top_5)
-
-    #                 # Get the corresponding peak locations  
-    #                 top_5_locs = [peaks_locs[max_peaks.index(p)] for p in top_5]
-    #                 # Use the indices from the sorting step to ensure uniqueness
-    #                 sorted_indices = np.argsort(peaks)
-    #                 top_5_indices = sorted_indices[-5:]  # Indices of the top 5 values
-    #                 neuron_ids_by_dataset[dataset][celltype].extend(top_5_indices.tolist())
-
-
-    #                 # Add neuron IDs (indices) to the dictionary
-    #                 #neuron_ids_by_dataset[dataset][celltype].extend(top_5_ids)
-
-    #                 all_peaks_locs.extend(top_5_locs)
-    #         # Plotting histograms on subplots
-    #         axes[0].hist(all_peaks, alpha=1.0, color=color, label=celltype, histtype='step', linewidth=2)
-    #         axes[0].set_xlabel('Information (bits)')  # Correct method to set the x-axis label
-    #         axes[0].spines['top'].set_visible(False)
-    #         axes[0].spines['right'].set_visible(False)
-    #         axes[0].set_box_aspect(1)
-
-    #         axes[1].hist(all_peaks_locs, alpha=1.0, color=color, label=celltype, histtype='step', linewidth=2)
-    #         axes[1].set_xlabel('Peak Frame')  # Correct method to set the x-axis label
-    #         axes[1].spines['top'].set_visible(False)
-    #         axes[1].spines['right'].set_visible(False)
-    #         axes[1].set_box_aspect(1)
-
-    #     # Add legend and title
-    #     #fig.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=3)  # Adjust legend location
-    #     fig.suptitle('Top 5 Neurons Distribution by Cell Type')
-
-    #     # Adjust layout to avoid overlap
-    #     plt.tight_layout() #(rect=[0, 0.03, .8, 0.95]) #(rect=[0, 0.03, 1, 0.95])  # Leave space for the title and legend
-
-    #     # Show the plot
-    #     plt.show()
-        
-    #     # 3. Time Course by Cell Type
-    #     plt.figure(figsize=(3, 3))
-    #     for cel_index,(celltype, color) in enumerate(plotter.celltypecolors.items()):
-    #         all_traces = []
-    #         for dataset in results_dict:
-    #             if end_frame is None:
-    #                 end_frame = len(data)
-
-    #             traces = results_dict[dataset][decoder_type]['sc_instantaneous_information_mean'][0:end_frame,:]
-
-    #             celltype_idx = results_dict[dataset]['celltype_array'] == cel_index
-    #             if np.any(celltype_idx):
-    #                 mean_trace = np.mean(traces[:, celltype_idx], axis=1)
-    #                 all_traces.append(mean_trace)
-            
-    #         mean = np.mean(all_traces, axis=0)
-    #         sem = np.std(all_traces, axis=0) / np.sqrt(len(all_traces))
-    #         plt.plot(mean, color=color, label=celltype)
-    #         # Get the current Axes object
-    #         ax = plt.gca()   
-    #         ax.axvline(x = start_frame, color='k', linestyle=':', alpha=0.5)
-    #         plt.fill_between(range(len(mean)), mean-sem, mean+sem, alpha=0.2, color=color)
-    #         ax.spines['top'].set_visible(False)
-    #         ax.spines['right'].set_visible(False)
-            
-    #         ax.set_box_aspect(1)
-        
-    #     plt.legend()
-    #     plt.title('Average Information Time Course by Cell Type')
-    #     plt.xlabel('Time (frames)')
-    #     plt.ylabel('Information (bits)')
-        
-    #     plt.show()
-
-    #     return neuron_ids_by_dataset
