@@ -52,6 +52,9 @@ class DataHandlerDecoding:
         self.mean_results = {}
         self.mean_results_all = {}
         self.celltype_info = {}
+        self.processing_errors = {}
+        self.missing_decoder_files = []
+        self.decoder_load_errors = []
 
     #FUNCTION TO LOAD SAVED RESULTS (SAVES TIME)
     def load_all_decoder_results(filepath, error_report = None):
@@ -197,6 +200,7 @@ class DataHandlerDecoding:
 
     def get_cat_results_across_datasets(self,decoding_dir,decoded_variables, single_balanced=False):    
         cat_results = {}
+        self.missing_decoder_files = []
         for splits in range(0,10):
             #decoding_dir =f'V:/Connie\ProcessedData\HA11-1R/2023-04-13\GLM_3nmf_pre\decoding/{splits+1}/'
             if single_balanced is True:
@@ -264,6 +268,7 @@ class DataHandlerDecoding:
 
                 # If file is missing → insert EMPTY fields
                 if not mat_path.exists():
+                    self.missing_decoder_files.append(mat_path)
                     print(f"[WARN] Missing {mat_path}, inserting empty structure")
                     for key in variables_to_load:
                         if key == 'event_frame':
