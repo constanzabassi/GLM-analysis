@@ -1,0 +1,10 @@
+numpy
+scipy
+pandas
+scikit-learn
+matplotlib
+seaborn
+h5py
+matplotlib-venn
+psutil
+statsmodels
