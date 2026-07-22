@@ -200,7 +200,6 @@ class DataHandlerDecoding:
 
     def get_cat_results_across_datasets(self,decoding_dir,decoded_variables, single_balanced=False):    
         cat_results = {}
-        self.missing_decoder_files = []
         for splits in range(0,10):
             #decoding_dir =f'V:/Connie\ProcessedData\HA11-1R/2023-04-13\GLM_3nmf_pre\decoding/{splits+1}/'
             if single_balanced is True:
@@ -426,6 +425,8 @@ class DataHandlerDecoding:
     def process_multiple_datasets(self, datasets, model_type, single_balanced=False):
         """Process multiple datasets and calculate mean decoding."""
         self.processing_errors = {}
+        self.processing_errors = {}
+        self.missing_decoder_files = []
         for animalID, date, server in datasets:
             try:
                 key = f'{animalID}_{date}'
