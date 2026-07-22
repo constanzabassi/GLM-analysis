@@ -425,7 +425,6 @@ class DataHandlerDecoding:
     def process_multiple_datasets(self, datasets, model_type, single_balanced=False):
         """Process multiple datasets and calculate mean decoding."""
         self.processing_errors = {}
-        self.processing_errors = {}
         self.missing_decoder_files = []
         for animalID, date, server in datasets:
             try:
