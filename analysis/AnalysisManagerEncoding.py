@@ -1413,13 +1413,27 @@ class AnalysisManagerEncoding:
         combined_df = pd.concat(combined_df, ignore_index=True)
         return combined_df
     
-    def fractional_deviance_from_aligned(self,Y_true_aligned, Y_pred_aligned, loss_type='poisson', frame_subset=None):
+    def fractional_deviance_from_aligned(
+        self,
+        Y_true_aligned,
+        Y_pred_aligned,
+        loss_type='poisson',
+        frame_subset=None,
+        recalibrate_intercept=False,
+        return_scale_factors=False,
+        eps=1e-12,
+    ):
         """
         Y_true_aligned, Y_pred_aligned:
             shape = trials x neurons x aligned_frames
 
+        recalibrate_intercept:
+            If True, rescale each neuron's prediction so mean(Y_pred) matches
+            mean(Y_true) within the evaluated samples/window, then clip to >= eps
+            before Poisson deviance. Default False preserves raw FDE.
+
         Returns:
-            frac_dev, shape = neurons
+            frac_dev, model_dev, null_dev  (and scale_factors if return_scale_factors)
         """
 
         if frame_subset is not None:
@@ -1437,7 +1451,24 @@ class AnalysisManagerEncoding:
         Y_true = Y_true[good_rows, :]
         Y_pred = Y_pred[good_rows, :]
 
-        _, model_dev, _ = self.deviance(Y_pred, Y_true, loss_type=loss_type)
+        scale_factors = None
+        if recalibrate_intercept:
+            mean_true = np.mean(Y_true, axis=0)
+            mean_pred = np.mean(Y_pred, axis=0)
+            scale_factors = np.ones(n_neurons, dtype=float)
+            valid = np.abs(mean_pred) >= eps
+            scale_factors[valid] = mean_true[valid] / mean_pred[valid]
+
+            Y_pred_recal = Y_pred.copy()
+            Y_pred_recal *= scale_factors[None, :]
+            Y_pred_recal = np.maximum(Y_pred_recal, eps)
+            y_pred_for_dev = Y_pred_recal
+        else:
+            y_pred_for_dev = Y_pred
+            if return_scale_factors:
+                scale_factors = np.ones(n_neurons, dtype=float)
+
+        _, model_dev, _ = self.deviance(y_pred_for_dev, Y_true, loss_type=loss_type)
 
         null_dev = np.full(n_neurons, np.nan)
 
@@ -1446,6 +1477,8 @@ class AnalysisManagerEncoding:
 
         frac_dev = 1 - model_dev / null_dev
 
+        if return_scale_factors:
+            return frac_dev, model_dev, null_dev, scale_factors
         return frac_dev, model_dev, null_dev
 
 
@@ -1454,34 +1487,48 @@ class AnalysisManagerEncoding:
         aligned_neural_true,
         aligned_neural_pred,
         loss_type='poisson',
-        frame_subset=None
+        frame_subset=None,
+        recalibrate_intercept=False,
+        return_scale_factors=False,
     ):
 
         frac_dev_all = {}
         d_model_all = {}
         d_null_all = {}
+        scale_factors_all = {} if return_scale_factors else None
 
         for key in aligned_neural_true.keys():
             print(f'current dataset {key}')
             frac_dev_all[key] = {}
             d_model_all[key] = {}
             d_null_all[key] = {}
+            if return_scale_factors:
+                scale_factors_all[key] = {}
 
             for fold_number in aligned_neural_true[key].keys():
                 Y_true_aligned = aligned_neural_true[key][fold_number]
                 Y_pred_aligned = aligned_neural_pred[key][fold_number]
 
-                frac_dev_expl, d_model, d_null = self.fractional_deviance_from_aligned(
+                result = self.fractional_deviance_from_aligned(
                     Y_true_aligned,
                     Y_pred_aligned,
                     loss_type=loss_type,
-                    frame_subset=frame_subset
+                    frame_subset=frame_subset,
+                    recalibrate_intercept=recalibrate_intercept,
+                    return_scale_factors=return_scale_factors,
                 )
+                if return_scale_factors:
+                    frac_dev_expl, d_model, d_null, scale_factors = result
+                    scale_factors_all[key][fold_number] = scale_factors
+                else:
+                    frac_dev_expl, d_model, d_null = result
 
                 frac_dev_all[key][fold_number] = frac_dev_expl
                 d_model_all[key][fold_number] = d_model
                 d_null_all[key][fold_number] = d_null
 
+        if return_scale_factors:
+            return frac_dev_all, d_model_all, d_null_all, scale_factors_all
         return frac_dev_all, d_model_all, d_null_all
     
     def average_frac_dev_across_folds(self, frac_dev_all, cell_ids_dict=None):
