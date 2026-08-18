@@ -6427,7 +6427,10 @@ class Plotter:
         mi_matrix = np.column_stack(
             [np.concatenate(vals) for vals in per_context]
         )
-        sort_vals = mi_matrix[:, sort_context_index]
+        if len(sort_context_index) > 1:
+            sort_vals = np.nanmean(mi_matrix[:, sort_context_index], axis=1) #sort by the mean across contexts
+        else:
+            sort_vals = mi_matrix[:, sort_context_index]
         order = np.argsort(np.nan_to_num(sort_vals, nan=-np.inf))[::-1]
         mi_sorted = mi_matrix[order, :]
 
