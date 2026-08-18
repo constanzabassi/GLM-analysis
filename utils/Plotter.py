@@ -6218,3 +6218,378 @@ class Plotter:
             "velocity_plot_mode": velocity_plot_mode,
                 }
 
+    @staticmethod
+    def _dataset_key(animalID, date):
+        return f"{animalID}_{date}"
+
+    @staticmethod
+    def _squeeze_1d(arr):
+        arr = np.asarray(arr)
+        if arr.dtype == object and arr.size == 1:
+            arr = np.asarray(arr.item())
+        arr = np.squeeze(arr)
+        if arr.ndim == 0:
+            arr = np.reshape(arr, (1,))
+        if arr.size == 0:
+            return np.array([], dtype=float)
+        if arr.ndim != 1:
+            raise ValueError(f"mask must be 1D after squeezing, got shape {arr.shape}")
+        return arr
+
+    def _extract_mask_entry(self, mask_array, dataset_idx):
+        arr = np.asarray(mask_array, dtype=object)
+        if arr.ndim == 2:
+            if arr.shape[0] == 1:
+                entry = arr[0, dataset_idx]
+            elif arr.shape[1] == 1:
+                entry = arr[dataset_idx, 0]
+            elif dataset_idx < arr.shape[1]:
+                entry = arr[0, dataset_idx]
+            else:
+                entry = arr[dataset_idx, 0]
+        else:
+            entry = arr[dataset_idx]
+        return self._squeeze_1d(entry)
+
+    def _boolean_mask_from_entry(self, mask_entry, n_neurons, key):
+        """Convert a 1D mask entry to a boolean array of length n_neurons.
+
+        If length matches n_neurons, treat as boolean/0-1.
+        Otherwise treat as neuron indices.
+        """
+        mask_entry = self._squeeze_1d(mask_entry)
+        if mask_entry.size == 0:
+            return np.zeros(n_neurons, dtype=bool)
+
+        if mask_entry.dtype == bool and mask_entry.size != n_neurons:
+            raise ValueError(
+                f"Mask length does not match MI length for {key!r}: "
+                f"mask shape {mask_entry.shape}, MI shape ({n_neurons},)"
+            )
+
+        if mask_entry.size == n_neurons:
+            return np.asarray(mask_entry).astype(bool)
+
+        try:
+            idx = np.asarray(mask_entry, dtype=int)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Mask for {key!r} has shape {mask_entry.shape} but MI has "
+                f"length {n_neurons}. Expected a boolean mask of that length "
+                f"or integer neuron indices."
+            ) from exc
+
+        if np.any(idx < 0) or np.any(idx >= n_neurons):
+            raise ValueError(
+                f"Mask indices for {key!r} are out of range for MI length "
+                f"{n_neurons} (mask shape {mask_entry.shape})."
+            )
+        out = np.zeros(n_neurons, dtype=bool)
+        out[idx] = True
+        return out
+
+    def make_sound_mask_dict(
+        self,
+        sound_source,
+        datasets,
+        mask_name="sig_cells",
+        n_neurons_by_key=None,
+        index_base=0,
+    ):
+        """Convert MATLAB-loaded sound masks into a per-dataset dictionary.
+
+        Parameters
+        ----------
+        sound_source : dict-like
+            `sound` for mask_name='sig_cells', or `sound_separated` for
+            'sig_cells_pos' / 'sig_cells_neg'.
+        datasets : list of (animalID, date, server)
+        mask_name : {'sig_cells', 'sig_cells_pos', 'sig_cells_neg'}
+        n_neurons_by_key : dict, optional
+            If provided, values are converted to boolean arrays of that length.
+        index_base : int
+            0 if indices are already Python-style; 1 to convert from MATLAB.
+
+        Returns
+        -------
+        mask_dict : dict
+            mask_dict[key] is a 1D array. Boolean of shape (n_neurons,) if
+            n_neurons_by_key is given, otherwise squeezed 1D indices/0-1.
+        """
+        allowed = {"sig_cells", "sig_cells_pos", "sig_cells_neg"}
+        if mask_name not in allowed:
+            raise ValueError(f"mask_name must be one of {sorted(allowed)}")
+
+        if isinstance(sound_source, dict):
+            if mask_name not in sound_source:
+                raise KeyError(
+                    f"{mask_name!r} not found in sound_source. "
+                    "Pass `sound` for 'sig_cells' and `sound_separated` for "
+                    "'sig_cells_pos' / 'sig_cells_neg'."
+                )
+            mask_array = sound_source[mask_name]
+        else:
+            mask_array = sound_source[mask_name]
+
+        mask_dict = {}
+        for dataset_idx, (animalID, date, *rest) in enumerate(datasets):
+            key = self._dataset_key(animalID, date)
+            entry = self._extract_mask_entry(mask_array, dataset_idx)
+            if entry.size > 0 and index_base:
+                entry = np.asarray(entry, dtype=int) - int(index_base)
+            if n_neurons_by_key is not None:
+                if key not in n_neurons_by_key:
+                    raise KeyError(
+                        f"n_neurons_by_key is missing dataset key {key!r}"
+                    )
+                n_neurons = int(n_neurons_by_key[key])
+                mask_dict[key] = self._boolean_mask_from_entry(entry, n_neurons, key)
+            else:
+                mask_dict[key] = entry
+        return mask_dict
+
+    def _ordered_dataset_keys(self, mi_context_dicts, datasets=None):
+        first = mi_context_dicts[0]
+        if datasets is None:
+            keys = [k for k in first.keys()]
+        else:
+            keys = []
+            for animalID, date, *rest in datasets:
+                key = self._dataset_key(animalID, date)
+                if key in first:
+                    keys.append(key)
+        for d in mi_context_dicts[1:]:
+            keys = [k for k in keys if k in d]
+        return keys
+
+    def _selected_mi_for_dataset(self, mi_arr, neuron_mask_dict, key):
+        mi_arr = np.asarray(mi_arr, dtype=float).squeeze()
+        if mi_arr.ndim != 1:
+            raise ValueError(
+                f"MI for {key!r} must be 1D, got shape {mi_arr.shape}"
+            )
+        n_neurons = mi_arr.shape[0]
+        if neuron_mask_dict is None:
+            return mi_arr
+        if key not in neuron_mask_dict:
+            raise KeyError(f"neuron_mask_dict is missing dataset key {key!r}")
+        mask = self._boolean_mask_from_entry(neuron_mask_dict[key], n_neurons, key)
+        if mask.shape[0] != n_neurons:
+            raise ValueError(
+                f"Mask length does not match MI length for {key!r}: "
+                f"mask shape {mask.shape}, MI shape {mi_arr.shape}"
+            )
+        return mi_arr[mask]
+
+    def plot_mi_heatmap_by_context(
+        self,
+        mi_context_dicts,
+        context_labels,
+        neuron_mask_dict=None,
+        sort_context_index=0,
+        vmin=-0.4,
+        vmax=0.4,
+        title=None,
+        save_path=None,
+        datasets=None,
+        cmap="RdBu_r",
+    ):
+        """Heatmap of neuron MI across contexts (rows=neurons, columns=contexts).
+
+        Neurons are concatenated across datasets and sorted by MI in
+        ``sort_context_index`` (default: first context, e.g. Active).
+        """
+        if len(mi_context_dicts) != len(context_labels):
+            raise ValueError("mi_context_dicts and context_labels must have the same length")
+
+        plt.rcParams.update({"font.size": 7, "font.family": "arial"})
+        mpl.rcParams["pdf.fonttype"] = 42
+
+        keys = self._ordered_dataset_keys(mi_context_dicts, datasets=datasets)
+        per_context = [[] for _ in mi_context_dicts]
+        for key in keys:
+            selected = [
+                self._selected_mi_for_dataset(d[key], neuron_mask_dict, key)
+                for d in mi_context_dicts
+            ]
+            n = selected[0].shape[0]
+            for arr in selected[1:]:
+                if arr.shape[0] != n:
+                    raise ValueError(
+                        f"Selected neuron counts differ across contexts for {key!r}"
+                    )
+            for i, arr in enumerate(selected):
+                per_context[i].append(arr)
+
+        if not per_context[0]:
+            raise ValueError("No neurons available to plot")
+
+        mi_matrix = np.column_stack(
+            [np.concatenate(vals) for vals in per_context]
+        )
+        sort_vals = mi_matrix[:, sort_context_index]
+        order = np.argsort(np.nan_to_num(sort_vals, nan=-np.inf))[::-1]
+        mi_sorted = mi_matrix[order, :]
+
+        fig, ax = plt.subplots(figsize=(1.4 + 0.45 * mi_sorted.shape[1], 4.2))
+        colors = plt.get_cmap(cmap)(np.linspace(0, 1, 256))
+        cmap_obj = mpl.colors.ListedColormap(colors)
+        cmap_obj.set_bad(color=(0.7, 0.7, 0.7))
+        masked = np.ma.masked_invalid(mi_sorted)
+        im = ax.imshow(
+            masked,
+            aspect="auto",
+            interpolation="nearest",
+            cmap=cmap_obj,
+            vmin=vmin,
+            vmax=vmax,
+        )
+        ax.set_xticks(np.arange(len(context_labels)))
+        ax.set_xticklabels(context_labels, rotation=45, ha="right")
+        ax.set_ylabel("Neurons")
+        ax.set_yticks([])
+        if title:
+            ax.set_title(title, fontsize=7)
+        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label("Modulation Index")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        fig.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight")
+        plt.show()
+        return fig, ax, mi_sorted
+
+    def summarize_abs_mi_by_dataset(
+        self,
+        mi_context_dicts,
+        context_labels,
+        neuron_mask_dict=None,
+        datasets=None,
+    ):
+        """Mean |MI| per dataset and context over selected neurons."""
+        if len(mi_context_dicts) != len(context_labels):
+            raise ValueError("mi_context_dicts and context_labels must have the same length")
+
+        keys = self._ordered_dataset_keys(mi_context_dicts, datasets=datasets)
+        rows = []
+        for key in keys:
+            for context_label, mi_dict in zip(context_labels, mi_context_dicts):
+                selected = self._selected_mi_for_dataset(
+                    mi_dict[key], neuron_mask_dict, key
+                )
+                rows.append(
+                    {
+                        "dataset": key,
+                        "context": context_label,
+                        "mean_abs_mi": np.nanmean(np.abs(selected)) if selected.size else np.nan,
+                        "n_neurons": int(np.sum(np.isfinite(selected))),
+                    }
+                )
+        return pd.DataFrame(rows)
+
+    def plot_abs_mi_paired_summary(
+        self,
+        summary_df,
+        context_order=None,
+        title=None,
+        ylabel="|Modulation Index|",
+        save_path=None,
+        line_color=(0.55, 0.55, 0.55),
+        mean_color="k",
+    ):
+        """Paired dataset lines across contexts, with mean ± SEM overlay."""
+        plt.rcParams.update({"font.size": 7, "font.family": "arial"})
+        mpl.rcParams["pdf.fonttype"] = 42
+
+        df = summary_df.copy()
+        if context_order is None:
+            context_order = list(dict.fromkeys(df["context"].tolist()))
+        x = np.arange(len(context_order))
+
+        fig, ax = plt.subplots(figsize=(2.4, 2.6))
+        for dataset, sub in df.groupby("dataset", sort=False):
+            ys = []
+            for ctx in context_order:
+                match = sub.loc[sub["context"] == ctx, "mean_abs_mi"]
+                ys.append(float(match.iloc[0]) if len(match) else np.nan)
+            ax.plot(
+                x,
+                ys,
+                "-",
+                color=line_color,
+                alpha=0.45,
+                lw=0.8,
+                marker="o",
+                ms=2.5,
+                markerfacecolor=line_color,
+                markeredgecolor="none",
+            )
+
+        means = []
+        sems = []
+        for ctx in context_order:
+            vals = df.loc[df["context"] == ctx, "mean_abs_mi"].to_numpy(dtype=float)
+            vals = vals[np.isfinite(vals)]
+            means.append(np.mean(vals) if vals.size else np.nan)
+            sems.append(
+                np.std(vals, ddof=1) / np.sqrt(vals.size) if vals.size > 1 else np.nan
+            )
+        ax.errorbar(
+            x,
+            means,
+            yerr=sems,
+            fmt="o",
+            color=mean_color,
+            ms=3.5,
+            lw=1.1,
+            capsize=2,
+            zorder=3,
+        )
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(context_order, rotation=45, ha="right")
+        ax.set_ylabel(ylabel)
+        if title:
+            ax.set_title(title, fontsize=7)
+        ax.set_xlim(-0.4, len(context_order) - 0.6)
+        ymin, ymax = ax.get_ylim()
+        ax.set_ylim(0, max(ymax, 0.05))
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        fig.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight")
+        plt.show()
+        return fig, ax
+
+    def plot_true_vs_pred_abs_mi_summary(
+        self,
+        mi_true_dict,
+        mi_pred_dict,
+        neuron_mask_dict=None,
+        title=None,
+        save_path=None,
+        datasets=None,
+        true_label="True",
+        pred_label="Predicted",
+    ):
+        """Paired mean |MI| summary of true vs predicted activity per dataset."""
+        summary_df = self.summarize_abs_mi_by_dataset(
+            [mi_true_dict, mi_pred_dict],
+            [true_label, pred_label],
+            neuron_mask_dict=neuron_mask_dict,
+            datasets=datasets,
+        )
+        fig, ax = self.plot_abs_mi_paired_summary(
+            summary_df,
+            context_order=[true_label, pred_label],
+            title=title,
+            ylabel="|Modulation Index|",
+            save_path=save_path,
+        )
+        return fig, ax, summary_df
+
+
