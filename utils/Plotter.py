@@ -6362,24 +6362,102 @@ class Plotter:
             keys = [k for k in keys if k in d]
         return keys
 
-    def _selected_mi_for_dataset(self, mi_arr, neuron_mask_dict, key):
-        mi_arr = np.asarray(mi_arr, dtype=float).squeeze()
-        if mi_arr.ndim != 1:
+    def _selected_metric_for_dataset(
+        self,
+        metric_arr,
+        neuron_mask_dict,
+        key,
+        cell_type_dict=None,
+        metric_name="metric",
+    ):
+        metric_arr = np.asarray(metric_arr, dtype=float).squeeze()
+        if metric_arr.ndim != 1:
             raise ValueError(
-                f"MI for {key!r} must be 1D, got shape {mi_arr.shape}"
+                f"{metric_name} for {key!r} must be 1D, got shape {metric_arr.shape}"
             )
-        n_neurons = mi_arr.shape[0]
+        n_neurons = metric_arr.shape[0]
+
+        labels = None
+        if cell_type_dict is not None:
+            if key not in cell_type_dict:
+                raise KeyError(f"cell_type_dict is missing dataset key {key!r}")
+            labels = np.asarray(cell_type_dict[key]).squeeze()
+            if labels.ndim != 1:
+                raise ValueError(
+                    f"cell_type_dict[{key!r}] must be 1D after squeezing, "
+                    f"got shape {labels.shape}"
+                )
+            if labels.shape[0] != n_neurons:
+                raise ValueError(
+                    f"Cell-type length does not match {metric_name} length for {key!r}: "
+                    f"celltype shape {labels.shape}, {metric_name} shape {metric_arr.shape}"
+                )
+
         if neuron_mask_dict is None:
-            return mi_arr
+            return metric_arr, labels
         if key not in neuron_mask_dict:
             raise KeyError(f"neuron_mask_dict is missing dataset key {key!r}")
         mask = self._boolean_mask_from_entry(neuron_mask_dict[key], n_neurons, key)
         if mask.shape[0] != n_neurons:
             raise ValueError(
-                f"Mask length does not match MI length for {key!r}: "
-                f"mask shape {mask.shape}, MI shape {mi_arr.shape}"
+                f"Mask length does not match {metric_name} length for {key!r}: "
+                f"mask shape {mask.shape}, {metric_name} shape {metric_arr.shape}"
             )
-        return mi_arr[mask]
+        selected = metric_arr[mask]
+        if labels is not None:
+            labels = labels[mask]
+        return selected, labels
+
+    def _selected_mi_for_dataset(self, mi_arr, neuron_mask_dict, key):
+        selected, _ = self._selected_metric_for_dataset(
+            mi_arr, neuron_mask_dict, key, metric_name="MI"
+        )
+        return selected
+
+    def make_cell_type_dict_from_results(
+        self,
+        results,
+        mi_reference_dict,
+        label_map=None,
+        celltype_key="celltype_array",
+    ):
+        """Build per-dataset string cell-type labels from ``results[key][celltype_key]``.
+
+        Numeric defaults: 0=PYR, 1=SOM, 2=PV.
+        """
+        if label_map is None:
+            label_map = {0: "PYR", 1: "SOM", 2: "PV"}
+
+        cell_type_dict = {}
+        for key, metric in mi_reference_dict.items():
+            if key not in results:
+                raise KeyError(f"results is missing dataset key {key!r}")
+            if celltype_key not in results[key]:
+                raise KeyError(
+                    f"results[{key!r}] is missing {celltype_key!r}"
+                )
+            n_neurons = np.asarray(metric).squeeze().shape[0]
+            arr = np.asarray(results[key][celltype_key]).squeeze()
+            if arr.ndim != 1:
+                raise ValueError(
+                    f"celltype_array for {key!r} must be 1D after squeezing, "
+                    f"got shape {arr.shape}"
+                )
+            if arr.shape[0] != n_neurons:
+                raise ValueError(
+                    f"Cell-type length does not match metric length for {key!r}: "
+                    f"celltype shape {arr.shape}, metric shape ({n_neurons},)"
+                )
+            labels = []
+            for val in arr:
+                if isinstance(val, str):
+                    labels.append(val)
+                    continue
+                num = float(val)
+                lookup = int(num) if num.is_integer() else num
+                labels.append(label_map.get(lookup, str(val)))
+            cell_type_dict[key] = np.asarray(labels, dtype=object)
+        return cell_type_dict
 
     def plot_mi_heatmap_by_context(
         self,
@@ -6393,11 +6471,12 @@ class Plotter:
         save_path=None,
         datasets=None,
         cmap="RdBu_r",
+        colorbar_label="Modulation Index",
     ):
-        """Heatmap of neuron MI across contexts (rows=neurons, columns=contexts).
+        """Heatmap of a neuron-wise metric across contexts (rows=neurons).
 
-        Neurons are concatenated across datasets and sorted by MI in
-        ``sort_context_index`` (default: first context, e.g. Active).
+        Works for MI or post-pre delta. Neurons are concatenated across datasets
+        and sorted by ``sort_context_index`` (int or sequence of column indices).
         """
         if len(mi_context_dicts) != len(context_labels):
             raise ValueError("mi_context_dicts and context_labels must have the same length")
@@ -6427,10 +6506,14 @@ class Plotter:
         mi_matrix = np.column_stack(
             [np.concatenate(vals) for vals in per_context]
         )
-        if len(sort_context_index) > 1:
-            sort_vals = np.nanmean(mi_matrix[:, sort_context_index], axis=1) #sort by the mean across contexts
+        if np.isscalar(sort_context_index):
+            sort_vals = mi_matrix[:, int(sort_context_index)]
         else:
-            sort_vals = mi_matrix[:, sort_context_index]
+            sort_idx = np.asarray(sort_context_index)
+            if sort_idx.size == 1:
+                sort_vals = mi_matrix[:, int(sort_idx.ravel()[0])]
+            else:
+                sort_vals = np.nanmean(mi_matrix[:, sort_idx], axis=1)
         order = np.argsort(np.nan_to_num(sort_vals, nan=-np.inf))[::-1]
         mi_sorted = mi_matrix[order, :]
 
@@ -6454,7 +6537,7 @@ class Plotter:
         if title:
             ax.set_title(title, fontsize=7)
         cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        cbar.set_label("Modulation Index")
+        cbar.set_label(colorbar_label)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         fig.tight_layout()
@@ -6464,58 +6547,110 @@ class Plotter:
         plt.show()
         return fig, ax, mi_sorted
 
+    def summarize_abs_metric_by_dataset(
+        self,
+        metric_context_dicts,
+        context_labels,
+        metric_col="mean_abs_metric",
+        neuron_mask_dict=None,
+        cell_type_dict=None,
+        datasets=None,
+        metric_name="metric",
+    ):
+        """Mean |metric| per dataset and context, optionally split by cell type."""
+        if len(metric_context_dicts) != len(context_labels):
+            raise ValueError("metric_context_dicts and context_labels must have the same length")
+
+        keys = self._ordered_dataset_keys(metric_context_dicts, datasets=datasets)
+        rows = []
+        for key in keys:
+            for context_label, metric_dict in zip(context_labels, metric_context_dicts):
+                selected, labels = self._selected_metric_for_dataset(
+                    metric_dict[key],
+                    neuron_mask_dict,
+                    key,
+                    cell_type_dict=cell_type_dict,
+                    metric_name=metric_name,
+                )
+                if labels is None:
+                    rows.append(
+                        {
+                            "dataset": key,
+                            "context": context_label,
+                            metric_col: (
+                                np.nanmean(np.abs(selected)) if selected.size else np.nan
+                            ),
+                            "n_neurons": int(np.sum(np.isfinite(selected))),
+                        }
+                    )
+                else:
+                    for ct in np.unique(labels):
+                        sub = selected[labels == ct]
+                        rows.append(
+                            {
+                                "dataset": key,
+                                "context": context_label,
+                                "cell_type": ct,
+                                metric_col: (
+                                    np.nanmean(np.abs(sub)) if sub.size else np.nan
+                                ),
+                                "n_neurons": int(np.sum(np.isfinite(sub))),
+                            }
+                        )
+        return pd.DataFrame(rows)
+
     def summarize_abs_mi_by_dataset(
         self,
         mi_context_dicts,
         context_labels,
         neuron_mask_dict=None,
         datasets=None,
+        cell_type_dict=None,
     ):
         """Mean |MI| per dataset and context over selected neurons."""
-        if len(mi_context_dicts) != len(context_labels):
-            raise ValueError("mi_context_dicts and context_labels must have the same length")
+        return self.summarize_abs_metric_by_dataset(
+            mi_context_dicts,
+            context_labels,
+            metric_col="mean_abs_mi",
+            neuron_mask_dict=neuron_mask_dict,
+            cell_type_dict=cell_type_dict,
+            datasets=datasets,
+            metric_name="MI",
+        )
 
-        keys = self._ordered_dataset_keys(mi_context_dicts, datasets=datasets)
-        rows = []
-        for key in keys:
-            for context_label, mi_dict in zip(context_labels, mi_context_dicts):
-                selected = self._selected_mi_for_dataset(
-                    mi_dict[key], neuron_mask_dict, key
-                )
-                rows.append(
-                    {
-                        "dataset": key,
-                        "context": context_label,
-                        "mean_abs_mi": np.nanmean(np.abs(selected)) if selected.size else np.nan,
-                        "n_neurons": int(np.sum(np.isfinite(selected))),
-                    }
-                )
-        return pd.DataFrame(rows)
-
-    def plot_abs_mi_paired_summary(
+    def summarize_abs_delta_by_dataset(
         self,
-        summary_df,
-        context_order=None,
-        title=None,
-        ylabel="|Modulation Index|",
-        save_path=None,
+        delta_context_dicts,
+        context_labels,
+        neuron_mask_dict=None,
+        cell_type_dict=None,
+        datasets=None,
+    ):
+        """Mean |post-pre| per dataset and context over selected neurons."""
+        return self.summarize_abs_metric_by_dataset(
+            delta_context_dicts,
+            context_labels,
+            metric_col="mean_abs_delta",
+            neuron_mask_dict=neuron_mask_dict,
+            cell_type_dict=cell_type_dict,
+            datasets=datasets,
+            metric_name="delta",
+        )
+
+    def _draw_paired_summary_on_ax(
+        self,
+        ax,
+        df,
+        metric_col,
+        context_order,
         line_color=(0.55, 0.55, 0.55),
         mean_color="k",
     ):
-        """Paired dataset lines across contexts, with mean ± SEM overlay."""
-        plt.rcParams.update({"font.size": 7, "font.family": "arial"})
-        mpl.rcParams["pdf.fonttype"] = 42
-
-        df = summary_df.copy()
-        if context_order is None:
-            context_order = list(dict.fromkeys(df["context"].tolist()))
         x = np.arange(len(context_order))
-
-        fig, ax = plt.subplots(figsize=(2.4, 2.6))
         for dataset, sub in df.groupby("dataset", sort=False):
             ys = []
             for ctx in context_order:
-                match = sub.loc[sub["context"] == ctx, "mean_abs_mi"]
+                match = sub.loc[sub["context"] == ctx, metric_col]
                 ys.append(float(match.iloc[0]) if len(match) else np.nan)
             ax.plot(
                 x,
@@ -6533,7 +6668,7 @@ class Plotter:
         means = []
         sems = []
         for ctx in context_order:
-            vals = df.loc[df["context"] == ctx, "mean_abs_mi"].to_numpy(dtype=float)
+            vals = df.loc[df["context"] == ctx, metric_col].to_numpy(dtype=float)
             vals = vals[np.isfinite(vals)]
             means.append(np.mean(vals) if vals.size else np.nan)
             sems.append(
@@ -6550,23 +6685,115 @@ class Plotter:
             capsize=2,
             zorder=3,
         )
-
         ax.set_xticks(x)
         ax.set_xticklabels(context_order, rotation=45, ha="right")
+        ax.set_xlim(-0.4, len(context_order) - 0.6)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        return x
+
+    def _apply_paired_ylim(self, ax, ylim=None, y_floor=0.05):
+        if ylim is not None:
+            ax.set_ylim(ylim)
+            return
+        ymin, ymax = ax.get_ylim()
+        if y_floor is None:
+            ax.set_ylim(0, ymax if np.isfinite(ymax) and ymax > 0 else 1.0)
+        else:
+            ax.set_ylim(0, max(ymax, y_floor))
+
+    def _cell_type_color(self, cell_type):
+        key = str(cell_type).strip().lower()
+        aliases = {"pyr": "pyr", "pyramidal": "pyr", "som": "som", "pv": "pv"}
+        mapped = aliases.get(key, key)
+        return self.celltypecolors.get(mapped, (0.55, 0.55, 0.55))
+
+    def plot_abs_mi_paired_summary(
+        self,
+        summary_df,
+        context_order=None,
+        title=None,
+        ylabel="|Modulation Index|",
+        save_path=None,
+        line_color=(0.55, 0.55, 0.55),
+        mean_color="k",
+        ylim=None,
+        metric_col="mean_abs_mi",
+    ):
+        """Paired dataset lines across contexts, with mean +/- SEM overlay."""
+        plt.rcParams.update({"font.size": 7, "font.family": "arial"})
+        mpl.rcParams["pdf.fonttype"] = 42
+
+        df = summary_df.copy()
+        if context_order is None:
+            context_order = list(dict.fromkeys(df["context"].tolist()))
+
+        fig, ax = plt.subplots(figsize=(2.4, 2.6))
+        self._draw_paired_summary_on_ax(
+            ax, df, metric_col, context_order,
+            line_color=line_color, mean_color=mean_color,
+        )
         ax.set_ylabel(ylabel)
         if title:
             ax.set_title(title, fontsize=7)
-        ax.set_xlim(-0.4, len(context_order) - 0.6)
-        ymin, ymax = ax.get_ylim()
-        ax.set_ylim(0, max(ymax, 0.05))
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
+        self._apply_paired_ylim(ax, ylim=ylim, y_floor=0.05)
         fig.tight_layout()
 
         if save_path:
             plt.savefig(save_path, bbox_inches="tight")
         plt.show()
         return fig, ax
+
+    def plot_abs_metric_paired_summary_by_cell_type(
+        self,
+        summary_df,
+        metric_col,
+        context_order=None,
+        cell_type_order=None,
+        title=None,
+        ylabel=None,
+        ylim=None,
+        save_path=None,
+    ):
+        """Paired dataset-line summary, one panel per cell type."""
+        plt.rcParams.update({"font.size": 7, "font.family": "arial"})
+        mpl.rcParams["pdf.fonttype"] = 42
+
+        df = summary_df.copy()
+        if "cell_type" not in df.columns:
+            raise ValueError(
+                "summary_df must include a 'cell_type' column; "
+                "pass cell_type_dict when summarizing"
+            )
+        if context_order is None:
+            context_order = list(dict.fromkeys(df["context"].tolist()))
+        if cell_type_order is None:
+            cell_type_order = list(dict.fromkeys(df["cell_type"].tolist()))
+
+        n = max(len(cell_type_order), 1)
+        fig, axs = plt.subplots(1, n, figsize=(2.2 * n, 2.6), sharey=True)
+        if n == 1:
+            axs = np.array([axs])
+
+        for ax, ct in zip(axs, cell_type_order):
+            sub = df.loc[df["cell_type"] == ct]
+            color = self._cell_type_color(ct)
+            self._draw_paired_summary_on_ax(
+                ax, sub, metric_col, context_order,
+                line_color=color, mean_color=color,
+            )
+            ax.set_title(str(ct), fontsize=7)
+            self._apply_paired_ylim(ax, ylim=ylim, y_floor=None)
+
+        axs[0].set_ylabel(ylabel if ylabel is not None else metric_col)
+        if title:
+            fig.suptitle(title, fontsize=7, y=1.02)
+        fig.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight")
+        plt.show()
+        return fig, axs
 
     def plot_true_vs_pred_abs_mi_summary(
         self,
@@ -6578,6 +6805,9 @@ class Plotter:
         datasets=None,
         true_label="True",
         pred_label="Predicted",
+        cell_type_dict=None,
+        ylim=None,
+        ylabel="|Modulation Index|",
     ):
         """Paired mean |MI| summary of true vs predicted activity per dataset."""
         summary_df = self.summarize_abs_mi_by_dataset(
@@ -6585,14 +6815,76 @@ class Plotter:
             [true_label, pred_label],
             neuron_mask_dict=neuron_mask_dict,
             datasets=datasets,
+            cell_type_dict=cell_type_dict,
         )
-        fig, ax = self.plot_abs_mi_paired_summary(
+        if cell_type_dict is None:
+            fig, ax = self.plot_abs_mi_paired_summary(
+                summary_df,
+                context_order=[true_label, pred_label],
+                title=title,
+                ylabel=ylabel,
+                save_path=save_path,
+                ylim=ylim,
+                metric_col="mean_abs_mi",
+            )
+            return fig, ax, summary_df
+        fig, axs = self.plot_abs_metric_paired_summary_by_cell_type(
             summary_df,
+            metric_col="mean_abs_mi",
             context_order=[true_label, pred_label],
             title=title,
-            ylabel="|Modulation Index|",
+            ylabel=ylabel,
+            ylim=ylim,
             save_path=save_path,
         )
-        return fig, ax, summary_df
+        return fig, axs, summary_df
 
-
+    def plot_true_vs_pred_abs_delta_summary(
+        self,
+        delta_true_dict,
+        delta_pred_dict,
+        neuron_mask_dict=None,
+        cell_type_dict=None,
+        title=None,
+        ylabel="|Post - Pre|",
+        ylim=None,
+        save_path=None,
+        datasets=None,
+        true_label="True",
+        pred_label="Predicted",
+    ):
+        """Paired mean |post-pre| summary of true vs predicted activity."""
+        summary_df = self.summarize_abs_delta_by_dataset(
+            [delta_true_dict, delta_pred_dict],
+            [true_label, pred_label],
+            neuron_mask_dict=neuron_mask_dict,
+            cell_type_dict=cell_type_dict,
+            datasets=datasets,
+        )
+        if cell_type_dict is None:
+            plt.rcParams.update({"font.size": 7, "font.family": "arial"})
+            mpl.rcParams["pdf.fonttype"] = 42
+            fig, ax = plt.subplots(figsize=(2.4, 2.6))
+            context_order = [true_label, pred_label]
+            self._draw_paired_summary_on_ax(
+                ax, summary_df, "mean_abs_delta", context_order,
+            )
+            ax.set_ylabel(ylabel)
+            if title:
+                ax.set_title(title, fontsize=7)
+            self._apply_paired_ylim(ax, ylim=ylim, y_floor=None)
+            fig.tight_layout()
+            if save_path:
+                plt.savefig(save_path, bbox_inches="tight")
+            plt.show()
+            return fig, ax, summary_df
+        fig, axs = self.plot_abs_metric_paired_summary_by_cell_type(
+            summary_df,
+            metric_col="mean_abs_delta",
+            context_order=[true_label, pred_label],
+            title=title,
+            ylabel=ylabel,
+            ylim=ylim,
+            save_path=save_path,
+        )
+        return fig, axs, summary_df
