@@ -1475,7 +1475,17 @@ class AnalysisManagerEncoding:
         for neuron in range(n_neurons):
             null_dev[neuron] = self.null_deviance(Y_true[:, neuron], loss_type=loss_type)
 
-        frac_dev = 1 - model_dev / null_dev
+        # frac_dev = 1 - model_dev / null_dev
+
+        frac_dev = np.full(n_neurons, np.nan)
+
+        valid_null = np.isfinite(null_dev) & (null_dev > 0)
+
+        frac_dev[valid_null] = 1 - model_dev[valid_null] / null_dev[valid_null]
+
+        # Match original GLM convention:
+        # if the null deviance is zero, there is nothing to explain, so set FDE to 0
+        frac_dev[~valid_null] = 0
 
         if return_scale_factors:
             return frac_dev, model_dev, null_dev, scale_factors
@@ -1606,7 +1616,14 @@ class AnalysisManagerEncoding:
         dev_pt: pointwise deviance value, ndarray of shape of y_true and y_pred
         '''
 
-        assert (y_true.shape == y_pred.shape), "Shapes of y_true and y_pred don't match!"
+        # assert (y_true.shape == y_pred.shape), "Shapes of y_true and y_pred don't match!"
+        try:
+            y_true, y_pred = np.broadcast_arrays(y_true, y_pred)
+        except ValueError:
+            raise AssertionError(
+                f"Shapes of y_true and y_pred don't match and cannot be broadcast: "
+                f"{np.shape(y_true)} vs {np.shape(y_pred)}"
+            )
         if loss_type == 'poisson':
             dev_pt = 2.0 * (y_true * (np.log(self.stable(y_true)) - np.log(self.stable(y_pred))) + y_pred - y_true)
         elif loss_type == 'gaussian':

@@ -684,7 +684,7 @@ class DataHandlerEncoding:
 
             #adjust those fields to be -1 for python indexing
             sound['sig_cells'][0,idx] = sound_neurons
-            opto['sig_cells'][0,idx] = opto_neurons
+            opto['sig_cells'][idx,0] = opto_neurons
 
             mod_indices[mouse_date] = {}
 

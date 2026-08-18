@@ -809,7 +809,6 @@ class GLMPredictorProcessor:
 
             for fold_number in range(10):
                 save_directory = f'{server}/Connie/ProcessedData/{animalID}/{date}/GLM_running/'
-
                 if data_dir is None:
                     #load predicted neural responses
                     model_outputs = model_outputs_dict[key][model_type][fold_number]['y_pred'] #[{to_align}]
@@ -817,14 +816,17 @@ class GLMPredictorProcessor:
                     path = os.path.join(save_directory, f"{data_dir}{fold_number+1}",'test') 
                     model_outputs1 = scipy.io.loadmat(os.path.join(path, 'combined_response.mat'))
                     model_outputs =  model_outputs1['combined_response'].T
+
+                    #load predictors (no convolution)
+                    behav_the_matrix1 = scipy.io.loadmat(os.path.join(path, 'velocity.mat')) #y is row 0, x is row 1
+                    behav_the_matrix =  behav_the_matrix1['velocity'].T
+                    aligned_data_predictors = self.align_neural_data(frames[key][fold_number], behav_the_matrix)
+                    aligned_velocity_all[key][fold_number] = aligned_data_predictors
+                    
                 aligned_data = self.align_neural_data(frames[key][fold_number], model_outputs)
                 aligned_data_all[key][fold_number] = aligned_data
 
-                #load predictors (no convolution)
-                behav_the_matrix1 = scipy.io.loadmat(os.path.join(path, 'velocity.mat')) #y is row 0, x is row 1
-                behav_the_matrix =  behav_the_matrix1['velocity'].T
-                aligned_data_predictors = self.align_neural_data(frames[key][fold_number], behav_the_matrix)
-                aligned_velocity_all[key][fold_number] = aligned_data_predictors
+                
             
         return aligned_data_all, aligned_velocity_all
     
