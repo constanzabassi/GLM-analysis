@@ -6708,6 +6708,346 @@ class Plotter:
         mapped = aliases.get(key, key)
         return self.celltypecolors.get(mapped, (0.55, 0.55, 0.55))
 
+    def _p_value_to_stars(self, p_value):
+        """Convert a raw p-value to significance stars (same thresholds as Bonferroni helper)."""
+        if p_value is None or not np.isfinite(p_value):
+            return "ns"
+        if p_value < 0.0001:
+            return "****"
+        if p_value < 0.001:
+            return "***"
+        if p_value < 0.01:
+            return "**"
+        if p_value < 0.05:
+            return "*"
+        return "ns"
+
+    def _stars_from_p_values(self, p_values, use_bonferroni=False, alpha=0.05):
+        """Map p-values to stars, optionally Bonferroni-correcting first."""
+        p_list = list(p_values)
+        if not p_list:
+            return []
+        if not use_bonferroni:
+            return [self._p_value_to_stars(p) for p in p_list]
+        stars = ["ns"] * len(p_list)
+        finite_idx = [i for i, p in enumerate(p_list) if p is not None and np.isfinite(p)]
+        if not finite_idx:
+            return stars
+        finite_p = [p_list[i] for i in finite_idx]
+        _, finite_stars = self.stats.calculate_bonferroni_significance(finite_p, alpha=alpha)
+        for i, star in zip(finite_idx, finite_stars):
+            stars[i] = star
+        return stars
+
+    def _align_paired_metric_by_dataset(
+        self,
+        df,
+        metric_col,
+        label_a,
+        label_b,
+        label_col="context",
+        dataset_col="dataset",
+    ):
+        """Inner-join dataset-level values for two labels; drop NaN pairs."""
+        a = df.loc[df[label_col] == label_a, [dataset_col, metric_col]].copy()
+        b = df.loc[df[label_col] == label_b, [dataset_col, metric_col]].copy()
+        a = a.rename(columns={metric_col: "a"}).groupby(dataset_col, as_index=False)["a"].mean()
+        b = b.rename(columns={metric_col: "b"}).groupby(dataset_col, as_index=False)["b"].mean()
+        merged = pd.merge(a, b, on=dataset_col, how="inner")
+        if merged.empty:
+            return merged
+        finite = np.isfinite(merged["a"].to_numpy(dtype=float)) & np.isfinite(
+            merged["b"].to_numpy(dtype=float)
+        )
+        return merged.loc[finite].reset_index(drop=True)
+
+    def _paired_permutation_row(self, data_a, data_b, n_permutations=10000):
+        """Run dataset-level paired permutation test; require at least 2 pairs."""
+        data_a = np.asarray(data_a, dtype=float)
+        data_b = np.asarray(data_b, dtype=float)
+        n = int(data_a.size)
+        mean_a = float(np.mean(data_a)) if n else np.nan
+        mean_b = float(np.mean(data_b)) if n else np.nan
+        if n < 2:
+            return {
+                "n": n,
+                "mean_a": mean_a,
+                "mean_b": mean_b,
+                "mean_diff": np.nan if n == 0 else float(np.mean(data_a - data_b)),
+                "p_value": np.nan,
+                "test_type": "paired permutation",
+                "note": "fewer than 2 paired datasets",
+            }
+        p_value, observed_diff = self.stats.perform_permutation_test(
+            data_a, data_b, paired=True, n_permutations=n_permutations
+        )
+        return {
+            "n": n,
+            "mean_a": mean_a,
+            "mean_b": mean_b,
+            "mean_diff": float(observed_diff),
+            "p_value": p_value,
+            "test_type": "paired permutation",
+            "note": "",
+        }
+
+    def compute_paired_context_stats(
+        self,
+        summary_df,
+        metric_col,
+        context_a,
+        context_b,
+        group_col=None,
+        dataset_col="dataset",
+        n_permutations=10000,
+    ):
+        """Paired permutation test of two contexts using dataset-level values.
+
+        Unit of n is dataset, not neuron. Values are aligned by dataset and NaN
+        pairs are dropped. Kruskal-Wallis is not used for this comparison.
+        """
+        df = summary_df.copy()
+        required = {dataset_col, "context", metric_col}
+        missing = required - set(df.columns)
+        if missing:
+            raise ValueError(f"summary_df is missing columns: {sorted(missing)}")
+
+        rows = []
+        if group_col is None:
+            merged = self._align_paired_metric_by_dataset(
+                df, metric_col, context_a, context_b,
+                label_col="context", dataset_col=dataset_col,
+            )
+            row = self._paired_permutation_row(
+                merged["a"].to_numpy(dtype=float) if len(merged) else [],
+                merged["b"].to_numpy(dtype=float) if len(merged) else [],
+                n_permutations=n_permutations,
+            )
+            row.update({"context_a": context_a, "context_b": context_b})
+            rows.append(row)
+            columns = [
+                "context_a", "context_b", "n", "mean_a", "mean_b",
+                "mean_diff", "p_value", "test_type", "note",
+            ]
+            return pd.DataFrame(rows, columns=columns)
+
+        if group_col not in df.columns:
+            raise ValueError(f"summary_df is missing group column {group_col!r}")
+        groups = list(dict.fromkeys(df[group_col].tolist()))
+        for group in groups:
+            sub = df.loc[df[group_col] == group]
+            merged = self._align_paired_metric_by_dataset(
+                sub, metric_col, context_a, context_b,
+                label_col="context", dataset_col=dataset_col,
+            )
+            row = self._paired_permutation_row(
+                merged["a"].to_numpy(dtype=float) if len(merged) else [],
+                merged["b"].to_numpy(dtype=float) if len(merged) else [],
+                n_permutations=n_permutations,
+            )
+            row.update({
+                "group": group,
+                "context_a": context_a,
+                "context_b": context_b,
+            })
+            rows.append(row)
+        columns = [
+            "group", "context_a", "context_b", "n", "mean_a", "mean_b",
+            "mean_diff", "p_value", "test_type", "note",
+        ]
+        return pd.DataFrame(rows, columns=columns)
+
+    def compute_celltype_stats_within_context(
+        self,
+        summary_df,
+        metric_col,
+        context,
+        cell_type_col="cell_type",
+        dataset_col="dataset",
+        n_permutations=10000,
+        use_kw_gate=True,
+    ):
+        """Optional pairwise cell-type tests within one context (dataset-level).
+
+        Pairwise tests are paired permutations aligned by dataset. Kruskal-Wallis
+        is an optional omnibus gate only when more than two cell types are present.
+        """
+        df = summary_df.copy()
+        required = {dataset_col, "context", metric_col, cell_type_col}
+        missing = required - set(df.columns)
+        if missing:
+            raise ValueError(f"summary_df is missing columns: {sorted(missing)}")
+
+        sub = df.loc[df["context"] == context].copy()
+        cell_types = list(dict.fromkeys(sub[cell_type_col].tolist()))
+        pairwise_columns = [
+            "context", "cell_type_a", "cell_type_b", "n", "mean_a", "mean_b",
+            "mean_diff", "p_value", "test_type", "omnibus_p", "significant_gated", "note",
+        ]
+        if len(cell_types) < 2:
+            print(
+                "Only one cell type present; no across-cell-type comparison "
+                f"within context {context!r}."
+            )
+            return pd.DataFrame(columns=pairwise_columns)
+
+        omnibus_p = np.nan
+        if use_kw_gate and len(cell_types) > 2:
+            kw_groups = []
+            for ct in cell_types:
+                vals = sub.loc[sub[cell_type_col] == ct, metric_col].to_numpy(dtype=float)
+                vals = vals[np.isfinite(vals)]
+                if vals.size:
+                    kw_groups.append(vals)
+            if len(kw_groups) >= 2:
+                if len(kw_groups) == 2:
+                    kw_row = self.stats.kruskal_wallis_to_pd(context, kw_groups[0], kw_groups[1])
+                elif len(kw_groups) == 3:
+                    kw_row = self.stats.kruskal_wallis_to_pd(
+                        context, kw_groups[0], kw_groups[1], kw_groups[2]
+                    )
+                else:
+                    kw_stat, kw_p = scipy.stats.kruskal(*kw_groups)
+                    kw_row = pd.DataFrame({"p_value": [kw_p], "statistic": [kw_stat]})
+                omnibus_p = float(kw_row["p_value"].iloc[0])
+
+        rows = []
+        for ct_a, ct_b in itertools.combinations(cell_types, 2):
+            merged = self._align_paired_metric_by_dataset(
+                sub, metric_col, ct_a, ct_b,
+                label_col=cell_type_col, dataset_col=dataset_col,
+            )
+            row = self._paired_permutation_row(
+                merged["a"].to_numpy(dtype=float) if len(merged) else [],
+                merged["b"].to_numpy(dtype=float) if len(merged) else [],
+                n_permutations=n_permutations,
+            )
+            p_value = row["p_value"]
+            if use_kw_gate and len(cell_types) > 2 and np.isfinite(omnibus_p):
+                significant_gated = bool(
+                    (omnibus_p < 0.05)
+                    and (p_value is not None and np.isfinite(p_value) and p_value < 0.05)
+                )
+            else:
+                significant_gated = bool(
+                    p_value is not None and np.isfinite(p_value) and p_value < 0.05
+                )
+            row.update({
+                "context": context,
+                "cell_type_a": ct_a,
+                "cell_type_b": ct_b,
+                "omnibus_p": omnibus_p,
+                "significant_gated": significant_gated,
+            })
+            rows.append(row)
+        return pd.DataFrame(rows, columns=pairwise_columns)
+
+    def _csv_dir_from_save_path(self, save_path):
+        if save_path is None:
+            return None
+        if os.path.isdir(save_path):
+            return save_path
+        directory = os.path.dirname(save_path)
+        return directory if directory else "."
+
+    def _save_paired_context_stat_tables(
+        self,
+        save_path,
+        summary_df,
+        stats_df,
+        metric_col,
+        group_col=None,
+    ):
+        """Save paired-context test and basic-stats CSVs next to the figure."""
+        if not save_path or stats_df is None:
+            return
+        directory = self._csv_dir_from_save_path(save_path)
+        os.makedirs(directory, exist_ok=True)
+        tests_path = os.path.join(directory, f"stat_tests_{metric_col}_paired_context.csv")
+        basic_path = os.path.join(directory, f"basic_stats_{metric_col}_paired_context.csv")
+
+        stats_df.to_csv(tests_path, index=False)
+
+        all_stats_dict = {}
+        df = summary_df.copy()
+        if group_col is None and "cell_type" in df.columns:
+            group_col = "cell_type"
+        if group_col is not None and group_col in df.columns:
+            for group, gdf in df.groupby(group_col, sort=False):
+                for ctx, cdf in gdf.groupby("context", sort=False):
+                    vals = cdf[metric_col].to_numpy(dtype=float)
+                    vals = vals[np.isfinite(vals)]
+                    if vals.size == 0:
+                        continue
+                    label = f"{group}_{ctx}_{metric_col}"
+                    all_stats_dict[label] = self.stats.get_basic_stats(vals)
+        else:
+            for ctx, cdf in df.groupby("context", sort=False):
+                vals = cdf[metric_col].to_numpy(dtype=float)
+                vals = vals[np.isfinite(vals)]
+                if vals.size == 0:
+                    continue
+                label = f"{ctx}_{metric_col}"
+                all_stats_dict[label] = self.stats.get_basic_stats(vals)
+        if all_stats_dict:
+            self.stats.basic_stats_to_table(all_stats_dict, save_path=basic_path)
+
+    def _annotate_paired_context_stats(
+        self,
+        ax,
+        stats_df,
+        context_order,
+        group_value=None,
+        alpha=0.05,
+        use_bonferroni=False,
+        star_height_percentage=0.01,
+    ):
+        """Draw significance lines between context x positions for non-ns tests."""
+        if stats_df is None or len(stats_df) == 0:
+            return
+        df = stats_df.copy()
+        if "_stars" not in df.columns:
+            df = df.assign(
+                _stars=self._stars_from_p_values(
+                    df["p_value"].tolist(), use_bonferroni=use_bonferroni, alpha=alpha
+                )
+            )
+        if group_value is not None:
+            if "group" in df.columns:
+                df = df.loc[df["group"] == group_value]
+            elif "cell_type" in df.columns:
+                df = df.loc[df["cell_type"] == group_value]
+
+        ymin, ymax = ax.get_ylim()
+        y_span = ymax - ymin if np.isfinite(ymax - ymin) and (ymax - ymin) > 0 else (
+            ymax if np.isfinite(ymax) and ymax > 0 else 1.0
+        )
+        stack = 0
+        last_text_y = ymax
+        for _, row in df.iterrows():
+            star = row["_stars"]
+            if star == "ns":
+                continue
+            ctx_a = row["context_a"]
+            ctx_b = row["context_b"]
+            if ctx_a not in context_order or ctx_b not in context_order:
+                continue
+            x1 = context_order.index(ctx_a)
+            x2 = context_order.index(ctx_b)
+            y = ymax + stack * 0.12 * y_span
+            self.add_significance_line(
+                ax,
+                x1=x1,
+                x2=x2,
+                y=y,
+                significance=star,
+                star_height_percentage=star_height_percentage,
+            )
+            last_text_y = y + abs(y) * star_height_percentage
+            stack += 1
+        if stack:
+            ax.set_ylim(ymin, max(ax.get_ylim()[1], last_text_y + 0.08 * y_span))
+
     def plot_abs_mi_paired_summary(
         self,
         summary_df,
@@ -6719,6 +7059,12 @@ class Plotter:
         mean_color="k",
         ylim=None,
         metric_col="mean_abs_mi",
+        show_stats=False,
+        stats_df=None,
+        alpha=0.05,
+        use_bonferroni=False,
+        star_height_percentage=0.01,
+        y_floor=0.05,
     ):
         """Paired dataset lines across contexts, with mean +/- SEM overlay."""
         plt.rcParams.update({"font.size": 7, "font.family": "arial"})
@@ -6736,11 +7082,25 @@ class Plotter:
         ax.set_ylabel(ylabel)
         if title:
             ax.set_title(title, fontsize=7)
-        self._apply_paired_ylim(ax, ylim=ylim, y_floor=0.05)
+        self._apply_paired_ylim(ax, ylim=ylim, y_floor=y_floor)
         fig.tight_layout()
+        if show_stats and stats_df is not None:
+            self._annotate_paired_context_stats(
+                ax,
+                stats_df,
+                context_order,
+                alpha=alpha,
+                use_bonferroni=use_bonferroni,
+                star_height_percentage=star_height_percentage,
+            )
 
         if save_path:
             plt.savefig(save_path, bbox_inches="tight")
+            if stats_df is not None:
+                group_col = "cell_type" if "cell_type" in df.columns else None
+                self._save_paired_context_stat_tables(
+                    save_path, df, stats_df, metric_col, group_col=group_col
+                )
         plt.show()
         return fig, ax
 
@@ -6754,6 +7114,11 @@ class Plotter:
         ylabel=None,
         ylim=None,
         save_path=None,
+        show_stats=False,
+        stats_df=None,
+        alpha=0.05,
+        use_bonferroni=False,
+        star_height_percentage=0.01,
     ):
         """Paired dataset-line summary, one panel per cell type."""
         plt.rcParams.update({"font.size": 7, "font.family": "arial"})
@@ -6790,8 +7155,36 @@ class Plotter:
             fig.suptitle(title, fontsize=7, y=1.02)
         fig.tight_layout()
 
+        if show_stats and stats_df is not None:
+            annotated_stats = stats_df.copy()
+            annotated_stats = annotated_stats.assign(
+                _stars=self._stars_from_p_values(
+                    annotated_stats["p_value"].tolist(),
+                    use_bonferroni=use_bonferroni,
+                    alpha=alpha,
+                )
+            )
+            for ax, ct in zip(axs, cell_type_order):
+                self._annotate_paired_context_stats(
+                    ax,
+                    annotated_stats,
+                    context_order,
+                    group_value=ct,
+                    alpha=alpha,
+                    use_bonferroni=use_bonferroni,
+                    star_height_percentage=star_height_percentage,
+                )
+            ymax = max(ax.get_ylim()[1] for ax in axs)
+            ymin = min(ax.get_ylim()[0] for ax in axs)
+            for ax in axs:
+                ax.set_ylim(ymin, ymax)
+
         if save_path:
             plt.savefig(save_path, bbox_inches="tight")
+            if stats_df is not None:
+                self._save_paired_context_stat_tables(
+                    save_path, df, stats_df, metric_col, group_col="cell_type"
+                )
         plt.show()
         return fig, axs
 
@@ -6808,6 +7201,11 @@ class Plotter:
         cell_type_dict=None,
         ylim=None,
         ylabel="|Modulation Index|",
+        show_stats=False,
+        stats_df=None,
+        alpha=0.05,
+        use_bonferroni=False,
+        star_height_percentage=0.01,
     ):
         """Paired mean |MI| summary of true vs predicted activity per dataset."""
         summary_df = self.summarize_abs_mi_by_dataset(
@@ -6826,6 +7224,11 @@ class Plotter:
                 save_path=save_path,
                 ylim=ylim,
                 metric_col="mean_abs_mi",
+                show_stats=show_stats,
+                stats_df=stats_df,
+                alpha=alpha,
+                use_bonferroni=use_bonferroni,
+                star_height_percentage=star_height_percentage,
             )
             return fig, ax, summary_df
         fig, axs = self.plot_abs_metric_paired_summary_by_cell_type(
@@ -6836,6 +7239,11 @@ class Plotter:
             ylabel=ylabel,
             ylim=ylim,
             save_path=save_path,
+            show_stats=show_stats,
+            stats_df=stats_df,
+            alpha=alpha,
+            use_bonferroni=use_bonferroni,
+            star_height_percentage=star_height_percentage,
         )
         return fig, axs, summary_df
 
@@ -6852,6 +7260,11 @@ class Plotter:
         datasets=None,
         true_label="True",
         pred_label="Predicted",
+        show_stats=False,
+        stats_df=None,
+        alpha=0.05,
+        use_bonferroni=False,
+        star_height_percentage=0.01,
     ):
         """Paired mean |post-pre| summary of true vs predicted activity."""
         summary_df = self.summarize_abs_delta_by_dataset(
@@ -6862,21 +7275,21 @@ class Plotter:
             datasets=datasets,
         )
         if cell_type_dict is None:
-            plt.rcParams.update({"font.size": 7, "font.family": "arial"})
-            mpl.rcParams["pdf.fonttype"] = 42
-            fig, ax = plt.subplots(figsize=(2.4, 2.6))
-            context_order = [true_label, pred_label]
-            self._draw_paired_summary_on_ax(
-                ax, summary_df, "mean_abs_delta", context_order,
+            fig, ax = self.plot_abs_mi_paired_summary(
+                summary_df,
+                context_order=[true_label, pred_label],
+                title=title,
+                ylabel=ylabel,
+                save_path=save_path,
+                ylim=ylim,
+                metric_col="mean_abs_delta",
+                show_stats=show_stats,
+                stats_df=stats_df,
+                alpha=alpha,
+                use_bonferroni=use_bonferroni,
+                star_height_percentage=star_height_percentage,
+                y_floor=None,
             )
-            ax.set_ylabel(ylabel)
-            if title:
-                ax.set_title(title, fontsize=7)
-            self._apply_paired_ylim(ax, ylim=ylim, y_floor=None)
-            fig.tight_layout()
-            if save_path:
-                plt.savefig(save_path, bbox_inches="tight")
-            plt.show()
             return fig, ax, summary_df
         fig, axs = self.plot_abs_metric_paired_summary_by_cell_type(
             summary_df,
@@ -6886,5 +7299,10 @@ class Plotter:
             ylabel=ylabel,
             ylim=ylim,
             save_path=save_path,
+            show_stats=show_stats,
+            stats_df=stats_df,
+            alpha=alpha,
+            use_bonferroni=use_bonferroni,
+            star_height_percentage=star_height_percentage,
         )
         return fig, axs, summary_df
