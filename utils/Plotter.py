@@ -6472,6 +6472,10 @@ class Plotter:
         datasets=None,
         cmap="RdBu_r",
         colorbar_label="Modulation Index",
+        ylabel = 'Neurons',
+        ytick_mode = 'none',
+        ytick_step=None,
+        figsize = (1.4 + 0.9, 4.2)
     ):
         """Heatmap of a neuron-wise metric across contexts (rows=neurons).
 
@@ -6517,7 +6521,7 @@ class Plotter:
         order = np.argsort(np.nan_to_num(sort_vals, nan=-np.inf))[::-1]
         mi_sorted = mi_matrix[order, :]
 
-        fig, ax = plt.subplots(figsize=(1.4 + 0.45 * mi_sorted.shape[1], 4.2))
+        fig, ax = plt.subplots(figsize=figsize) #(1.4 + 0.45 * mi_sorted.shape[1], 4.2)
         colors = plt.get_cmap(cmap)(np.linspace(0, 1, 256))
         cmap_obj = mpl.colors.ListedColormap(colors)
         cmap_obj.set_bad(color=(0.7, 0.7, 0.7))
@@ -6532,8 +6536,29 @@ class Plotter:
         )
         ax.set_xticks(np.arange(len(context_labels)))
         ax.set_xticklabels(context_labels, rotation=45, ha="right")
-        ax.set_ylabel("Neurons")
-        ax.set_yticks([])
+        ax.set_ylabel(ylabel)
+        n_rows = mi_sorted.shape[0]
+
+        if ytick_mode == "none":
+            ax.set_yticks([])
+
+        elif ytick_mode == "default":
+            # Let matplotlib choose ticks naturally, like the older style.
+            pass
+
+        elif ytick_mode == "one_indexed":
+            if ytick_step is None:
+                ytick_step = max(1, int(np.ceil(n_rows / 5)))
+            ticks = np.arange(0, n_rows, ytick_step)
+            if ticks[-1] != n_rows - 1:
+                ticks = np.append(ticks, n_rows - 1)
+            ax.set_yticks(ticks)
+            ax.set_yticklabels((ticks + 1).astype(int))
+
+        else:
+            raise ValueError(
+                "ytick_mode must be 'default', 'none', or 'one_indexed'"
+            )
         if title:
             ax.set_title(title, fontsize=7)
         cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -6543,7 +6568,7 @@ class Plotter:
         fig.tight_layout()
 
         if save_path:
-            plt.savefig(save_path, bbox_inches="tight")
+            plt.savefig(save_path, bbox_inches="tight", format="pdf")
         plt.show()
         return fig, ax, mi_sorted
 
@@ -7065,6 +7090,7 @@ class Plotter:
         use_bonferroni=False,
         star_height_percentage=0.01,
         y_floor=0.05,
+        figsize = (2.4, 2.6)
     ):
         """Paired dataset lines across contexts, with mean +/- SEM overlay."""
         plt.rcParams.update({"font.size": 7, "font.family": "arial"})
@@ -7074,7 +7100,7 @@ class Plotter:
         if context_order is None:
             context_order = list(dict.fromkeys(df["context"].tolist()))
 
-        fig, ax = plt.subplots(figsize=(2.4, 2.6))
+        fig, ax = plt.subplots(figsize=figsize)
         self._draw_paired_summary_on_ax(
             ax, df, metric_col, context_order,
             line_color=line_color, mean_color=mean_color,
@@ -7181,6 +7207,7 @@ class Plotter:
 
         if save_path:
             plt.savefig(save_path, bbox_inches="tight")
+            plt.savefig(f'{save_path}abs_metric_paired_summary_by_cell_type_{context_order}_celltypes{cell_type_order}.pdf', bbox_inches='tight')
             if stats_df is not None:
                 self._save_paired_context_stat_tables(
                     save_path, df, stats_df, metric_col, group_col="cell_type"
