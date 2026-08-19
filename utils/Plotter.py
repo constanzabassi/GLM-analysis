@@ -7215,6 +7215,184 @@ class Plotter:
         plt.show()
         return fig, axs
 
+    def plot_abs_metric_paired_summary_grouped_celltypes(
+        self,
+        summary_df,
+        metric_col,
+        context_order=None,
+        cell_type_order=None,
+        title=None,
+        ylabel=None,
+        ylim=None,
+        save_path=None,
+        show_stats=False,
+        stats_df=None,
+        alpha=0.05,
+        use_bonferroni=False,
+        star_height_percentage=0.01,
+        group_gap=0.75,
+        context_gap=1.0,
+    ):
+        """Paired dataset-line summary on one axis, grouped by cell type.
+
+        Within each cell type, contexts are adjacent (e.g. True/Predicted or
+        Active/Passive). Dataset lines connect only those paired contexts.
+        """
+        plt.rcParams.update({"font.size": 7, "font.family": "arial"})
+        mpl.rcParams["pdf.fonttype"] = 42
+
+        df = summary_df.copy()
+        required = {"dataset", "context", "cell_type", metric_col}
+        missing = required - set(df.columns)
+        if missing:
+            raise ValueError(f"summary_df is missing columns: {sorted(missing)}")
+        if context_order is None:
+            context_order = list(dict.fromkeys(df["context"].tolist()))
+        if cell_type_order is None:
+            cell_type_order = list(dict.fromkeys(df["cell_type"].tolist()))
+
+        n_ctx = len(context_order)
+        x_lookup = {}
+        tick_x = []
+        tick_labels = []
+        for i, ct in enumerate(cell_type_order):
+            start = i * (n_ctx * context_gap + group_gap)
+            for j, ctx in enumerate(context_order):
+                x = start + j * context_gap
+                x_lookup[(ct, ctx)] = x
+                tick_x.append(x)
+                tick_labels.append(ctx)
+
+        first_x = tick_x[0] if tick_x else 0.0
+        last_x = tick_x[-1] if tick_x else 1.0
+        fig, ax = plt.subplots(figsize=(max(2.6, 1.4 + 0.42 * (last_x - first_x + 1)), 2.6))
+
+        for ct in cell_type_order:
+            sub = df.loc[df["cell_type"] == ct]
+            color = self._cell_type_color(ct)
+            xs = [x_lookup[(ct, ctx)] for ctx in context_order]
+            for dataset, dset in sub.groupby("dataset", sort=False):
+                ys = []
+                for ctx in context_order:
+                    match = dset.loc[dset["context"] == ctx, metric_col]
+                    ys.append(float(match.iloc[0]) if len(match) else np.nan)
+                ax.plot(
+                    xs,
+                    ys,
+                    "-",
+                    color=color,
+                    alpha=0.4,
+                    lw=0.8,
+                    marker="o",
+                    ms=2.5,
+                    markerfacecolor=color,
+                    markeredgecolor="none",
+                )
+
+            means = []
+            sems = []
+            for ctx in context_order:
+                vals = sub.loc[sub["context"] == ctx, metric_col].to_numpy(dtype=float)
+                vals = vals[np.isfinite(vals)]
+                means.append(np.mean(vals) if vals.size else np.nan)
+                sems.append(
+                    np.std(vals, ddof=1) / np.sqrt(vals.size) if vals.size > 1 else np.nan
+                )
+            ax.errorbar(
+                xs,
+                means,
+                yerr=sems,
+                fmt="o",
+                color=color,
+                ms=3.5,
+                lw=1.1,
+                capsize=2,
+                zorder=3,
+            )
+
+        ax.set_xticks(tick_x)
+        ax.set_xticklabels(tick_labels, rotation=45, ha="right")
+        ax.set_xlim(first_x - 0.4, last_x + 0.6)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.set_ylabel(ylabel if ylabel is not None else metric_col)
+        if title:
+            ax.set_title(title, fontsize=7)
+        self._apply_paired_ylim(ax, ylim=ylim, y_floor=None)
+
+        ymin, ymax = ax.get_ylim()
+        y_span = ymax - ymin if np.isfinite(ymax - ymin) and (ymax - ymin) > 0 else (
+            ymax if np.isfinite(ymax) and ymax > 0 else 1.0
+        )
+        label_y = ymax + 0.04 * y_span
+        for ct in cell_type_order:
+            xs = [x_lookup[(ct, ctx)] for ctx in context_order]
+            mid = 0.5 * (min(xs) + max(xs))
+            ax.text(
+                mid,
+                label_y,
+                str(ct),
+                ha="center",
+                va="bottom",
+                color=self._cell_type_color(ct),
+                fontsize=7,
+                fontname="arial",
+            )
+        ax.set_ylim(ymin, label_y + 0.14 * y_span)
+        fig.tight_layout()
+
+        if show_stats and stats_df is not None and len(stats_df):
+            annotated = stats_df.copy()
+            if "_stars" not in annotated.columns:
+                annotated = annotated.assign(
+                    _stars=self._stars_from_p_values(
+                        annotated["p_value"].tolist(),
+                        use_bonferroni=use_bonferroni,
+                        alpha=alpha,
+                    )
+                )
+            ymin, ymax = ax.get_ylim()
+            y_span = ymax - ymin if np.isfinite(ymax - ymin) and (ymax - ymin) > 0 else (
+                ymax if np.isfinite(ymax) and ymax > 0 else 1.0
+            )
+            last_text_y = ymax
+            any_star = False
+            for ct in cell_type_order:
+                if "group" in annotated.columns:
+                    rows = annotated.loc[annotated["group"] == ct]
+                elif "cell_type" in annotated.columns:
+                    rows = annotated.loc[annotated["cell_type"] == ct]
+                else:
+                    continue
+                local_stack = 0
+                for _, row in rows.iterrows():
+                    star = row["_stars"]
+                    if star == "ns":
+                        continue
+                    ctx_a = row["context_a"]
+                    ctx_b = row["context_b"]
+                    if (ct, ctx_a) not in x_lookup or (ct, ctx_b) not in x_lookup:
+                        continue
+                    y = ymax + local_stack * 0.10 * y_span
+                    self.add_significance_line(
+                        ax,
+                        x1=x_lookup[(ct, ctx_a)],
+                        x2=x_lookup[(ct, ctx_b)],
+                        y=y,
+                        significance=star,
+                        star_height_percentage=star_height_percentage,
+                    )
+                    last_text_y = y + abs(y) * star_height_percentage
+                    local_stack += 1
+                    any_star = True
+            if any_star:
+                ax.set_ylim(ymin, max(ax.get_ylim()[1], last_text_y + 0.08 * y_span))
+
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight", format="pdf")
+        plt.show()
+        return fig, ax
+
     def plot_true_vs_pred_abs_mi_summary(
         self,
         mi_true_dict,
