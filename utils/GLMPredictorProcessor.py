@@ -86,6 +86,7 @@ class GLMPredictorProcessor:
 
         raw = scipy.io.loadmat(cond_path)
         preferred_keys = (
+            "condition_updated",
             "conditions_updated",
             "conditions",
             "condition_array",
@@ -132,7 +133,7 @@ class GLMPredictorProcessor:
         for key, folds in all_predictor_var.items():
             out[key] = {}
             for fold, fold_vars in folds.items():
-                out[key][fold] = fold_vars.get("conditions_updated")
+                out[key][fold] = fold_vars.get("condition_updated")
         return out
 
     def load_and_align_predictors_datasets_running(
@@ -229,16 +230,16 @@ class GLMPredictorProcessor:
                 predictor_var[fold_number]["condition_array_trials"] = (
                     predictor_var[fold_number]["condition_array_trials"][valid_trials, :]
                 )
-                if predictor_var[fold_number].get("conditions_updated") is not None:
-                    cu = predictor_var[fold_number]["conditions_updated"]
+                if predictor_var[fold_number].get("condition_updated") is not None:
+                    cu = predictor_var[fold_number]["condition_updated"]
                     cu_arr = np.asarray(cu)
                     cu_n = cu_arr.shape[1] if cu_arr.shape[0] == 3 else cu_arr.shape[0]
                     if cu_n != n_cond_trials:
                         raise ValueError(
-                            f"conditions_updated trial count ({cu_n}) does not match "
+                            f"condition_updated trial count ({cu_n}) does not match "
                             f"condition_array_trials ({n_cond_trials}) for {key} fold {fold_number}"
                         )
-                    predictor_var[fold_number]["conditions_updated"] = (
+                    predictor_var[fold_number]["condition_updated"] = (
                         self._subset_conditions_by_trials(cu, valid_trials)
                     )
 
@@ -285,7 +286,7 @@ class GLMPredictorProcessor:
             Fold number for cross-validation.
         load_conditions_updated : bool
             If True, also load ``conditions_updated.mat`` when present and store
-            it under ``conditions_updated``. Existing keys are unchanged.
+            it under ``condition_updated``. Existing keys are unchanged.
         Returns
         -------
         dict
@@ -326,9 +327,9 @@ class GLMPredictorProcessor:
             combined_frames = scipy.io.loadmat(os.path.join(path_nonpredictors, 'combined_frames_included.mat'))
             combined_frames_included = combined_frames['combined_frames_included'].squeeze()
 
-            conditions_updated = None
+            condition_updated = None
             if load_conditions_updated:
-                conditions_updated = self._load_conditions_updated_mat(path_nonpredictors)
+                condition_updated = self._load_conditions_updated_mat(path_nonpredictors)
             
         
             # Load coupling matrix
@@ -370,7 +371,7 @@ class GLMPredictorProcessor:
                 'behav_big_matrix_ids': behav_big_matrix_ids,
                 'behav_big_matrix_raw' : behav_big_matrix_raw,
                 'condition_array_trials': condition_array_trials,
-                'conditions_updated': conditions_updated,
+                'condition_updated': condition_updated,
                 'combined_frames_included': combined_frames_included,
                 'coupling_predictors': coupling_predictors,
                 'test_trials': test_trials,
