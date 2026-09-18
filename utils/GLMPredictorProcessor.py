@@ -72,16 +72,93 @@ class GLMPredictorProcessor:
         return all_predictor_var,aligned_predictors_all, aligned_predictors_coupling
     
     
-    def load_and_align_predictors_datasets_running(self,datasets, model_type,alignment,save_suffix = 'prepost trial cv 73 #'):
+    def _load_conditions_updated_mat(self, path_nonpredictors):
+        """Load conditions_updated.mat if present; otherwise return None.
+
+        Expected variable has 3 rows (or 3 columns):
+            0: sound side (1=left, 2=right)
+            1: photostim (0/1)
+            2: correct (0/1)
+        """
+        cond_path = os.path.join(path_nonpredictors, "conditions_updated.mat")
+        if not os.path.exists(cond_path):
+            return None
+
+        raw = scipy.io.loadmat(cond_path)
+        preferred_keys = (
+            "conditions_updated",
+            "conditions",
+            "condition_array",
+            "condition_array_updated",
+        )
+        for key in preferred_keys:
+            if key in raw and not str(key).startswith("__"):
+                arr = np.asarray(raw[key])
+                if arr.ndim == 2 and (arr.shape[0] == 3 or arr.shape[1] == 3):
+                    return arr
+
+        # Fallback: first non-meta 2D array with a size-3 axis
+        for key, val in raw.items():
+            if str(key).startswith("__"):
+                continue
+            arr = np.asarray(val)
+            if arr.ndim == 2 and (arr.shape[0] == 3 or arr.shape[1] == 3):
+                return arr
+        raise ValueError(
+            f"Could not find a 3-variable conditions array in {cond_path}"
+        )
+
+    def _subset_conditions_by_trials(self, conditions, valid_trials):
+        """Filter conditions_updated to aligned trial indices."""
+        if conditions is None:
+            return None
+        conditions = np.asarray(conditions)
+        valid_trials = np.asarray(valid_trials)
+        if conditions.ndim != 2:
+            raise ValueError(
+                f"conditions_updated must be 2D; got shape {conditions.shape}"
+            )
+        if conditions.shape[0] == 3:
+            return conditions[:, valid_trials]
+        if conditions.shape[1] == 3:
+            return conditions[valid_trials, :]
+        raise ValueError(
+            f"conditions_updated must have a size-3 axis; got {conditions.shape}"
+        )
+
+    def extract_conditions_updated_dict(self, all_predictor_var):
+        """Build conditions_updated_dict[key][fold] from loaded predictor vars."""
+        out = {}
+        for key, folds in all_predictor_var.items():
+            out[key] = {}
+            for fold, fold_vars in folds.items():
+                out[key][fold] = fold_vars.get("conditions_updated")
+        return out
+
+    def load_and_align_predictors_datasets_running(
+        self,
+        datasets,
+        model_type,
+        alignment,
+        save_suffix="prepost trial cv 73 #",
+        return_conditions_updated=False,
+    ):
         """
         Process multiple datasets and calculate mean deviance explained for each.
 
         Parameters:
             datasets (list of tuples): List of tuples containing (animalID, date, server).
             model_type (str): The type of the GLM model.
+            return_conditions_updated (bool):
+                If True, also return ``conditions_updated_dict[key][fold]`` aligned
+                to the same trials as predictors/neural tensors. Default False keeps
+                the original 4-value return for backward compatibility.
 
         Returns:
-            dict: A dictionary where keys are dataset identifiers and values are results.
+            If ``return_conditions_updated`` is False (default):
+                all_predictor_var, aligned_predictors_all, aligned_predictors_coupling,
+                alignment_frames_all
+            If True, also returns conditions_updated_dict as a 5th value.
         """
         all_predictor_var = {}
         aligned_predictors_all = {}
@@ -105,51 +182,93 @@ class GLMPredictorProcessor:
             "photostim": 176,
         }
         for animalID, date, server in datasets:
-            key = f'{animalID}_{date}'
-            print(f'Processing dataset: {key}')
-            predictor_var = self.load_glm_variables(animalID, date, server, model_type,do_test = True,behav_matrix_to_load = 'behav_big_matrix_original',model_name = '',load_coupling = False, load_trial_ids = True, save_suffix = save_suffix) #load varaibles
+            key = f"{animalID}_{date}"
+            print(f"Processing dataset: {key}")
+            predictor_var = self.load_glm_variables(
+                animalID,
+                date,
+                server,
+                model_type,
+                do_test=True,
+                behav_matrix_to_load="behav_big_matrix_original",
+                model_name="",
+                load_coupling=False,
+                load_trial_ids=True,
+                save_suffix=save_suffix,
+                load_conditions_updated=True,
+            )
 
             aligned_predictors_all[key] = {}
             aligned_predictors_coupling[key] = {}
             alignment_frames_all[key] = {}
 
             for fold_number in range(10):
-                # print(f'  Processing fold: {fold_number}')
-                relative_trial_starts = self.find_trial_start_alignment_frames(predictor_var[fold_number]['trial_start'])
-                align_info,alignment_frames_global, alignment_frames, left_padding, right_padding = self.find_align_info_from_behav(
-                                            behav_matrix=predictor_var[fold_number]['behav_big_matrix_raw'],
-                                            condition_array_trials=predictor_var[fold_number]['condition_array_trials'],
-                                            trial_start_frames= relative_trial_starts,
-                                            trial_start_col= 4,  # MATLAB 5th col -> python index 4
-                                            alternative_alignment = False,
-                                            behav_cols= behav_cols,
-                                            behav_big_matrix=predictor_var[fold_number]['behav_big_matrix'],
-                                            no_reward_big_row= 182,  # e.g. behav_big_matrix[182,:] marks "no reward / pure"
-                                        )
+                relative_trial_starts = self.find_trial_start_alignment_frames(
+                    predictor_var[fold_number]["trial_start"]
+                )
+                align_info, alignment_frames_global, alignment_frames, left_padding, right_padding = self.find_align_info_from_behav(
+                    behav_matrix=predictor_var[fold_number]["behav_big_matrix_raw"],
+                    condition_array_trials=predictor_var[fold_number]["condition_array_trials"],
+                    trial_start_frames=relative_trial_starts,
+                    trial_start_col=4,
+                    alternative_alignment=False,
+                    behav_cols=behav_cols,
+                    behav_big_matrix=predictor_var[fold_number]["behav_big_matrix"],
+                    no_reward_big_row=182,
+                )
                 self.align_info = align_info
-                frames = self.alignment_frames( alignment_frames_global, left_padding, right_padding, alignment)
-                aligned_behav_this_fold, valid_trials = self.align_behav_predictors(frames, predictor_var[fold_number]['behav_matrix'])
-            
-            # if key not in aligned_predictors_all:
-            #     aligned_predictors_all[key] = {}
-            #     aligned_predictors_coupling[key] = {}
+                frames = self.alignment_frames(
+                    alignment_frames_global, left_padding, right_padding, alignment
+                )
+                aligned_behav_this_fold, valid_trials = self.align_behav_predictors(
+                    frames, predictor_var[fold_number]["behav_matrix"]
+                )
 
-            # FILTER condition_array_trials to match aligned trials
-                predictor_var[fold_number]['condition_array_trials'] = (
-                predictor_var[fold_number]['condition_array_trials'][valid_trials, :]
-            )
+                # FILTER condition arrays to match aligned trials
+                n_cond_trials = predictor_var[fold_number]["condition_array_trials"].shape[0]
+                predictor_var[fold_number]["condition_array_trials"] = (
+                    predictor_var[fold_number]["condition_array_trials"][valid_trials, :]
+                )
+                if predictor_var[fold_number].get("conditions_updated") is not None:
+                    cu = predictor_var[fold_number]["conditions_updated"]
+                    cu_arr = np.asarray(cu)
+                    cu_n = cu_arr.shape[1] if cu_arr.shape[0] == 3 else cu_arr.shape[0]
+                    if cu_n != n_cond_trials:
+                        raise ValueError(
+                            f"conditions_updated trial count ({cu_n}) does not match "
+                            f"condition_array_trials ({n_cond_trials}) for {key} fold {fold_number}"
+                        )
+                    predictor_var[fold_number]["conditions_updated"] = (
+                        self._subset_conditions_by_trials(cu, valid_trials)
+                    )
 
                 aligned_predictors_all[key][fold_number] = aligned_behav_this_fold
-                aligned_predictors_coupling[key][fold_number] = []  # Initialize as an empty list
+                aligned_predictors_coupling[key][fold_number] = []
                 alignment_frames_all[key][fold_number] = frames
 
             all_predictor_var[key] = predictor_var
 
-        return all_predictor_var,aligned_predictors_all, aligned_predictors_coupling, alignment_frames_all
+        if return_conditions_updated:
+            conditions_updated_dict = self.extract_conditions_updated_dict(
+                all_predictor_var
+            )
+            return (
+                all_predictor_var,
+                aligned_predictors_all,
+                aligned_predictors_coupling,
+                alignment_frames_all,
+                conditions_updated_dict,
+            )
+        return (
+            all_predictor_var,
+            aligned_predictors_all,
+            aligned_predictors_coupling,
+            alignment_frames_all,
+        )
     
     
     
-    def load_glm_variables(self,animalID, date, server, model_type, do_test = False, model_name = 'GLM_3nmf', load_coupling = True, load_trial_ids = False, save_suffix = 'prepost trial cv 73 #', behav_matrix_to_load = 'behav_big_matrix'):
+    def load_glm_variables(self,animalID, date, server, model_type, do_test = False, model_name = 'GLM_3nmf', load_coupling = True, load_trial_ids = False, save_suffix = 'prepost trial cv 73 #', behav_matrix_to_load = 'behav_big_matrix', load_conditions_updated = False):
         """
         Load GLM variables from specified directory.
         Parameters
@@ -164,6 +283,9 @@ class GLMPredictorProcessor:
             Type of the GLM model.
         fold_number : int
             Fold number for cross-validation.
+        load_conditions_updated : bool
+            If True, also load ``conditions_updated.mat`` when present and store
+            it under ``conditions_updated``. Existing keys are unchanged.
         Returns
         -------
         dict
@@ -203,6 +325,10 @@ class GLMPredictorProcessor:
             condition_array_trials = condition_array['condition_array_trials']
             combined_frames = scipy.io.loadmat(os.path.join(path_nonpredictors, 'combined_frames_included.mat'))
             combined_frames_included = combined_frames['combined_frames_included'].squeeze()
+
+            conditions_updated = None
+            if load_conditions_updated:
+                conditions_updated = self._load_conditions_updated_mat(path_nonpredictors)
             
         
             # Load coupling matrix
@@ -244,6 +370,7 @@ class GLMPredictorProcessor:
                 'behav_big_matrix_ids': behav_big_matrix_ids,
                 'behav_big_matrix_raw' : behav_big_matrix_raw,
                 'condition_array_trials': condition_array_trials,
+                'conditions_updated': conditions_updated,
                 'combined_frames_included': combined_frames_included,
                 'coupling_predictors': coupling_predictors,
                 'test_trials': test_trials,
