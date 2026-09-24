@@ -80,17 +80,13 @@ class GLMPredictorProcessor:
             1: photostim (0/1)
             2: correct (0/1)
         """
-        cond_path = os.path.join(path_nonpredictors, "conditions_updated.mat")
+        cond_path = os.path.join(path_nonpredictors, "condition_updated.mat")
         if not os.path.exists(cond_path):
             return None
 
         raw = scipy.io.loadmat(cond_path)
         preferred_keys = (
-            "condition_updated",
-            "conditions_updated",
-            "conditions",
-            "condition_array",
-            "condition_array_updated",
+            "condition_updated"
         )
         for key in preferred_keys:
             if key in raw and not str(key).startswith("__"):

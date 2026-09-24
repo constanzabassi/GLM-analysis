@@ -5751,7 +5751,7 @@ class Plotter:
             '--',
             color='black',
             zorder=1,
-            label='Unity'
+            # label='Unity'
         )
 
         # non-sound-responsive cells
@@ -5762,7 +5762,7 @@ class Plotter:
             alpha=0.6,
             s=18,
             zorder=2,
-            label='Not sound responsive'
+            # label='Not sound responsive'
         )
 
         # sound-responsive cells
@@ -5773,7 +5773,7 @@ class Plotter:
             alpha=0.8,
             s=22,
             zorder=3,
-            label='Sound responsive'
+            # label='Sound responsive'
         )
 
         ax.set_xlabel(measure_string, fontsize=7)
@@ -6475,7 +6475,11 @@ class Plotter:
         ylabel = 'Neurons',
         ytick_mode = 'none',
         ytick_step=None,
-        figsize = (1.4 + 0.9, 4.2)
+        figsize = (1.4 + 0.9, 4.2),
+        cbar_fraction=0.09,
+        cbar_pad=0.08,
+        cbar_labelpad=4,
+        neuron_order = None
     ):
         """Heatmap of a neuron-wise metric across contexts (rows=neurons).
 
@@ -6521,6 +6525,15 @@ class Plotter:
         order = np.argsort(np.nan_to_num(sort_vals, nan=-np.inf))[::-1]
         mi_sorted = mi_matrix[order, :]
 
+        if neuron_order is not None:
+            mi_matrix = mi_matrix[neuron_order, :]
+        else:
+            # Your existing sorting code
+            order = np.argsort(
+                np.nan_to_num(sort_vals, nan=-np.inf)
+            )[::-1]
+            mi_matrix = mi_matrix[order, :]
+
         fig, ax = plt.subplots(figsize=figsize) #(1.4 + 0.45 * mi_sorted.shape[1], 4.2)
         colors = plt.get_cmap(cmap)(np.linspace(0, 1, 256))
         cmap_obj = mpl.colors.ListedColormap(colors)
@@ -6555,22 +6568,56 @@ class Plotter:
             ax.set_yticks(ticks)
             ax.set_yticklabels((ticks + 1).astype(int))
 
+        elif ytick_mode == "matlab":
+            # MATLAB-style 1-based labels at nice round intervals.
+            if ytick_step is None:
+                ytick_step = 500 if n_rows > 1000 else max(100, int(np.ceil(n_rows / 5 / 100) * 100))
+
+            labels = np.arange(ytick_step, n_rows + 1, ytick_step)
+
+            # Convert 1-based labels to 0-based image row positions.
+            ticks = labels - 1
+
+            ax.set_yticks(ticks)
+            ax.set_yticklabels(labels.astype(int))
+
         else:
             raise ValueError(
                 "ytick_mode must be 'default', 'none', or 'one_indexed'"
             )
         if title:
             ax.set_title(title, fontsize=7)
-        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        cbar.set_label(colorbar_label)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
+        cbar = fig.colorbar(im, ax=ax, fraction=cbar_fraction, pad=cbar_pad,
+            aspect=17)
+        cbar.set_label(colorbar_label, labelpad=cbar_labelpad)     
+        cbar.outline.set_linewidth(0.5)     
+        # ax.spines["top"].set_visible(False)
+        # ax.spines["right"].set_visible(False)
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.5)
+
+        # MATLAB-style inward ticks
+        ax.tick_params(
+            axis="both",
+            direction="in",
+            top=True,
+            right=True,
+            length=1,
+            width=0.5,
+        )
+
+        cbar.ax.tick_params(
+            direction="in",
+            length=1,
+            width=0.5,
+            labelsize=6,
+        )
         fig.tight_layout()
 
         if save_path:
             plt.savefig(save_path, bbox_inches="tight", format="pdf")
         plt.show()
-        return fig, ax, mi_sorted
+        return fig, ax, mi_sorted, order
 
     def summarize_abs_metric_by_dataset(
         self,
@@ -7206,6 +7253,16 @@ class Plotter:
             for ax in axs:
                 ax.set_ylim(ymin, ymax)
 
+            # MATLAB-style inward ticks
+                ax.tick_params(
+                    axis="both",
+                    direction="in",
+                    top=False,
+                    right=False,
+                    length=1,
+                    width=0.5,
+                )
+
         if save_path:
             plt.savefig(save_path, bbox_inches="tight")
             plt.savefig(f'{save_path}abs_metric_paired_summary_by_cell_type_{context_order}_celltypes{cell_type_order}.pdf', bbox_inches='tight')
@@ -7321,13 +7378,26 @@ class Plotter:
                 color=color,
                 ms=mean_marker_size,
                 lw=1.1,
-                capsize=2,
+                capsize=3,
                 zorder=3,
             )
 
         ax.set_xticks(tick_x)
         ax.set_xticklabels(tick_labels, rotation=45, ha="right")
-        ax.set_xlim(first_x - 0.4, last_x + 0.6)
+        # ax.set_xlim(first_x - 0.4, last_x + 0.6)
+        ax.set_xlim(first_x-1, last_x + 1)
+
+        # MATLAB-style inward ticks
+        ax.tick_params(
+            axis="both",
+            direction="in",
+            top=False,
+            right=False,
+            length=1,
+            width=0.5,
+        )
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.5)
 
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -7370,7 +7440,7 @@ class Plotter:
                     color=self._cell_type_color(ct),
                     lw=1.5,
                     marker="o",
-                    ms=3.5,
+                    ms=2,
                     label=str(ct),
                 )
                 for ct in cell_type_order
@@ -7435,6 +7505,7 @@ class Plotter:
                         y=y,
                         significance=star,
                         star_height_percentage=star_height_percentage,
+                        color = self._cell_type_color(ct)
                     )
 
                     last_text_y = y + abs(y) * star_height_percentage

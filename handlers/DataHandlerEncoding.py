@@ -616,52 +616,103 @@ class DataHandlerEncoding:
         ]
 
         # ---- NEW: process exclusion argument ----
+        # ---- Process exclusion argument ----
         if exclude is not None:
-            # convert single value to list
+
+            # Convert single value to list
             if not isinstance(exclude, (list, tuple)):
                 exclude = [exclude]
+
             exclude_indices = []
+
             for ex in exclude:
                 if isinstance(ex, int):
                     exclude_indices.append(ex)
                 elif isinstance(ex, str) and ex in mouse_dates:
                     exclude_indices.append(mouse_dates.index(ex))
-            # remove duplicates
+
+            # Remove duplicates
             exclude_indices = list(set(exclude_indices))
+
         else:
             exclude_indices = []
 
+
+        # ---- Exclude datasets ----
         if len(exclude_indices) > 0:
 
-            keep_idx = [i for i in range(len(mouse_dates))
-                        if i not in exclude_indices]
-            print(keep_idx)
+            # Number of datasets before exclusion
+            orig_n = len(mouse_dates)
 
+            # Indices to keep
+            keep_idx = [i for i in range(orig_n)
+                        if i not in exclude_indices]
+
+            print("Keeping datasets:", keep_idx)
+            print("Excluding datasets:", exclude_indices)
+
+            # Update mouse dates
             mouse_dates = [mouse_dates[i] for i in keep_idx]
 
-            # n_datasets = len(keep_idx) + len(exclude_indices)  # original number
-            orig_n = len(mouse_dates) + len(exclude_indices)
+            # Opto: datasets are in dimension 0
             for field in opto.dtype.names:
                 arr = opto[field]
 
-                if not hasattr(arr, "shape"):
-                    continue
+                if hasattr(arr, "shape") and arr.ndim >= 1 and arr.shape[0] == orig_n:
+                    opto[field] = arr[keep_idx, ...]
 
-                if arr.ndim == 2 and arr.shape[0] == orig_n:
-                    opto[field] = arr[keep_idx, :]
-                elif arr.shape[1] == orig_n or arr.shape[1] == orig_n-1:
-                    opto[field] = arr[:, keep_idx]
-
+            # Sound: datasets are in dimension 1
             for field in sound.dtype.names:
                 arr = sound[field]
 
-                if not hasattr(arr, "shape"):
-                    continue
+                if hasattr(arr, "shape") and arr.ndim >= 2 and arr.shape[1] == orig_n:
+                    sound[field] = arr[:, keep_idx, ...]
+        # if exclude is not None:
+        #     # convert single value to list
+        #     if not isinstance(exclude, (list, tuple)):
+        #         exclude = [exclude]
+        #     exclude_indices = []
+        #     for ex in exclude:
+        #         if isinstance(ex, int):
+        #             exclude_indices.append(ex)
+        #         elif isinstance(ex, str) and ex in mouse_dates:
+        #             exclude_indices.append(mouse_dates.index(ex))
+        #     # remove duplicates
+        #     exclude_indices = list(set(exclude_indices))
+        # else:
+        #     exclude_indices = []
 
-                if arr.ndim == 2 and arr.shape[0] == orig_n:
-                    sound[field] = arr[keep_idx, :]
-                elif arr.shape[1] == orig_n or arr.shape[1] == orig_n-1:
-                    sound[field] = arr[:, keep_idx]
+        # if len(exclude_indices) > 0:
+
+        #     keep_idx = [i for i in range(len(mouse_dates))
+        #                 if i not in exclude_indices]
+        #     print(keep_idx)
+
+        #     mouse_dates = [mouse_dates[i] for i in keep_idx]
+
+        #     # n_datasets = len(keep_idx) + len(exclude_indices)  # original number
+        #     orig_n = len(mouse_dates) + len(exclude_indices)
+        #     for field in opto.dtype.names:
+        #         arr = opto[field]
+
+        #         if not hasattr(arr, "shape"):
+        #             continue
+
+        #         if arr.ndim == 2 and arr.shape[0] == orig_n:
+        #             opto[field] = arr[keep_idx, :]
+        #         elif arr.shape[1] == orig_n or arr.shape[1] == orig_n-1:
+        #             opto[field] = arr[:, keep_idx]
+
+        #     for field in sound.dtype.names:
+        #         arr = sound[field]
+
+        #         if not hasattr(arr, "shape"):
+        #             continue
+
+        #         if arr.ndim == 2 and arr.shape[0] == orig_n:
+        #             sound[field] = arr[keep_idx, :]
+        #         elif arr.shape[1] == orig_n or arr.shape[1] == orig_n-1:
+        #             sound[field] = arr[:, keep_idx]
            
 
         significant_neurons = {}
