@@ -938,3 +938,34 @@ class ModulationIndexAnalyzer:
             "pred_sem_by_key": pred_full["delta_sem_by_key"],
             "comparison": comparison,
         }
+
+    def compute_condition_aware_mi_true_vs_pred(
+        self,
+        aligned_true: Dict[Hashable, Dict[Hashable, np.ndarray]],
+        aligned_pred: Dict[Hashable, Dict[Hashable, np.ndarray]],
+        conditions_dict: Dict[Hashable, Dict[Hashable, np.ndarray]],
+    ) -> dict:
+        """Fold-averaged sound-only MI and control MI for true and predicted data.
+
+        Sound MI: sound trials (side in {1, 2}) with photostim == 0, post vs pre.
+        Control MI: sound+stim vs sound-alone trials, post window only.
+
+        Returns
+        -------
+        dict with neuron-wise dicts ``sound_mi_true``, ``sound_mi_pred``,
+        ``ctrl_mi_true``, ``ctrl_mi_pred`` (each ``{key: (n_neurons,)}``).
+        """
+        out = {}
+        for label, aligned in (("true", aligned_true), ("pred", aligned_pred)):
+            out[f"sound_mi_{label}"] = self.compute_mi_across_folds(
+                aligned_dict=aligned,
+                conditions_dict=conditions_dict,
+                trial_selector="sound_no_stim",
+                compute_p=False,
+            )["mi_mean_by_key"]
+            out[f"ctrl_mi_{label}"] = self.compute_control_mod_index_across_folds(
+                aligned_dict=aligned,
+                conditions_dict=conditions_dict,
+                average_folds=True,
+            )
+        return out

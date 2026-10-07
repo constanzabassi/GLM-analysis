@@ -1612,33 +1612,40 @@ class GLMPredictorProcessor:
         return response_matrix
 
 
-    def load_running_predictors(self, path, expected_n_predictors=32):
+    def load_running_predictors(
+        self,
+        path,
+        expected_n_predictors=32,
+        filename="velocity.mat",
+        var_name="velocity",
+    ):
         """
-        Load behav_big_matrix.mat.
+        Load running predictors, e.g. velocity.mat (var 'velocity') or
+        behav_big_matrix.mat (var 'behav_big_matrix').
 
         Expected output:
             running_predictors: predictors x frames
 
         If saved as frames x predictors, transpose automatically.
         """
-        predictor_path = os.path.join(path, "velocity.mat")
+        predictor_path = os.path.join(path, filename)
 
         if not os.path.exists(predictor_path):
-            raise FileNotFoundError(f"Could not find velocity.mat at: {predictor_path}")
+            raise FileNotFoundError(f"Could not find {filename} at: {predictor_path}")
 
         pred_file = scipy.io.loadmat(predictor_path)
 
-        if "velocity" not in pred_file:
+        if var_name not in pred_file:
             raise KeyError(
-                f"'velocity' not found in velocity.mat. "
+                f"'{var_name}' not found in {filename}. "
                 f"Available keys: {list(pred_file.keys())}"
             )
 
-        running_predictors = np.asarray(pred_file["velocity"])
+        running_predictors = np.asarray(pred_file[var_name])
 
         if running_predictors.ndim != 2:
             raise ValueError(
-                f"Expected behav_big_matrix to be 2D, got shape {running_predictors.shape}"
+                f"Expected {var_name} to be 2D, got shape {running_predictors.shape}"
             )
 
         # If saved as frames x predictors, transpose it.

@@ -577,218 +577,184 @@ class DataHandlerEncoding:
 
         return data
     
-    def load_sound_opto_data(self,dir, set_diff = True, exclude=None):
+    def load_sound_opto_data(self, dir, set_diff=True, exclude=None):
         """
-        Loads neuron IDs and their modulation indices based on the provided directories and optogenetic condition.
+        Loads neuron IDs and modulation indices for sound and optogenetic conditions.
 
-        Parameters:
-        dir: str
-            Directory for opto data.
+        Sound can have more datasets than opto (e.g. opto is missing the final
+        dataset); sound is still loaded for those datasets and their opto
+        fields are empty.
 
+        Parameters
+        ----------
+        dir : str
+            Directory containing opto.mat, sound.mat and info.mat.
+        set_diff : bool
+            If True, 'sound'/'opto' categories exclude neurons significant for both.
+        exclude : str, int or list, optional
+            mouse_date strings or dataset indices to drop.
 
-        Returns:
-        significant_neurons: dict
-            A dictionary mapping mouse_date to its significant neurons.
-        mod_index_neurons: dict
-            A dictionary mapping mouse_date to its corresponding modulation index for significant neurons.
-        mouse_dates: list
-            A list of mouse dates after formatting.
+        Returns
+        -------
+        opto, sound : MATLAB structs with 0-based sig_cells, both shaped (1, n_datasets)
+        mouse_dates : list of sound mouse_dates (after exclusion)
+        significant_neurons : dict[mouse_date] -> {'opto','sound','sound_pos','sound_neg','both','unmod'}
+        mod_indices : dict[mouse_date][context] -> {'sound', 'opto' (if available)}
+        sound_separated : dict with 'sig_cells_pos' / 'sig_cells_neg', shape (1, n_datasets)
         """
-        
-        # Load the condition_array_trials structure
-        mat_data = scipy.io.loadmat(os.path.join(dir, 'opto.mat'))
-        opto = mat_data['opto'][0][0]
+        mat_data = scipy.io.loadmat(os.path.join(dir, "opto.mat"))
+        opto = mat_data["opto"][0][0]
         opto = self.unwrap_matlab(opto)
 
-        mat_data = scipy.io.loadmat(os.path.join(dir, 'sound.mat'))
-        sound = mat_data['sound'][0][0]
+        # opto stores datasets on dim 0; match sound's (1, n_datasets) orientation
+        opto["sig_cells"] = opto["sig_cells"].T
+
+        mat_data = scipy.io.loadmat(os.path.join(dir, "sound.mat"))
+        sound = mat_data["sound"][0][0]
         sound = self.unwrap_matlab(sound)
 
-            # Load the info structure to get mouse_date
+        mat_data = scipy.io.loadmat(os.path.join(dir, "info.mat"))
+        info = mat_data["info"][0][0]
 
-        mat_data = scipy.io.loadmat(os.path.join(dir, 'info.mat'))
-        info = mat_data['info'][0][0]    
-
-        # Assuming your mouse_date structure is loaded as a numpy array
-        mouse_dates = [
-            item[0].replace('\\', '_').replace('/', '_')  # Replace slashes with underscores for consistency
-            for item in info['mouse_date'][0]
+        mouse_dates_all = [
+            item[0].replace("\\", "_").replace("/", "_")
+            for item in info["mouse_date"][0]
         ]
 
-        # ---- NEW: process exclusion argument ----
-        # ---- Process exclusion argument ----
+        n_sound = sound["sig_cells"].shape[1]
+        n_opto = opto["sig_cells"].shape[1]
+
+        mouse_dates_sound = mouse_dates_all[:n_sound]
+        mouse_dates_opto = mouse_dates_all[:n_opto]
+
         if exclude is not None:
 
-            # Convert single value to list
             if not isinstance(exclude, (list, tuple)):
                 exclude = [exclude]
 
-            exclude_indices = []
+            exclude_sound_idx = []
+            exclude_opto_idx = []
 
             for ex in exclude:
                 if isinstance(ex, int):
-                    exclude_indices.append(ex)
-                elif isinstance(ex, str) and ex in mouse_dates:
-                    exclude_indices.append(mouse_dates.index(ex))
+                    if ex < len(mouse_dates_sound):
+                        exclude_sound_idx.append(ex)
+                    if ex < len(mouse_dates_opto):
+                        exclude_opto_idx.append(ex)
 
-            # Remove duplicates
-            exclude_indices = list(set(exclude_indices))
+                elif isinstance(ex, str):
+                    if ex in mouse_dates_sound:
+                        exclude_sound_idx.append(mouse_dates_sound.index(ex))
+                    if ex in mouse_dates_opto:
+                        exclude_opto_idx.append(mouse_dates_opto.index(ex))
 
-        else:
-            exclude_indices = []
+            keep_sound_idx = [
+                i for i in range(len(mouse_dates_sound))
+                if i not in exclude_sound_idx
+            ]
+            keep_opto_idx = [
+                i for i in range(len(mouse_dates_opto))
+                if i not in exclude_opto_idx
+            ]
 
+            mouse_dates_sound = [mouse_dates_sound[i] for i in keep_sound_idx]
+            mouse_dates_opto = [mouse_dates_opto[i] for i in keep_opto_idx]
 
-        # ---- Exclude datasets ----
-        if len(exclude_indices) > 0:
+            sound["sig_cells"] = sound["sig_cells"][:, keep_sound_idx]
+            sound["mod"] = sound["mod"][keep_sound_idx, :]
 
-            # Number of datasets before exclusion
-            orig_n = len(mouse_dates)
+            opto["sig_cells"] = opto["sig_cells"][:, keep_opto_idx]
+            opto["mod"] = opto["mod"][keep_opto_idx, :]
 
-            # Indices to keep
-            keep_idx = [i for i in range(orig_n)
-                        if i not in exclude_indices]
+            print("Keeping sound datasets:", keep_sound_idx)
+            print("Keeping opto datasets:", keep_opto_idx)
+            print("Excluding sound datasets:", exclude_sound_idx)
+            print("Excluding opto datasets:", exclude_opto_idx)
 
-            print("Keeping datasets:", keep_idx)
-            print("Excluding datasets:", exclude_indices)
-
-            # Update mouse dates
-            mouse_dates = [mouse_dates[i] for i in keep_idx]
-
-            # Opto: datasets are in dimension 0
-            for field in opto.dtype.names:
-                arr = opto[field]
-
-                if hasattr(arr, "shape") and arr.ndim >= 1 and arr.shape[0] == orig_n:
-                    opto[field] = arr[keep_idx, ...]
-
-            # Sound: datasets are in dimension 1
-            for field in sound.dtype.names:
-                arr = sound[field]
-
-                if hasattr(arr, "shape") and arr.ndim >= 2 and arr.shape[1] == orig_n:
-                    sound[field] = arr[:, keep_idx, ...]
-        # if exclude is not None:
-        #     # convert single value to list
-        #     if not isinstance(exclude, (list, tuple)):
-        #         exclude = [exclude]
-        #     exclude_indices = []
-        #     for ex in exclude:
-        #         if isinstance(ex, int):
-        #             exclude_indices.append(ex)
-        #         elif isinstance(ex, str) and ex in mouse_dates:
-        #             exclude_indices.append(mouse_dates.index(ex))
-        #     # remove duplicates
-        #     exclude_indices = list(set(exclude_indices))
-        # else:
-        #     exclude_indices = []
-
-        # if len(exclude_indices) > 0:
-
-        #     keep_idx = [i for i in range(len(mouse_dates))
-        #                 if i not in exclude_indices]
-        #     print(keep_idx)
-
-        #     mouse_dates = [mouse_dates[i] for i in keep_idx]
-
-        #     # n_datasets = len(keep_idx) + len(exclude_indices)  # original number
-        #     orig_n = len(mouse_dates) + len(exclude_indices)
-        #     for field in opto.dtype.names:
-        #         arr = opto[field]
-
-        #         if not hasattr(arr, "shape"):
-        #             continue
-
-        #         if arr.ndim == 2 and arr.shape[0] == orig_n:
-        #             opto[field] = arr[keep_idx, :]
-        #         elif arr.shape[1] == orig_n or arr.shape[1] == orig_n-1:
-        #             opto[field] = arr[:, keep_idx]
-
-        #     for field in sound.dtype.names:
-        #         arr = sound[field]
-
-        #         if not hasattr(arr, "shape"):
-        #             continue
-
-        #         if arr.ndim == 2 and arr.shape[0] == orig_n:
-        #             sound[field] = arr[keep_idx, :]
-        #         elif arr.shape[1] == orig_n or arr.shape[1] == orig_n-1:
-        #             sound[field] = arr[:, keep_idx]
-           
+        opto_date_to_idx = {
+            mouse_date: idx
+            for idx, mouse_date in enumerate(mouse_dates_opto)
+        }
 
         significant_neurons = {}
         mod_indices = {}
-        #create fields for sound pos and neg
+
         sound_separated = {
-            'sig_cells_pos': np.empty((1, len(mouse_dates)), dtype=object),
-            'sig_cells_neg': np.empty((1, len(mouse_dates)), dtype=object)
+            "sig_cells_pos": np.empty((1, len(mouse_dates_sound)), dtype=object),
+            "sig_cells_neg": np.empty((1, len(mouse_dates_sound)), dtype=object),
         }
-        # Iterate over mouse_dates and map to corresponding neurons in sig_cells by index
-        for idx, mouse_date in enumerate(mouse_dates):
-            
-            # ---- NEW: skip excluded datasets ----
-            # if idx in exclude_indices:
-            #     continue
+
+        for sound_idx, mouse_date in enumerate(mouse_dates_sound):
 
             significant_neurons[mouse_date] = {}
-            opto_neurons = opto['sig_cells'][idx,0]-1 # Adjust for MATLAB indexing
-            sound_neurons = sound['sig_cells'][0,idx]-1 # Adjust for MATLAB indexing
-
-            #adjust those fields to be -1 for python indexing
-            sound['sig_cells'][0,idx] = sound_neurons
-            opto['sig_cells'][idx,0] = opto_neurons
-
             mod_indices[mouse_date] = {}
 
-            for context in range(opto['mod'].shape[1]):
-                mod_indices[mouse_date][context] = {}   # initialize context dictionary
-                mod_indices[mouse_date][context]['opto'] = opto['mod'][idx, context]
-            for context in range(sound['mod'].shape[1]):
+            sound_neurons = sound["sig_cells"][0, sound_idx] - 1  # MATLAB -> Python indexing
+            sound_neurons = np.asarray(sound_neurons).astype(int).ravel()
+            sound["sig_cells"][0, sound_idx] = sound_neurons
+
+            has_opto = mouse_date in opto_date_to_idx
+
+            if has_opto:
+                opto_idx = opto_date_to_idx[mouse_date]
+                opto_neurons = opto["sig_cells"][0, opto_idx] - 1
+                opto_neurons = np.asarray(opto_neurons).astype(int).ravel()
+                opto["sig_cells"][0, opto_idx] = opto_neurons
+            else:
+                opto_idx = None
+                opto_neurons = np.array([], dtype=int)
+
+            if has_opto:
+                for context in range(opto["mod"].shape[1]):
+                    mod_indices[mouse_date][context] = {}
+                    mod_indices[mouse_date][context]["opto"] = opto["mod"][opto_idx, context]
+
+            for context in range(sound["mod"].shape[1]):
                 if context not in mod_indices[mouse_date]:
                     mod_indices[mouse_date][context] = {}
-                mod_indices[mouse_date][context]['sound'] = sound['mod'][idx, context]
+                mod_indices[mouse_date][context]["sound"] = sound["mod"][sound_idx, context]
 
-            #get total nuerons
-            all_neurons = list(range(opto['mod'][idx,0].shape[0]))#range(0,opto['mod'][idx,0].shape[0])
-            
+            all_neurons = list(range(sound["mod"][sound_idx, 0].shape[0]))
 
-            # get modulation values for sound (assuming context 0 for sound)
-            sig_cells = sound_neurons
-
-            mod0 = sound['mod'][idx,0]
-            mod1 = sound['mod'][idx,1]
+            mod0 = sound["mod"][sound_idx, 0]
+            mod1 = sound["mod"][sound_idx, 1]
 
             sound_sig_pos = [
-                n for n in sig_cells
+                int(n) for n in sound_neurons
                 if mod0[n] > 0 and mod1[n] > 0
             ]
-
             sound_sig_neg = [
-                n for n in sig_cells
+                int(n) for n in sound_neurons
                 if mod0[n] < 0 and mod1[n] < 0
             ]
 
             if set_diff:
                 sound_only = list(set(sound_neurons) - set(opto_neurons))
-                opto_only  = list(set(opto_neurons) - set(sound_neurons))
+                opto_only = list(set(opto_neurons) - set(sound_neurons))
             else:
                 sound_only = list(sound_neurons)
-                opto_only  = list(opto_neurons)
+                opto_only = list(opto_neurons)
 
-            # Now apply sign split WITHIN the set-diff result
+            significant_neurons[mouse_date]["opto"] = opto_only
+            significant_neurons[mouse_date]["sound"] = sound_only
+            significant_neurons[mouse_date]["sound_pos"] = sound_sig_pos
+            significant_neurons[mouse_date]["sound_neg"] = sound_sig_neg
+            significant_neurons[mouse_date]["both"] = list(
+                set(opto_neurons).intersection(set(sound_neurons))
+            )
+            significant_neurons[mouse_date]["unmod"] = list(
+                set(all_neurons) - set(opto_neurons) - set(sound_neurons)
+            )
 
-            sound_pos_only = sound_sig_pos
-            sound_neg_only = sound_sig_neg
+            sound_separated["sig_cells_pos"][0, sound_idx] = sound_sig_pos
+            sound_separated["sig_cells_neg"][0, sound_idx] = sound_sig_neg
 
-            significant_neurons[mouse_date]['opto'] = opto_only
-            significant_neurons[mouse_date]['sound'] = sound_only
-            significant_neurons[mouse_date]['sound_pos'] = sound_pos_only
-            significant_neurons[mouse_date]['sound_neg'] = sound_neg_only
-            significant_neurons[mouse_date]['both'] = list(set(opto_neurons).intersection(set(sound_neurons)))
-            significant_neurons[mouse_date]['unmod'] = list(set(all_neurons) - set(opto_neurons) - set(sound_neurons))
-
-            #put sound pos and neg into sound
-            sound_separated['sig_cells_pos'][0,idx] = sound_sig_pos
-            sound_separated['sig_cells_neg'][0,idx] = sound_sig_neg
-
-        return opto, sound, mouse_dates, significant_neurons, mod_indices,sound_separated
+        return (
+            opto,
+            sound,
+            mouse_dates_sound,
+            significant_neurons,
+            mod_indices,
+            sound_separated,
+        )
 

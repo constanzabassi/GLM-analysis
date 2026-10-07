@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import pickle
+import warnings
 import scipy
 from scipy import stats
 from scipy.stats import permutation_test
@@ -1413,6 +1414,72 @@ class AnalysisManagerEncoding:
         combined_df = pd.concat(combined_df, ignore_index=True)
         return combined_df
     
+    FDE_CORRECTIONS = ('raw', 'intercept_corrected', 'gain_rescaled')
+
+    @staticmethod
+    def _resolve_fde_correction(correction, recalibrate_intercept):
+        if recalibrate_intercept:
+            warnings.warn(
+                "recalibrate_intercept=True is a multiplicative gain rescale; "
+                "use correction='gain_rescaled' instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            if correction not in ('raw', 'gain_rescaled'):
+                raise ValueError(
+                    "recalibrate_intercept=True conflicts with "
+                    f"correction={correction!r}"
+                )
+            return 'gain_rescaled'
+        return correction
+
+    def apply_fde_prediction_correction(self, Y_true, Y_pred, correction='raw', eps=1e-12):
+        """Per-neuron mean-matching of predictions before computing FDE.
+
+        Y_true, Y_pred : samples x neurons, already restricted to the evaluation
+            frames and valid (non-NaN) samples.
+        correction :
+            'raw'                 -> Y_pred unchanged
+            'intercept_corrected' -> Y_pred + (mean(Y_true) - mean(Y_pred))
+            'gain_rescaled'       -> Y_pred * (mean(Y_true) / mean(Y_pred))
+            Corrected predictions are clipped to >= eps (Poisson deviance needs
+            positive rates). For 'gain_rescaled' the factor stays 1 where the
+            predicted mean is non-finite or below eps.
+
+        These are diagnostic upper-bound controls that remove a per-neuron
+        offset/gain mismatch on held-out data; they do not replace raw FDE.
+
+        Returns
+        -------
+        Y_pred_corrected : samples x neurons
+        params : (n_neurons,) offsets (intercept_corrected), scale factors
+            (gain_rescaled), or ones (raw).
+        """
+        if correction not in self.FDE_CORRECTIONS:
+            raise ValueError(f"correction must be one of {self.FDE_CORRECTIONS}")
+
+        n_neurons = Y_pred.shape[1]
+        if correction == 'raw':
+            return Y_pred, np.ones(n_neurons, dtype=float)
+
+        mean_true = np.nanmean(Y_true, axis=0)
+        mean_pred = np.nanmean(Y_pred, axis=0)
+
+        if correction == 'intercept_corrected':
+            offsets = np.zeros(n_neurons, dtype=float)
+            valid = np.isfinite(mean_true) & np.isfinite(mean_pred)
+            offsets[valid] = mean_true[valid] - mean_pred[valid]
+            return np.maximum(Y_pred + offsets[None, :], eps), offsets
+
+        scale_factors = np.ones(n_neurons, dtype=float)
+        valid = (
+            np.isfinite(mean_true)
+            & np.isfinite(mean_pred)
+            & (np.abs(mean_pred) >= eps)
+        )
+        scale_factors[valid] = mean_true[valid] / mean_pred[valid]
+        return np.maximum(Y_pred * scale_factors[None, :], eps), scale_factors
+
     def fractional_deviance_from_aligned(
         self,
         Y_true_aligned,
@@ -1422,19 +1489,25 @@ class AnalysisManagerEncoding:
         recalibrate_intercept=False,
         return_scale_factors=False,
         eps=1e-12,
+        correction='raw',
     ):
         """
         Y_true_aligned, Y_pred_aligned:
             shape = trials x neurons x aligned_frames
 
+        correction : {'raw', 'intercept_corrected', 'gain_rescaled'}
+            Per-neuron prediction correction applied within the evaluated
+            samples/window (see apply_fde_prediction_correction). Default 'raw'.
+
         recalibrate_intercept:
-            If True, rescale each neuron's prediction so mean(Y_pred) matches
-            mean(Y_true) within the evaluated samples/window, then clip to >= eps
-            before Poisson deviance. Default False preserves raw FDE.
+            Deprecated alias for correction='gain_rescaled' (the original
+            implementation was multiplicative, not an intercept shift).
 
         Returns:
-            frac_dev, model_dev, null_dev  (and scale_factors if return_scale_factors)
+            frac_dev, model_dev, null_dev  (and correction params if
+            return_scale_factors: offsets or scale factors per neuron)
         """
+        correction = self._resolve_fde_correction(correction, recalibrate_intercept)
 
         if frame_subset is not None:
             Y_true_aligned = Y_true_aligned[:, :, frame_subset]
@@ -1451,22 +1524,9 @@ class AnalysisManagerEncoding:
         Y_true = Y_true[good_rows, :]
         Y_pred = Y_pred[good_rows, :]
 
-        scale_factors = None
-        if recalibrate_intercept:
-            mean_true = np.mean(Y_true, axis=0)
-            mean_pred = np.mean(Y_pred, axis=0)
-            scale_factors = np.ones(n_neurons, dtype=float)
-            valid = np.abs(mean_pred) >= eps
-            scale_factors[valid] = mean_true[valid] / mean_pred[valid]
-
-            Y_pred_recal = Y_pred.copy()
-            Y_pred_recal *= scale_factors[None, :]
-            Y_pred_recal = np.maximum(Y_pred_recal, eps)
-            y_pred_for_dev = Y_pred_recal
-        else:
-            y_pred_for_dev = Y_pred
-            if return_scale_factors:
-                scale_factors = np.ones(n_neurons, dtype=float)
+        y_pred_for_dev, scale_factors = self.apply_fde_prediction_correction(
+            Y_true, Y_pred, correction=correction, eps=eps
+        )
 
         _, model_dev, _ = self.deviance(y_pred_for_dev, Y_true, loss_type=loss_type)
 
@@ -1500,7 +1560,9 @@ class AnalysisManagerEncoding:
         frame_subset=None,
         recalibrate_intercept=False,
         return_scale_factors=False,
+        correction='raw',
     ):
+        correction = self._resolve_fde_correction(correction, recalibrate_intercept)
 
         frac_dev_all = {}
         d_model_all = {}
@@ -1524,8 +1586,8 @@ class AnalysisManagerEncoding:
                     Y_pred_aligned,
                     loss_type=loss_type,
                     frame_subset=frame_subset,
-                    recalibrate_intercept=recalibrate_intercept,
                     return_scale_factors=return_scale_factors,
+                    correction=correction,
                 )
                 if return_scale_factors:
                     frac_dev_expl, d_model, d_null, scale_factors = result
@@ -1601,6 +1663,45 @@ class AnalysisManagerEncoding:
             mean_frac_dev_plotting,
             cell_ids_plotting
         )
+
+    def compute_fde_variants(
+        self,
+        aligned_neural_true,
+        aligned_neural_pred,
+        loss_type='poisson',
+        frame_subset=None,
+        corrections=FDE_CORRECTIONS,
+    ):
+        """Held-out FDE with raw, intercept-corrected and gain-rescaled predictions.
+
+        Returns
+        -------
+        variants : dict
+            variants['fde_raw' | 'fde_intercept_corrected' | 'fde_gain_rescaled']
+            = {'frac_dev_all': {key: {fold: (n_neurons,)}},
+               'mean_by_key': {key: (n_neurons,)},   # fold-averaged
+               'mean_plotting': (total_neurons,)}
+        The corrected variants are diagnostic upper bounds, not replacements
+        for raw FDE.
+        """
+        variants = {}
+        for correction in corrections:
+            frac_dev_all, _, _ = self.compute_aligned_frac_dev_all(
+                aligned_neural_true,
+                aligned_neural_pred,
+                loss_type=loss_type,
+                frame_subset=frame_subset,
+                correction=correction,
+            )
+            mean_by_key, _, mean_plotting, _ = self.average_frac_dev_across_folds(
+                frac_dev_all
+            )
+            variants[f'fde_{correction}'] = {
+                'frac_dev_all': frac_dev_all,
+                'mean_by_key': mean_by_key,
+                'mean_plotting': mean_plotting,
+            }
+        return variants
     
     #all code below copied over from Shih-Yi's glm class!
 

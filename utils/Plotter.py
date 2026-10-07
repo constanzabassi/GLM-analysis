@@ -5667,7 +5667,8 @@ class Plotter:
             "fold_counts": fold_counts,
         }
     
-    def scatter_dev_active_passive_sound_sig(self,
+    def scatter_dev_active_passive_sound_sig(
+        self,
         dev_active_by_key,
         dev_passive_by_key,
         datasets,
@@ -5678,7 +5679,9 @@ class Plotter:
         plot_lims=None,
         plot_lims_neg=None,
         save_path=None,
-        sig_index_base=0
+        sig_index_base=0,
+        default_colors = (0.7, 0.7, 0.7),
+        figsize=(3, 3)
     ):
         """
         dev_active_by_key[key] = array, shape (n_neurons,)
@@ -5704,16 +5707,19 @@ class Plotter:
 
             n_neurons = active_vals.shape[0]
 
-            sig_cells = np.asarray(sound[sig_type][0, dataset_idx]).squeeze()
+            if sig_type is not None:
+                sig_cells = np.asarray(sound[sig_type][0, dataset_idx]).squeeze()
 
-            if sig_cells.size == 0:
-                sig_cells = np.array([], dtype=int)
+                if sig_cells.size == 0:
+                    sig_cells = np.array([], dtype=int)
+                else:
+                    sig_cells = sig_cells.astype(int)
+
+                # convert MATLAB 1-based indices to Python 0-based if needed
+                if sig_index_base == 1:
+                    sig_cells = sig_cells - 1
             else:
-                sig_cells = sig_cells.astype(int)
-
-            # convert MATLAB 1-based indices to Python 0-based if needed
-            if sig_index_base == 1:
-                sig_cells = sig_cells - 1
+                sig_cells = np.array([], dtype=int)
 
             is_sig = np.zeros(n_neurons, dtype=bool)
             sig_cells = sig_cells[(sig_cells >= 0) & (sig_cells < n_neurons)]
@@ -5728,15 +5734,15 @@ class Plotter:
         is_sig_plot = np.concatenate(all_is_sig)
 
         good = (
-            ~np.isnan(active_plot) &
-            ~np.isnan(passive_plot)
+            np.isfinite(active_plot) &
+            np.isfinite(passive_plot)
         )
 
         active_plot = active_plot[good]
         passive_plot = passive_plot[good]
         is_sig_plot = is_sig_plot[good]
 
-        fig, ax = plt.subplots(1, 1, figsize=(3, 3))
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
 
         if plot_lims is None:
             max_lim = np.nanmax([active_plot.max(), passive_plot.max(), 0.5])
@@ -5758,10 +5764,12 @@ class Plotter:
         ax.scatter(
             active_plot[~is_sig_plot],
             passive_plot[~is_sig_plot],
-            c='lightgray',
+            edgecolors=default_colors,
             alpha=0.6,
             s=18,
             zorder=2,
+            facecolors='none',
+            rasterized=True,
             # label='Not sound responsive'
         )
 
@@ -5769,16 +5777,18 @@ class Plotter:
         ax.scatter(
             active_plot[is_sig_plot],
             passive_plot[is_sig_plot],
-            c='#4D3399', #purple
+            edgecolors='#4D3399', #purple
             alpha=0.8,
             s=22,
             zorder=3,
+            facecolors='none',
+            rasterized=True,
             # label='Sound responsive'
         )
 
         ax.set_xlabel(measure_string, fontsize=7)
         ax.set_ylabel(measure_string2, fontsize=7)
-        ax.set_title(f'{measure_string} vs {measure_string2}', fontsize=7)
+        # ax.set_title(f'{measure_string} vs {measure_string2}', fontsize=7)
 
         ax.set_xlim(min_lim, max_lim)
         ax.set_ylim(min_lim, max_lim)
@@ -5786,8 +5796,15 @@ class Plotter:
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.set_box_aspect(1)
+        fig.subplots_adjust(
+            left=0.3,
+            right=0.78,
+            top=0.95,
+            bottom=0.15,
+            hspace=0.05,
+        )
 
-        ax.legend(frameon=False, fontsize=6)
+        # ax.legend(frameon=False, fontsize=6)
 
         new_rc_params = {
             'text.usetex': False,
@@ -5796,7 +5813,14 @@ class Plotter:
         plt.rcParams.update(new_rc_params)
 
         if save_path:
-            plt.savefig(save_path, bbox_inches='tight', format='pdf')
+            # plt.savefig(save_path, format='pdf')
+            fig.savefig(
+                save_path,
+                format="pdf",
+                facecolor="white",
+                edgecolor="white",
+                transparent=False,
+            )
 
         plt.show()
 
@@ -6522,17 +6546,16 @@ class Plotter:
                 sort_vals = mi_matrix[:, int(sort_idx.ravel()[0])]
             else:
                 sort_vals = np.nanmean(mi_matrix[:, sort_idx], axis=1)
-        order = np.argsort(np.nan_to_num(sort_vals, nan=-np.inf))[::-1]
-        mi_sorted = mi_matrix[order, :]
-
         if neuron_order is not None:
-            mi_matrix = mi_matrix[neuron_order, :]
+            order = np.asarray(neuron_order, dtype=int)
+            if order.shape[0] != mi_matrix.shape[0]:
+                raise ValueError(
+                    f"neuron_order has {order.shape[0]} entries but "
+                    f"{mi_matrix.shape[0]} neurons are selected"
+                )
         else:
-            # Your existing sorting code
-            order = np.argsort(
-                np.nan_to_num(sort_vals, nan=-np.inf)
-            )[::-1]
-            mi_matrix = mi_matrix[order, :]
+            order = np.argsort(np.nan_to_num(sort_vals, nan=-np.inf))[::-1]
+        mi_sorted = mi_matrix[order, :]
 
         fig, ax = plt.subplots(figsize=figsize) #(1.4 + 0.45 * mi_sorted.shape[1], 4.2)
         colors = plt.get_cmap(cmap)(np.linspace(0, 1, 256))
@@ -7377,16 +7400,15 @@ class Plotter:
                 fmt="o",
                 color=color,
                 ms=mean_marker_size,
-                lw=1.1,
+                lw=1,
                 capsize=3,
                 zorder=3,
             )
 
         ax.set_xticks(tick_x)
         ax.set_xticklabels(tick_labels, rotation=45, ha="right")
-        # ax.set_xlim(first_x - 0.4, last_x + 0.6)
         ax.set_xlim(first_x-1, last_x + 1)
-
+        
         # MATLAB-style inward ticks
         ax.tick_params(
             axis="both",
@@ -7396,15 +7418,17 @@ class Plotter:
             length=1,
             width=0.5,
         )
+        
+        ax.set_ylabel(ylabel if ylabel is not None else metric_col)
+
+        if title:
+            ax.set_title(title, fontsize=7)
+
         for spine in ax.spines.values():
             spine.set_linewidth(0.5)
 
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-        ax.set_ylabel(ylabel if ylabel is not None else metric_col)
-
-        if title:
-            ax.set_title(title, fontsize=7)
 
         self._apply_paired_ylim(ax, ylim=ylim, y_floor=None)
 
@@ -7440,7 +7464,7 @@ class Plotter:
                     color=self._cell_type_color(ct),
                     lw=1.5,
                     marker="o",
-                    ms=2,
+                    ms=3.5,
                     label=str(ct),
                 )
                 for ct in cell_type_order
@@ -7641,3 +7665,704 @@ class Plotter:
             star_height_percentage=star_height_percentage,
         )
         return fig, axs, summary_df
+
+    # ------------------------------------------------------------------
+    # Neuron-level true vs predicted comparisons
+    # ------------------------------------------------------------------
+    def _concat_true_pred_by_dataset(
+        self,
+        true_dict,
+        pred_dict,
+        datasets=None,
+        neuron_mask_dict=None,
+    ):
+        """Concatenate paired neuron values across datasets; drop nonfinite pairs."""
+        keys = self._ordered_dataset_keys([true_dict, pred_dict], datasets=datasets)
+        true_vals, pred_vals = [], []
+        for key in keys:
+            t = self._selected_metric_for_dataset(
+                true_dict[key], neuron_mask_dict, key, metric_name="true metric"
+            )[0]
+            p = self._selected_metric_for_dataset(
+                pred_dict[key], neuron_mask_dict, key, metric_name="pred metric"
+            )[0]
+            if t.shape != p.shape:
+                raise ValueError(
+                    f"True/pred neuron counts differ for {key!r}: {t.shape} vs {p.shape}"
+                )
+            true_vals.append(t)
+            pred_vals.append(p)
+        if not true_vals:
+            return np.array([], dtype=float), np.array([], dtype=float)
+        x = np.concatenate(true_vals)
+        y = np.concatenate(pred_vals)
+        finite = np.isfinite(x) & np.isfinite(y)
+        return x[finite], y[finite]
+
+    def plot_true_vs_pred_scatter(
+        self,
+        true_dict,
+        pred_dict,
+        datasets=None,
+        neuron_mask_dict=None,
+        ax=None,
+        xlabel="True",
+        ylabel="Running-only pred.",
+        title=None,
+        lim=None,
+        min_lim=0.1,
+        color="k",
+        marker_size=8,
+        alpha=0.4,
+        unity_color="r",
+        figsize=(1.5, 1.5),
+        save_path=None,
+    ):
+        """Neuron-level scatter of true vs predicted values with a unity line.
+
+        Parameters
+        ----------
+        true_dict, pred_dict : dict
+            ``{key: (n_neurons,)}`` neuron-wise metric (e.g. fold-averaged MI or delta).
+        datasets : list of (animalID, date, ...), optional
+            Restrict/order datasets; defaults to keys shared by both dicts.
+        neuron_mask_dict : dict, optional
+            ``{key: bool mask or neuron indices}``.
+        lim : float or (lo, hi), optional
+            Axis limits (equal for x and y). Default is symmetric
+            ``±max(max|value|, min_lim)``.
+
+        Returns
+        -------
+        fig, ax, r, n
+            Pearson r (NaN if n < 2) and the number of finite neurons plotted.
+        """
+        plt.rcParams.update({"font.size": 7, "font.family": "arial"})
+        mpl.rcParams["pdf.fonttype"] = 42
+
+        x, y = self._concat_true_pred_by_dataset(
+            true_dict, pred_dict, datasets=datasets, neuron_mask_dict=neuron_mask_dict
+        )
+        n = int(x.size)
+        r = float(np.corrcoef(x, y)[0, 1]) if n >= 2 else np.nan
+
+        own_fig = ax is None
+        if own_fig:
+            fig, ax = plt.subplots(figsize=figsize)
+        else:
+            fig = ax.figure
+
+        if lim is None:
+            peak = np.nanmax(np.abs(np.concatenate([x, y]))) if n else 0.0
+            peak = max(float(peak), float(min_lim))
+            lo, hi = -peak, peak
+        elif np.isscalar(lim):
+            lo, hi = -float(lim), float(lim)
+        else:
+            lo, hi = lim
+
+        ax.scatter(x, y, s=marker_size, alpha=alpha, c=color, linewidths=0, rasterized=True)
+        ax.plot([lo, hi], [lo, hi], "--", color=unity_color, lw=1)
+        ax.set_xlim(lo, hi)
+        ax.set_ylim(lo, hi)
+        ax.set_aspect("equal")
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        stat_str = f"r={r:.3f}, n={n}"
+        ax.set_title(f"{title}\n{stat_str}" if title else stat_str, fontsize=7)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        if own_fig:
+            fig.subplots_adjust(left=0.3, right=0.78, top=0.95, bottom=0.15, hspace=0.05)
+            if save_path:
+                fig.savefig(
+                    save_path, format="pdf", facecolor="white", edgecolor="white",
+                    transparent=False,
+                )
+            plt.show()
+
+        return fig, ax, r, n
+
+    def plot_condition_aware_mi_true_vs_pred(
+        self,
+        sound_mi_true,
+        sound_mi_pred,
+        ctrl_mi_true,
+        ctrl_mi_pred,
+        sound_mask_dict=None,
+        ctrl_mask_dict=None,
+        sound_datasets=None,
+        ctrl_datasets=None,
+        context_label=None,
+        pred_label="Running-only pred.",
+        min_lim=0.1,
+        figsize=(3.2, 1.7),
+        save_path=None,
+    ):
+        """1x2 true vs predicted scatter: Sound MI (left) and Control MI (right).
+
+        Sound MI: sound trials (side 1/2) without photostim, post vs pre.
+        Control MI: sound+stim vs sound-alone trials, post window only.
+
+        Returns
+        -------
+        fig, axs, stats
+            ``stats = {"sound": {"r", "n"}, "ctrl": {"r", "n"}}``
+        """
+        plt.rcParams.update({"font.size": 7, "font.family": "arial"})
+        mpl.rcParams["pdf.fonttype"] = 42
+
+        prefix = f"{context_label} " if context_label else ""
+        fig, axs = plt.subplots(1, 2, figsize=figsize)
+        _, _, r_sound, n_sound = self.plot_true_vs_pred_scatter(
+            sound_mi_true, sound_mi_pred,
+            datasets=sound_datasets, neuron_mask_dict=sound_mask_dict, ax=axs[0],
+            xlabel="True", ylabel=pred_label,
+            title=f"{prefix}Sound MI", min_lim=min_lim,
+        )
+        _, _, r_ctrl, n_ctrl = self.plot_true_vs_pred_scatter(
+            ctrl_mi_true, ctrl_mi_pred,
+            datasets=ctrl_datasets, neuron_mask_dict=ctrl_mask_dict, ax=axs[1],
+            xlabel="True", ylabel=pred_label,
+            title=f"{prefix}Control MI", min_lim=min_lim,
+        )
+        fig.tight_layout()
+        if save_path:
+            fig.savefig(
+                save_path, format="pdf", facecolor="white", edgecolor="white",
+                transparent=False,
+            )
+        plt.show()
+        stats = {
+            "sound": {"r": r_sound, "n": n_sound},
+            "ctrl": {"r": r_ctrl, "n": n_ctrl},
+        }
+        return fig, axs, stats
+
+    # ------------------------------------------------------------------
+    # CDF helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def ecdf(x):
+        """Empirical CDF of the finite values of x."""
+        x = np.asarray(x, dtype=float).ravel()
+        x = np.sort(x[np.isfinite(x)])
+        y = np.arange(1, len(x) + 1) / len(x) if len(x) else np.array([])
+        return x, y
+
+    @staticmethod
+    def _flatten_metric_values(values, datasets=None):
+        """Concatenate a ``{key: array}`` dict (optionally ordered by datasets) or ravel an array."""
+        if isinstance(values, dict):
+            if datasets is None:
+                keys = list(values.keys())
+            else:
+                keys = [f"{a}_{d}" for a, d, *_ in datasets if f"{a}_{d}" in values]
+            if not keys:
+                return np.array([], dtype=float)
+            return np.concatenate([np.asarray(values[k], dtype=float).ravel() for k in keys])
+        return np.asarray(values, dtype=float).ravel()
+
+    def _style_cdf_axis(self, ax):
+        ax.set_ylim(0, 1)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.tick_params(axis="both", direction="in", width=0.6, length=3, labelsize=7)
+        ax.spines["left"].set_linewidth(0.6)
+        ax.spines["bottom"].set_linewidth(0.6)
+
+    def plot_true_vs_pred_cdf_active_passive(
+        self,
+        true_active,
+        pred_active,
+        true_passive,
+        pred_passive,
+        xlabel="Modulation Index",
+        true_label="True",
+        pred_label="Running-only pred.",
+        true_color="k",
+        pred_color=(0.6, 0.6, 0.6),
+        symmetric_xlim=True,
+        figsize=(3.25, 1.4),
+        save_path=None,
+    ):
+        """1x2 CDFs (Active, Passive) of true vs predicted neuron values.
+
+        Inputs may be ``{key: array}`` dicts or concatenated arrays; nonfinite
+        values are dropped independently per distribution.
+        """
+        plt.rcParams.update({"font.size": 7, "font.family": "arial"})
+        mpl.rcParams["pdf.fonttype"] = 42
+
+        vals = {
+            "Active": (self._flatten_metric_values(true_active),
+                       self._flatten_metric_values(pred_active)),
+            "Passive": (self._flatten_metric_values(true_passive),
+                        self._flatten_metric_values(pred_passive)),
+        }
+
+        fig, axs = plt.subplots(1, 2, figsize=figsize, sharey=True)
+        for ax, (ctx, (t, p)) in zip(axs, vals.items()):
+            x_t, y_t = self.ecdf(t)
+            x_p, y_p = self.ecdf(p)
+            ax.plot(x_t, y_t, color=true_color, lw=1.5, label=true_label)
+            ax.plot(x_p, y_p, color=pred_color, lw=1.5, label=pred_label)
+            ax.set_title(ctx, fontsize=7)
+            ax.set_xlabel(xlabel, fontsize=7)
+            self._style_cdf_axis(ax)
+        axs[0].set_ylabel("CDF", fontsize=7)
+
+        if symmetric_xlim:
+            all_vals = np.concatenate([v for pair in vals.values() for v in pair])
+            all_vals = all_vals[np.isfinite(all_vals)]
+            if all_vals.size:
+                lim = np.nanmax(np.abs(all_vals))
+                for ax in axs:
+                    ax.set_xlim(-lim, lim)
+
+        axs[1].legend(frameon=False, fontsize=6, loc="center left",
+                      bbox_to_anchor=(1.02, 0.5), handlelength=1.5)
+        plt.tight_layout(w_pad=1.0)
+
+        if save_path:
+            fig.savefig(save_path, format="pdf", bbox_inches="tight", transparent=False)
+        plt.show()
+        return fig, axs
+
+    def plot_fde_cdf_active_passive(
+        self,
+        active_plot,
+        passive_plot,
+        is_sig_plot=None,
+        sig_only=False,
+        active_color="k",
+        passive_color=(0.6, 0.6, 0.6),
+        figsize=(1.5, 1.5),
+        xlim=None,
+        save_path=None,
+    ):
+        """CDFs of active vs passive FDE (paired neurons; nonfinite pairs dropped).
+
+        is_sig_plot : bool array, optional
+            Sound-responsive mask aligned with active_plot/passive_plot.
+        sig_only : bool
+            If True, plot only neurons in is_sig_plot.
+        """
+        plt.rcParams.update({"font.size": 7, "font.family": "arial"})
+        mpl.rcParams["pdf.fonttype"] = 42
+
+        active_plot = np.asarray(active_plot)
+        passive_plot = np.asarray(passive_plot)
+        finite = np.isfinite(active_plot) & np.isfinite(passive_plot)
+        active_plot = active_plot[finite]
+        passive_plot = passive_plot[finite]
+
+        if is_sig_plot is not None:
+            is_sig_plot = np.asarray(is_sig_plot)[finite]
+            if sig_only:
+                active_plot = active_plot[is_sig_plot]
+                passive_plot = passive_plot[is_sig_plot]
+
+        x_active, y_active = self.ecdf(active_plot)
+        x_passive, y_passive = self.ecdf(passive_plot)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.plot(x_active, y_active, color=active_color, lw=1.5, label="Active")
+        ax.plot(x_passive, y_passive, color=passive_color, lw=1.5, label="Passive")
+        ax.set_xlabel("FDE", fontsize=7)
+        ax.set_ylabel("CDF", fontsize=7)
+        if xlim is not None:
+            ax.set_xlim(xlim)
+        self._style_cdf_axis(ax)
+        ax.legend(frameon=False, fontsize=6, loc="center left",
+                  bbox_to_anchor=(1.02, 0.5), handlelength=1.5)
+        fig.subplots_adjust(left=0.30, right=0.95, top=0.95, bottom=0.25)
+
+        if save_path:
+            fig.savefig(save_path, format="pdf", facecolor="white", edgecolor="white",
+                        transparent=False)
+        plt.show()
+        return fig, ax
+
+    # ------------------------------------------------------------------
+    # FDE correction variants (raw / intercept-corrected / gain-rescaled)
+    # ------------------------------------------------------------------
+    FDE_VARIANT_ORDER = ("fde_raw", "fde_intercept_corrected", "fde_gain_rescaled")
+    FDE_VARIANT_LABELS = {
+        "fde_raw": "Raw",
+        "fde_intercept_corrected": "Intercept-corr.",
+        "fde_gain_rescaled": "Gain-rescaled",
+    }
+    FDE_VARIANT_COLORS = {
+        "fde_raw": "k",
+        "fde_intercept_corrected": (0.30, 0.55, 0.85),
+        "fde_gain_rescaled": (0.85, 0.45, 0.20),
+    }
+
+    def summarize_fde_variants_by_dataset(
+        self,
+        variants_by_context,
+        datasets=None,
+        neuron_mask_dict=None,
+        dataset_stat="median",
+        variant_order=FDE_VARIANT_ORDER,
+    ):
+        """Per-dataset summary of each FDE variant.
+
+        variants_by_context : dict
+            ``{"Active": variants_active, "Passive": variants_passive}`` where each
+            value is the output of ``AnalysisManagerEncoding.compute_fde_variants``.
+        dataset_stat : {"median", "mean"}
+            Summary across neurons within a dataset (median is robust to the
+            heavy negative tail of FDE).
+
+        Returns
+        -------
+        pandas.DataFrame with columns key, context, variant, value, n_neurons.
+        """
+        stat_fn = {"median": np.nanmedian, "mean": np.nanmean}[dataset_stat]
+        rows = []
+        for context, variants in variants_by_context.items():
+            for variant in variant_order:
+                by_key = variants[variant]["mean_by_key"]
+                keys = self._ordered_dataset_keys([by_key], datasets=datasets)
+                for key in keys:
+                    vals = self._selected_metric_for_dataset(
+                        by_key[key], neuron_mask_dict, key, metric_name="FDE"
+                    )[0]
+                    vals = vals[np.isfinite(vals)]
+                    rows.append({
+                        "key": key,
+                        "context": context,
+                        "variant": variant,
+                        "value": stat_fn(vals) if vals.size else np.nan,
+                        "n_neurons": int(vals.size),
+                    })
+        return pd.DataFrame(rows)
+
+    def plot_fde_variant_comparison(
+        self,
+        variants_by_context,
+        level="neuron",
+        datasets=None,
+        neuron_mask_dict=None,
+        dataset_stat="median",
+        variant_order=FDE_VARIANT_ORDER,
+        xlim=None,
+        ylim=None,
+        figsize=None,
+        save_path=None,
+    ):
+        """Compare raw, intercept-corrected and gain-rescaled held-out FDE.
+
+        The corrected variants remove a per-neuron mean (offset or gain)
+        mismatch on held-out data and are diagnostic upper bounds, not
+        replacements for raw FDE.
+
+        level : {"neuron", "dataset"}
+            "neuron": one panel per context with CDFs of neuron FDE per variant.
+            "dataset": one panel per context with per-dataset summaries
+            (``dataset_stat``) connected across variants, plus mean ± SEM.
+
+        Returns
+        -------
+        fig, axs, summary
+            summary is a DataFrame for level="dataset", else a dict
+            ``{context: {variant: concatenated neuron FDE}}``.
+        """
+        plt.rcParams.update({"font.size": 7, "font.family": "arial"})
+        mpl.rcParams["pdf.fonttype"] = 42
+
+        contexts = list(variants_by_context.keys())
+        n_ctx = len(contexts)
+        if figsize is None:
+            figsize = (1.6 * n_ctx + 0.9, 1.5)
+        fig, axs = plt.subplots(1, n_ctx, figsize=figsize, sharey=True, squeeze=False)
+        axs = axs[0]
+
+        if level == "neuron":
+            summary = {}
+            for ax, context in zip(axs, contexts):
+                summary[context] = {}
+                for variant in variant_order:
+                    by_key = variants_by_context[context][variant]["mean_by_key"]
+                    keys = self._ordered_dataset_keys([by_key], datasets=datasets)
+                    vals = [
+                        self._selected_metric_for_dataset(
+                            by_key[k], neuron_mask_dict, k, metric_name="FDE"
+                        )[0]
+                        for k in keys
+                    ]
+                    vals = np.concatenate(vals) if vals else np.array([])
+                    summary[context][variant] = vals
+                    x, y = self.ecdf(vals)
+                    ax.plot(x, y, lw=1.2, color=self.FDE_VARIANT_COLORS.get(variant),
+                            label=self.FDE_VARIANT_LABELS.get(variant, variant))
+                ax.axvline(0, color=(0.7, 0.7, 0.7), lw=0.5, zorder=0)
+                ax.set_title(context, fontsize=7)
+                ax.set_xlabel("Held-out FDE", fontsize=7)
+                if xlim is not None:
+                    ax.set_xlim(xlim)
+                self._style_cdf_axis(ax)
+            axs[0].set_ylabel("CDF", fontsize=7)
+
+        elif level == "dataset":
+            summary = self.summarize_fde_variants_by_dataset(
+                variants_by_context, datasets=datasets,
+                neuron_mask_dict=neuron_mask_dict, dataset_stat=dataset_stat,
+                variant_order=variant_order,
+            )
+            x_pos = np.arange(len(variant_order))
+            for ax, context in zip(axs, contexts):
+                sub = summary[summary["context"] == context]
+                wide = sub.pivot(index="key", columns="variant", values="value")
+                wide = wide.reindex(columns=list(variant_order))
+                for _, row in wide.iterrows():
+                    ax.plot(x_pos, row.values, color=(0.75, 0.75, 0.75), lw=0.5, zorder=1)
+                means = wide.mean(axis=0, skipna=True).values
+                sems = wide.sem(axis=0, skipna=True).values
+                for i, variant in enumerate(variant_order):
+                    ax.errorbar(x_pos[i], means[i], yerr=sems[i], fmt="o", ms=3,
+                                color=self.FDE_VARIANT_COLORS.get(variant), capsize=2,
+                                lw=1, zorder=3)
+                ax.axhline(0, color=(0.7, 0.7, 0.7), lw=0.5, zorder=0)
+                ax.set_xticks(x_pos)
+                ax.set_xticklabels(
+                    [self.FDE_VARIANT_LABELS.get(v, v) for v in variant_order],
+                    rotation=45, ha="right",
+                )
+                ax.set_xlim(-0.5, len(variant_order) - 0.5)
+                ax.set_title(context, fontsize=7)
+                ax.spines["top"].set_visible(False)
+                ax.spines["right"].set_visible(False)
+                ax.tick_params(axis="both", direction="in", width=0.6, length=3, labelsize=7)
+            axs[0].set_ylabel(f"Dataset {dataset_stat} FDE", fontsize=7)
+            if ylim is not None:
+                axs[0].set_ylim(ylim)
+        else:
+            raise ValueError("level must be 'neuron' or 'dataset'")
+
+        if level == "neuron":
+            axs[-1].legend(frameon=False, fontsize=6, loc="center left",
+                           bbox_to_anchor=(1.02, 0.5), handlelength=1.5)
+        fig.tight_layout()
+        if save_path:
+            fig.savefig(save_path, format="pdf", bbox_inches="tight", facecolor="white",
+                        edgecolor="white", transparent=False)
+        plt.show()
+        return fig, axs, summary
+
+    # ------------------------------------------------------------------
+    # Example traces / population averages
+    # ------------------------------------------------------------------
+    @staticmethod
+    def mean_response_per_key(aligned_neural):
+        """Trial- then fold-averaged response.
+
+        aligned_neural[key][fold] : trials x neurons x frames
+        Returns ``{key: neurons x frames}``.
+        """
+        key_means = {}
+        for key, folds in aligned_neural.items():
+            fold_iter = folds.values() if isinstance(folds, dict) else folds
+            fold_means = [np.nanmean(fold_data, axis=0) for fold_data in fold_iter]
+            key_means[key] = np.nanmean(np.stack(fold_means, axis=0), axis=0)
+        return key_means
+
+    def plot_population_mean_across_keys(
+        self,
+        true_means,
+        pred_means,
+        keys=None,
+        neuron_mask_dict=None,
+        frame_times=None,
+        error="sem",
+        title="Population mean across datasets",
+        event_onset=(6, 38, 70),
+        ylims=None,
+        figsize=(6, 4),
+        save_path=None,
+    ):
+        """True vs predicted population mean (neurons averaged per dataset,
+        then mean ± SEM/STD across datasets).
+
+        true_means, pred_means : ``{key: neurons x frames}`` (see mean_response_per_key)
+        neuron_mask_dict : ``{key: bool mask or 0-based neuron indices}``, optional.
+            Datasets with no selected neurons are skipped.
+        """
+        if keys is None:
+            keys = list(true_means.keys())
+
+        true_by_dataset, pred_by_dataset, used_keys, n_cells_used = [], [], [], []
+        for key in keys:
+            true_data = np.asarray(true_means[key])
+            pred_data = np.asarray(pred_means[key])
+            if neuron_mask_dict is not None:
+                mask = self._boolean_mask_from_entry(
+                    neuron_mask_dict[key], true_data.shape[0], key
+                )
+                if not mask.any():
+                    continue
+                true_data = true_data[mask, :]
+                pred_data = pred_data[mask, :]
+            true_by_dataset.append(np.nanmean(true_data, axis=0))
+            pred_by_dataset.append(np.nanmean(pred_data, axis=0))
+            used_keys.append(key)
+            n_cells_used.append(true_data.shape[0])
+
+        true_by_dataset = np.stack(true_by_dataset, axis=0)
+        pred_by_dataset = np.stack(pred_by_dataset, axis=0)
+        true_mean = np.nanmean(true_by_dataset, axis=0)
+        pred_mean = np.nanmean(pred_by_dataset, axis=0)
+
+        n_ds = true_by_dataset.shape[0]
+        if error == "sem":
+            true_err = np.nanstd(true_by_dataset, axis=0, ddof=1) / np.sqrt(n_ds)
+            pred_err = np.nanstd(pred_by_dataset, axis=0, ddof=1) / np.sqrt(n_ds)
+        elif error == "std":
+            true_err = np.nanstd(true_by_dataset, axis=0, ddof=1)
+            pred_err = np.nanstd(pred_by_dataset, axis=0, ddof=1)
+        elif error is None:
+            true_err = pred_err = None
+        else:
+            raise ValueError("error must be 'sem', 'std', or None")
+
+        if frame_times is None:
+            x = np.arange(true_mean.shape[0])
+            xlabel = "Frame"
+        else:
+            x = frame_times
+            xlabel = "Time"
+
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.plot(x, true_mean, label="True")
+        ax.plot(x, pred_mean, label="Predicted")
+        if true_err is not None:
+            ax.fill_between(x, true_mean - true_err, true_mean + true_err, alpha=0.2)
+            ax.fill_between(x, pred_mean - pred_err, pred_mean + pred_err, alpha=0.2)
+        for event in event_onset:
+            ax.axvline(x=event, color="k", linestyle=(0, (10.5, 6.8)), alpha=1, lw=0.7)
+        if ylims is not None:
+            ax.set_ylim(ylims)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("Mean response")
+        ax.set_title(title)
+        ax.legend()
+        fig.tight_layout()
+        if save_path:
+            fig.savefig(save_path, format="pdf", bbox_inches="tight")
+        plt.show()
+
+        return {
+            "true_by_dataset": true_by_dataset,
+            "pred_by_dataset": pred_by_dataset,
+            "true_mean": true_mean,
+            "pred_mean": pred_mean,
+            "used_keys": used_keys,
+            "n_cells_used": n_cells_used,
+        }
+
+    def plot_running_glm_neuron_group_minimal(
+        self,
+        neuron_ids,
+        frame_start,
+        frame_end,
+        response_matrix,
+        y_pred,
+        frac_dev_expl,
+        running_traces=None,
+        figsize=(4.2, 2.8),
+        plot_smoothed_rate=True,
+        imaging_rate_hz=30.4791,
+        smooth_sigma_sec=0.5,
+        prediction_color="deepskyblue",
+        show_velocity_legend=True,
+        show_velocity_axis=False,
+        velocity_ylabel="Velocity",
+        scalebar_seconds=10,
+        save_path=None,
+    ):
+        """Minimal multi-neuron example: smoothed true rate + prediction per neuron,
+        neuron label left, FDE right, optional bottom running panel and scale bar.
+
+        response_matrix : neurons x frames
+        y_pred : frames x neurons
+        running_traces : dict ``{label: 1D trace}`` for the bottom panel, e.g. from
+            ``GLMPredictorProcessor.make_raw_velocity_display_traces`` or
+            ``summarize_running_predictors_for_display``. None -> no running panel.
+        """
+        response_matrix = np.asarray(response_matrix)
+        y_pred = np.asarray(y_pred)
+        frac_dev_expl = np.asarray(frac_dev_expl).squeeze()
+        plot_velocity = running_traces is not None
+
+        max_frame = min(response_matrix.shape[1], y_pred.shape[0])
+        if plot_velocity:
+            for trace in running_traces.values():
+                max_frame = min(max_frame, len(trace))
+        frames = self.make_plot_frames(frame_start, frame_end, max_frame)
+        smooth_sigma_frames = smooth_sigma_sec * imaging_rate_hz
+
+        n_rows = len(neuron_ids) + (1 if plot_velocity else 0)
+        fig, axs = plt.subplots(
+            n_rows, 1, figsize=figsize, sharex=True,
+            gridspec_kw={"height_ratios": [1] * n_rows, "hspace": 0.09},
+        )
+        axs = np.ravel(axs) if n_rows > 1 else [axs]
+
+        def _clean_axis(ax):
+            for side in ("top", "right", "bottom", "left"):
+                ax.spines[side].set_visible(False)
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+        def _add_scalebar(ax, lw=0.5, fontsize=7):
+            bar_frames = int(round(scalebar_seconds * imaging_rate_hz))
+            x1, x2 = frames[-1] - bar_frames, frames[-1]
+            ymin, ymax = ax.get_ylim()
+            yrange = ymax - ymin if ymax > ymin else 1.0
+            y = ymin - 0.10 * yrange
+            ax.plot([x1, x2], [y, y], color="k", lw=lw, clip_on=False)
+            ax.text(0.5 * (x1 + x2), y - 0.08 * yrange, f"{scalebar_seconds:g} s",
+                    ha="center", va="top", fontsize=fontsize, color="k", clip_on=False)
+
+        for i, neuron_idx in enumerate(neuron_ids):
+            ax = axs[i]
+            true_y = response_matrix[neuron_idx, frames]
+            if plot_smoothed_rate:
+                true_rate = gaussian_filter1d(
+                    true_y.astype(float), sigma=smooth_sigma_frames, mode="nearest"
+                )
+                ax.plot(frames, true_rate, color=[0.40, 0.40, 0.40], linewidth=0.5)
+            ax.plot(frames, y_pred[frames, neuron_idx], color=prediction_color, linewidth=0.5)
+            ax.text(-0.03, 0.5, f"N{neuron_idx}", transform=ax.transAxes,
+                    ha="right", va="center", fontsize=7, color="k")
+            ax.text(1.02, 0.5, f"FDE={frac_dev_expl[neuron_idx]:.2f}", transform=ax.transAxes,
+                    ha="left", va="center", fontsize=7, color=prediction_color)
+            _clean_axis(ax)
+
+        if plot_velocity:
+            ax = axs[-1]
+            for label, trace in running_traces.items():
+                ax.plot(frames, np.asarray(trace)[frames], linewidth=0.5, label=label)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            if show_velocity_axis:
+                ax.set_ylabel(velocity_ylabel, fontsize=7)
+                ax.tick_params(axis="both", labelsize=7)
+            else:
+                _clean_axis(ax)
+            if show_velocity_legend:
+                ax.legend(frameon=False, loc="center left", bbox_to_anchor=(1.02, 0.5),
+                          fontsize=7, handlelength=1.6, ncol=2, columnspacing=0.8,
+                          labelspacing=0.3)
+        _add_scalebar(axs[-1])
+
+        plt.tight_layout()
+        if save_path:
+            os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+            plt.savefig(save_path, bbox_inches="tight")
+            print("Saved:", save_path)
+        plt.show()
+        return fig, axs
