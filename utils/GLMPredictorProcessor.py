@@ -87,7 +87,7 @@ class GLMPredictorProcessor:
 
         raw = scipy.io.loadmat(cond_path)
         preferred_keys = (
-            "condition_updated"
+            "condition_updated",
         )
         for key in preferred_keys:
             if key in raw and not str(key).startswith("__"):
@@ -105,6 +105,24 @@ class GLMPredictorProcessor:
         raise ValueError(
             f"Could not find a 3-variable conditions array in {cond_path}"
         )
+
+    @staticmethod
+    def _load_test_condition_array_trials(fold_dir):
+        """Load ``condition_array_trials_test.mat`` (held-out test trials) from a fold folder."""
+        cat_path = os.path.join(fold_dir, "condition_array_trials_test.mat")
+        if not os.path.exists(cat_path):
+            raise FileNotFoundError(
+                f"Missing {cat_path}; condition_array_trials.mat in the fold folder "
+                f"holds training trials only"
+            )
+        raw = scipy.io.loadmat(cat_path)
+        for name in ("condition_array_trials_test", "condition_array_trials"):
+            if name in raw:
+                return np.asarray(raw[name])
+        for name, val in raw.items():
+            if not name.startswith("__") and np.asarray(val).ndim == 2:
+                return np.asarray(val)
+        raise ValueError(f"No 2D array found in {cat_path}")
 
     def _subset_conditions_by_trials(self, conditions, valid_trials):
         """Filter conditions_updated to aligned trial indices."""
@@ -243,8 +261,8 @@ class GLMPredictorProcessor:
                 n_cond_trials = predictor_var[fold_number]["condition_array_trials"].shape[0]
                 if n_cond_trials != frames.shape[0]:
                     raise ValueError(
-                        f"condition_array_trials has {n_cond_trials} trials but alignment "
-                        f"frames have {frames.shape[0]} rows for {key} fold {fold_number}"
+                        f"test-set condition_array_trials has {n_cond_trials} trials but alignment "
+                        f"frames have {frames.shape[0]} test-trial rows for {key} fold {fold_number}"
                     )
                 valid_rows = np.asarray(valid_trials, dtype=int)
                 row_trial_ids = self._trial_ids_for_rows(
@@ -312,6 +330,12 @@ class GLMPredictorProcessor:
         load_conditions_updated : bool
             If True, also load ``conditions_updated.mat`` when present and store
             it under ``condition_updated``. Existing keys are unchanged.
+
+        With ``do_test=True``, trial conditions are the held-out test trials
+        (``{fold}/condition_array_trials_test.mat`` and
+        ``{fold}/test/condition_updated.mat``); the fold-level
+        ``condition_array_trials.mat`` / ``condition_updated.mat`` hold the
+        training trials only.
         Returns
         -------
         dict
@@ -347,14 +371,22 @@ class GLMPredictorProcessor:
             behav_big_matrix_ids = behav_big_ids[ids_string][0]
 
             # Load condition array trials and frames
-            condition_array = scipy.io.loadmat(os.path.join(path_nonpredictors, 'condition_array_trials.mat'))
-            condition_array_trials = condition_array['condition_array_trials']
+            if do_test:
+                condition_array_trials = self._load_test_condition_array_trials(path_nonpredictors)
+            else:
+                condition_array = scipy.io.loadmat(os.path.join(path_nonpredictors, 'condition_array_trials.mat'))
+                condition_array_trials = condition_array['condition_array_trials']
             combined_frames = scipy.io.loadmat(os.path.join(path_nonpredictors, 'combined_frames_included.mat'))
             combined_frames_included = combined_frames['combined_frames_included'].squeeze()
 
             condition_updated = None
             if load_conditions_updated:
-                condition_updated = self._load_conditions_updated_mat(path_nonpredictors)
+                condition_updated = self._load_conditions_updated_mat(path if do_test else path_nonpredictors)
+                if do_test and condition_updated is None:
+                    raise FileNotFoundError(
+                        f"Missing test-set condition_updated.mat in {path}; "
+                        f"the fold-level file holds training trials only"
+                    )
             
         
             # Load coupling matrix
@@ -380,11 +412,11 @@ class GLMPredictorProcessor:
             if load_trial_ids:
                 test_trials = scipy.io.loadmat(
                     os.path.join(path_nonpredictors, 'test_trials_all.mat')
-                )['test_trials_all'][0] - 1
+                )['test_trials_all'][0].astype(int) - 1
 
                 train_trials = scipy.io.loadmat(
                     os.path.join(path_nonpredictors, 'train_trials_all.mat')
-                )['train_trials_all'][0] - 1
+                )['train_trials_all'][0].astype(int) - 1
 
                 trial_start = scipy.io.loadmat(os.path.join(path, 'this_trial_start.mat'))['this_trial_start'].squeeze() - 1  
 
