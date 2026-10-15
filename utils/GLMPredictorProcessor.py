@@ -1,6 +1,7 @@
 
 #create functions to generate supplemental figure 2 panels
 import os
+import warnings
 import numpy as np
 import scipy.io
 import h5py
@@ -123,6 +124,23 @@ class GLMPredictorProcessor:
             f"conditions_updated must have a size-3 axis; got {conditions.shape}"
         )
 
+    @staticmethod
+    def _trial_ids_for_rows(test_trials, n_rows, key=None, fold=None):
+        """Original (0-based) trial IDs for each alignment-frame row.
+
+        Uses ``test_trials_all`` when it has one entry per row; otherwise falls
+        back to the within-fold row index.
+        """
+        if test_trials is not None:
+            ids = np.asarray(test_trials).ravel()
+            if ids.size == n_rows:
+                return ids.astype(int)
+            warnings.warn(
+                f"test_trials_all has {ids.size} entries but there are {n_rows} trial rows "
+                f"for {key} fold {fold}; using within-fold row index as trial ID"
+            )
+        return np.arange(n_rows, dtype=int)
+
     def extract_conditions_updated_dict(self, all_predictor_var):
         """Build conditions_updated_dict[key][fold] from loaded predictor vars."""
         out = {}
@@ -223,6 +241,17 @@ class GLMPredictorProcessor:
 
                 # FILTER condition arrays to match aligned trials
                 n_cond_trials = predictor_var[fold_number]["condition_array_trials"].shape[0]
+                if n_cond_trials != frames.shape[0]:
+                    raise ValueError(
+                        f"condition_array_trials has {n_cond_trials} trials but alignment "
+                        f"frames have {frames.shape[0]} rows for {key} fold {fold_number}"
+                    )
+                valid_rows = np.asarray(valid_trials, dtype=int)
+                row_trial_ids = self._trial_ids_for_rows(
+                    predictor_var[fold_number].get("test_trials"), frames.shape[0], key, fold_number
+                )
+                predictor_var[fold_number]["aligned_trial_rows"] = valid_rows
+                predictor_var[fold_number]["aligned_trial_ids"] = row_trial_ids[valid_rows]
                 predictor_var[fold_number]["condition_array_trials"] = (
                     predictor_var[fold_number]["condition_array_trials"][valid_trials, :]
                 )
@@ -953,6 +982,185 @@ class GLMPredictorProcessor:
                 
             
         return aligned_data_all, aligned_velocity_all
+
+    @staticmethod
+    def _mean_lagged_corr(true, pred, lag):
+        """Mean across neurons of corr(true[t + lag], pred[t]); inputs are frames x neurons."""
+        if lag >= 0:
+            t_seg, p_seg = true[lag:], pred
+        else:
+            t_seg, p_seg = true, pred[-lag:]
+        n = min(len(t_seg), len(p_seg))
+        t_seg, p_seg = t_seg[:n], p_seg[:n]
+        tz = (t_seg - t_seg.mean(0)) / (t_seg.std(0) + 1e-12)
+        pz = (p_seg - p_seg.mean(0)) / (p_seg.std(0) + 1e-12)
+        return float(np.nanmean(np.mean(tz * pz, axis=0)))
+
+    def align_true_pred_shared(
+        self,
+        datasets,
+        alignment_frames_all,
+        model_outputs_dict,
+        model_type,
+        data_dir,
+        all_predictor_var,
+        aligned_behav=None,
+        check_lag=True,
+        n_folds=10,
+    ):
+        """Align true activity, predicted activity, velocity and trial conditions
+        with ONE shared valid-trial mask per dataset/fold.
+
+        A trial (row of ``alignment_frames_all[key][fold]``) is kept only if its
+        frames are in bounds for ``behav_the_matrix``, ``combined_response``,
+        ``velocity`` and ``y_pred``. When ``y_pred`` and ``combined_response``
+        differ in length, lag 0 must give the best true/pred correlation
+        (i.e. the shorter array is truncated at the end); otherwise a
+        ValueError is raised instead of dropping trials.
+
+        Parameters
+        ----------
+        alignment_frames_all, all_predictor_var, aligned_behav :
+            Outputs of ``load_and_align_predictors_datasets_running`` for the
+            same ``data_dir`` (save_suffix).
+        model_type : str
+            e.g. 'model_output_running_active'.
+        data_dir : str
+            e.g. 'VR_' or 'passive_'.
+
+        Returns
+        -------
+        dict with keys 'true', 'pred', 'velocity', 'behav',
+        'condition_array_trials', 'conditions_updated', 'trial_ids', 'dropped';
+        each maps ``[key][fold]`` to trial-aligned values.
+        """
+        out = {name: {} for name in (
+            "true", "pred", "velocity", "behav", "condition_array_trials",
+            "conditions_updated", "trial_ids", "dropped",
+        )}
+
+        for animalID, date, server in datasets:
+            key = f"{animalID}_{date}"
+            print(f"Aligning true/pred/velocity with shared trial mask for {key}...")
+            for name in out:
+                out[name][key] = {}
+            save_directory = f"{server}/Connie/ProcessedData/{animalID}/{date}/GLM_running/"
+
+            for fold in range(n_folds):
+                fv = all_predictor_var[key][fold]
+                frames = np.asarray(alignment_frames_all[key][fold])
+                n_rows = frames.shape[0]
+
+                path = os.path.join(save_directory, f"{data_dir}{fold + 1}", "test")
+                true_raw = scipy.io.loadmat(os.path.join(path, "combined_response.mat"))["combined_response"].T
+                vel_raw = scipy.io.loadmat(os.path.join(path, "velocity.mat"))["velocity"].T
+                pred_raw = np.asarray(model_outputs_dict[key][model_type][fold]["y_pred"])
+
+                if true_raw.shape[1] != pred_raw.shape[1]:
+                    raise ValueError(
+                        f"Neuron mismatch for {key}, fold {fold}: "
+                        f"true={true_raw.shape}, y_pred={pred_raw.shape}"
+                    )
+
+                lag_r = None
+                len_diff = true_raw.shape[0] - pred_raw.shape[0]
+                if check_lag and len_diff != 0:
+                    lag_r = {lag: self._mean_lagged_corr(true_raw, pred_raw, lag)
+                             for lag in sorted({0, len_diff, -len_diff})}
+                    best_lag = max(lag_r, key=lag_r.get)
+                    if best_lag != 0:
+                        raise ValueError(
+                            f"{key} fold {fold}: combined_response has {true_raw.shape[0]} frames "
+                            f"and y_pred has {pred_raw.shape[0]}, but lag {best_lag} fits better "
+                            f"than lag 0 ({lag_r}). y_pred is not simply truncated at the end; "
+                            f"not dropping trials."
+                        )
+
+                lengths = {
+                    "behav_the_matrix": fv["behav_matrix"].shape[1],
+                    "combined_response": true_raw.shape[0],
+                    "velocity": vel_raw.shape[0],
+                    "y_pred": pred_raw.shape[0],
+                }
+                fmin, fmax = frames.min(axis=1), frames.max(axis=1)
+                behav_rows = np.asarray(fv["aligned_trial_rows"], dtype=int)
+                masks = {"behav_the_matrix": np.isin(np.arange(n_rows), behav_rows)}
+                for name in ("combined_response", "velocity", "y_pred"):
+                    masks[name] = (fmin >= 0) & (fmax < lengths[name])
+                shared = np.logical_and.reduce(list(masks.values()))
+                rows = np.where(shared)[0]
+                if rows.size == 0:
+                    raise ValueError(f"No valid trials remain for {key}, fold {fold}: {lengths}")
+
+                row_trial_ids = self._trial_ids_for_rows(fv.get("test_trials"), n_rows, key, fold)
+                trial_ids = row_trial_ids[rows]
+
+                dropped = []
+                for r in np.where(~shared)[0]:
+                    reasons = [
+                        (f"{name}: min frame {fmin[r]} < 0" if fmin[r] < 0
+                         else f"{name}: max frame {fmax[r]} >= length {lengths[name]}")
+                        for name, m in masks.items() if not m[r]
+                    ]
+                    dropped.append({"row": int(r), "trial_id": int(row_trial_ids[r]), "reasons": reasons})
+                if dropped:
+                    print(f"  {key} fold {fold}: dropped {len(dropped)} / {n_rows} trials (shared mask)")
+                    for d in dropped:
+                        print(f"    row {d['row']} (trial id {d['trial_id']}): {'; '.join(d['reasons'])}")
+                    if lag_r is not None:
+                        print(f"    lag check (mean neuron r by lag): {lag_r}")
+
+                sub_frames = frames[rows]
+                aligned_true = self.align_neural_data(sub_frames, true_raw)
+                aligned_pred = self.align_neural_data(sub_frames, pred_raw)
+                aligned_vel = self.align_neural_data(sub_frames, vel_raw)
+
+                # positions of the kept rows within the behav-filtered (already subset) arrays
+                pos = np.searchsorted(behav_rows, rows)
+                cond_trials = np.asarray(fv["condition_array_trials"])[pos]
+                cond_trial_ids = np.asarray(fv["aligned_trial_ids"])[pos]
+                cu = fv.get("condition_updated")
+                cu_sub = self._subset_conditions_by_trials(cu, pos) if cu is not None else None
+
+                assert aligned_true.shape[0] == aligned_pred.shape[0], (
+                    f"Trial mismatch for {key}, fold {fold}: "
+                    f"true={aligned_true.shape}, pred={aligned_pred.shape}"
+                )
+                assert aligned_vel.shape[0] == aligned_true.shape[0], (
+                    f"Trial mismatch for {key}, fold {fold}: "
+                    f"true={aligned_true.shape}, velocity={aligned_vel.shape}"
+                )
+                assert cond_trials.shape[0] == aligned_true.shape[0], (
+                    f"Trial mismatch for {key}, fold {fold}: "
+                    f"true={aligned_true.shape}, condition_array_trials={cond_trials.shape}"
+                )
+                if cu_sub is not None:
+                    cu_n = cu_sub.shape[1] if cu_sub.shape[0] == 3 else cu_sub.shape[0]
+                    assert cu_n == aligned_true.shape[0], (
+                        f"Trial mismatch for {key}, fold {fold}: "
+                        f"true={aligned_true.shape}, condition_updated={cu_sub.shape}"
+                    )
+                assert np.array_equal(trial_ids, cond_trial_ids), (
+                    f"Trial ID mismatch for {key}, fold {fold}: "
+                    f"true/pred={trial_ids.tolist()}, conditions={cond_trial_ids.tolist()}"
+                )
+
+                out["true"][key][fold] = aligned_true
+                out["pred"][key][fold] = aligned_pred
+                out["velocity"][key][fold] = aligned_vel
+                out["condition_array_trials"][key][fold] = cond_trials
+                out["conditions_updated"][key][fold] = cu_sub
+                out["trial_ids"][key][fold] = trial_ids
+                out["dropped"][key][fold] = dropped
+                if aligned_behav is not None:
+                    behav_fold = np.asarray(aligned_behav[key][fold])
+                    assert behav_fold.shape[0] == behav_rows.size, (
+                        f"aligned_behav has {behav_fold.shape[0]} trials but "
+                        f"{behav_rows.size} behav-valid rows for {key}, fold {fold}"
+                    )
+                    out["behav"][key][fold] = behav_fold[pos]
+
+        return out
     
 
     def get_trial_conditions_from_array(self, condition_array_trials,

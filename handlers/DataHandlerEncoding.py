@@ -577,7 +577,7 @@ class DataHandlerEncoding:
 
         return data
     
-    def load_sound_opto_data(self, dir, set_diff=True, exclude=None):
+    def load_sound_opto_data(self, dir, set_diff=True, exclude=None, return_dataset_keys=False):
         """
         Loads neuron IDs and modulation indices for sound and optogenetic conditions.
 
@@ -593,6 +593,10 @@ class DataHandlerEncoding:
             If True, 'sound'/'opto' categories exclude neurons significant for both.
         exclude : str, int or list, optional
             mouse_date strings or dataset indices to drop.
+        return_dataset_keys : bool
+            If True, also return ``{'sound': [...], 'opto': [...]}`` giving the
+            mouse_date key of each column of the sound/sound_separated and opto
+            structs, so masks can be matched to datasets by key.
 
         Returns
         -------
@@ -601,6 +605,7 @@ class DataHandlerEncoding:
         significant_neurons : dict[mouse_date] -> {'opto','sound','sound_pos','sound_neg','both','unmod'}
         mod_indices : dict[mouse_date][context] -> {'sound', 'opto' (if available)}
         sound_separated : dict with 'sig_cells_pos' / 'sig_cells_neg', shape (1, n_datasets)
+        dataset_keys : dict, only if ``return_dataset_keys``
         """
         mat_data = scipy.io.loadmat(os.path.join(dir, "opto.mat"))
         opto = mat_data["opto"][0][0]
@@ -749,7 +754,7 @@ class DataHandlerEncoding:
             sound_separated["sig_cells_pos"][0, sound_idx] = sound_sig_pos
             sound_separated["sig_cells_neg"][0, sound_idx] = sound_sig_neg
 
-        return (
+        outputs = (
             opto,
             sound,
             mouse_dates_sound,
@@ -757,4 +762,9 @@ class DataHandlerEncoding:
             mod_indices,
             sound_separated,
         )
+        if return_dataset_keys:
+            return outputs + (
+                {"sound": list(mouse_dates_sound), "opto": list(mouse_dates_opto)},
+            )
+        return outputs
 

@@ -5681,13 +5681,16 @@ class Plotter:
         save_path=None,
         sig_index_base=0,
         default_colors = (0.7, 0.7, 0.7),
-        figsize=(3, 3)
+        figsize=(3, 3),
+        dataset_keys=None,
     ):
         """
         dev_active_by_key[key] = array, shape (n_neurons,)
         dev_passive_by_key[key] = array, shape (n_neurons,)
 
-        sound[sig_type][0, dataset_idx] = indices of sound-responsive neurons
+        sound[sig_type][0, col] = indices of sound-responsive neurons, where col is
+        the dataset's position in ``datasets`` or, if ``dataset_keys`` (column keys
+        of ``sound``) is given, the column whose key matches.
         """
 
         plt.rcParams.update({'font.size': 7, 'font.family': 'arial'})
@@ -5708,7 +5711,8 @@ class Plotter:
             n_neurons = active_vals.shape[0]
 
             if sig_type is not None:
-                sig_cells = np.asarray(sound[sig_type][0, dataset_idx]).squeeze()
+                col = self._mask_column_index(key, dataset_idx, dataset_keys)
+                sig_cells = np.asarray(sound[sig_type][0, col]).squeeze()
 
                 if sig_cells.size == 0:
                     sig_cells = np.array([], dtype=int)
@@ -5931,9 +5935,15 @@ class Plotter:
         prediction_color="deepskyblue",
         event_frames=None,
         event_labels=None,
-        velocity_plot_mode="both" ):
+        velocity_plot_mode="both",
+        dataset_keys=None ):
         """
         Plot aligned true vs predicted traces averaged either across neurons or datasets.
+
+        neuron_ids:
+            None (all neurons), a dict keyed by 'animalID_date', or a MATLAB-style
+            (1, n_datasets) array indexed by position in ``datasets`` or, if
+            ``dataset_keys`` (its column keys) is given, by key.
 
         average_mode:
             "neurons"  = one dataset, average selected neurons, SEM across neurons
@@ -5987,8 +5997,11 @@ class Plotter:
 
             if neuron_ids is None:
                 use_neurons = np.arange(avg_true.shape[0])
+            elif isinstance(neuron_ids, dict):
+                use_neurons = np.asarray(neuron_ids[key]).squeeze()
             else:
-                use_neurons =  np.asarray(neuron_ids[0, dataset_idx]).squeeze()  #np.asarray(neuron_ids)
+                col = self._mask_column_index(key, dataset_idx, dataset_keys)
+                use_neurons =  np.asarray(neuron_ids[0, col]).squeeze()  #np.asarray(neuron_ids)
 
             if average_mode == "neurons":
                 if len(datasets) != 1:
@@ -6260,6 +6273,21 @@ class Plotter:
             raise ValueError(f"mask must be 1D after squeezing, got shape {arr.shape}")
         return arr
 
+    @staticmethod
+    def _mask_column_index(key, dataset_idx, dataset_keys=None):
+        """Column of a per-dataset MATLAB mask struct for ``key``.
+
+        With ``dataset_keys`` (the struct's column keys, e.g. from
+        ``load_sound_opto_data(..., return_dataset_keys=True)``) the lookup is
+        by key; otherwise it falls back to the dataset's position.
+        """
+        if dataset_keys is None:
+            return dataset_idx
+        dataset_keys = list(dataset_keys)
+        if key not in dataset_keys:
+            raise KeyError(f"{key!r} is not in the mask source's dataset_keys")
+        return dataset_keys.index(key)
+
     def _extract_mask_entry(self, mask_array, dataset_idx):
         arr = np.asarray(mask_array, dtype=object)
         if arr.ndim == 2:
@@ -6319,6 +6347,7 @@ class Plotter:
         mask_name="sig_cells",
         n_neurons_by_key=None,
         index_base=0,
+        dataset_keys=None,
     ):
         """Convert MATLAB-loaded sound masks into a per-dataset dictionary.
 
@@ -6333,6 +6362,9 @@ class Plotter:
             If provided, values are converted to boolean arrays of that length.
         index_base : int
             0 if indices are already Python-style; 1 to convert from MATLAB.
+        dataset_keys : list of str, optional
+            Key ('animalID_date') of each column of ``sound_source[mask_name]``.
+            If given, masks are matched to ``datasets`` by key instead of position.
 
         Returns
         -------
@@ -6358,7 +6390,8 @@ class Plotter:
         mask_dict = {}
         for dataset_idx, (animalID, date, *rest) in enumerate(datasets):
             key = self._dataset_key(animalID, date)
-            entry = self._extract_mask_entry(mask_array, dataset_idx)
+            col = self._mask_column_index(key, dataset_idx, dataset_keys)
+            entry = self._extract_mask_entry(mask_array, col)
             if entry.size > 0 and index_base:
                 entry = np.asarray(entry, dtype=int) - int(index_base)
             if n_neurons_by_key is not None:
